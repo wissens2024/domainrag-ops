@@ -1,0 +1,50 @@
+# Scenario A — Tenant SLM 7B-AWQ + Shared LLM 14B-AWQ
+#
+# 상태: DEPRECATED (2026-05-12)
+# 사유: WiSentinel 협의 결과 115번 GPU 2장은 WiSentinel 전용으로 결정 → DomainRAG는
+#       174번 GPU 4장만 사용 가능. 14B-AWQ Shared LLM은 174:GPU1+2 자리가 Tenant SLM
+#       자리와 겹쳐 운영 불가. ADR-019 §3·§4 재조정 후 시나리오 B(7B 통일)가 운영
+#       기본값으로 격상.
+# 참조: docs/operations/scenario-compare.md, tools/eval_compare.py
+schema_version: 1
+scenario_id: A
+scenario_label: "[DEPRECATED] Tenant SLM 7B-AWQ + Shared LLM 14B-AWQ"
+deprecated: true
+deprecated_at: "2026-05-12"
+deprecation_reason: "WiSentinel GS/CC 격리로 115번 GPU 미사용 → 14B Shared LLM 운영 불가"
+
+endpoints:
+  tenant_slm:
+    base_url_env: TENANT_SLM_BASE_URL_A    # 운영 cron이 시나리오별로 endpoint 분리
+    backend: vllm
+    base_model: Qwen2.5-7B-Instruct-AWQ
+    quantization: awq
+    multi_lora: true
+    max_loras: 8
+    tensor_parallel_size: 2
+    gpu_memory_utilization: 0.85
+    max_concurrent_requests: 64
+    timeout_seconds: 30
+
+  shared_llm:
+    base_url_env: SHARED_LLM_BASE_URL_A
+    backend: vllm
+    base_model: Qwen2.5-14B-Instruct-AWQ
+    quantization: awq
+    multi_lora: false
+    tensor_parallel_size: 2
+    gpu_memory_utilization: 0.85
+    max_concurrent_requests: 32
+    timeout_seconds: 60
+
+inference_judge:
+  endpoint: shared_llm                     # 14B가 judge 담당
+  prompt_path: configs/platform/prompts/inference_judge.yaml
+
+fallback_chain:
+  tenant_slm:
+    - tenant_slm_no_lora
+    - shared_llm                           # 14B로 escalation
+    - "fallback_response"
+  shared_llm:
+    - "fallback_response"

@@ -1,0 +1,5 @@
+{"case_id": "sec-qa-001", "expected_chunk_ids": ["c1", "c2"]}
+{"case_id": "sec-qa-002", "expected_chunk_ids": ["c2"]}
+{"case_id": "sec-qa-003", "expected_chunk_ids": ["c1"]}
+{"case_id": "sec-qa-004", "expected_chunk_ids": ["c1", "c2"]}
+{"case_id": "sec-qa-005", "expected_chunk_ids": ["c1", "c2"]}

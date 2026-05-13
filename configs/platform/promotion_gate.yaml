@@ -1,0 +1,34 @@
+# ============================================================================
+# 모델·Prompt 승격 게이트 기본값 (ADR-009·013)
+# ============================================================================
+# tenant별 promotion_gate.yaml로 override 가능.
+# 평가 러너가 본 게이트를 통과하면 promote, 아니면 reject.
+schema_version: 1
+
+metrics_required:                        # 모두 만족해야 promote
+  citation_accuracy:
+    operator: ">="
+    value: 0.85                          # 인용된 chunk가 실제 답변 근거와 일치하는 비율
+  retrieval_recall_at_5:
+    operator: ">="
+    value: 0.80
+  unsupported_claim_ratio:
+    operator: "<="
+    value: 0.10
+  fallback_rate:
+    operator: "<="
+    value: 0.15
+  avg_latency_ms:
+    operator: "<="
+    value: 5000                          # P50 latency
+
+regression_check:                        # 기존 모델 대비 회귀 방지
+  vs_baseline: current                   # 현재 운영 중 모델
+  max_regression: 0.05                   # 5% 이상 저하 시 reject
+
+manual_approval_required: true           # 자동 promote 금지, 운영자 명시 승인 의무
+approval_role: PLATFORM_ADMIN
+
+evaluation_dataset:
+  default_path: data/eval/tenants/{tenant_id}/domain_qa.jsonl
+  min_samples: 50                        # 최소 50개 이상의 평가 샘플 의무

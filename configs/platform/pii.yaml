@@ -1,0 +1,46 @@
+# ============================================================================
+# Platform-level PII 정책 (ADR-020)
+# ============================================================================
+schema_version: 1
+
+input:                                   # Layer 1
+  enable: true
+  on_pii_found:
+    high_severity: block                 # 입력 차단 + 사용자 안내
+    medium_severity: warn                # 경고만, 진행
+    low_severity: log                    # 로그만
+  audit:
+    log_to_chat_logs: true               # 발견 사실, 마스킹된 form만
+
+storage:                                 # Layer 2
+  pii_storage_policy: mask               # mask | plain (plain은 platform_admin 명시 승인)
+  retention_days: 90                     # ADR-020 §9
+
+indexing:                                # Layer 3 (chunk 색인 시)
+  enable: true
+  on_pii_found_in_chunk:
+    severity_threshold: medium           # medium 이상이면 chunks.pii_warnings에 기록
+    block_indexing: false                # 색인은 진행 (warning만)
+
+response:                                # Layer 4 (LLM 응답 마스킹)
+  enable: true
+  mask_replacement: "***-****-****"
+
+severity_map:
+  rrn: high                              # 주민등록번호
+  credit_card: high
+  api_key: high
+  passport: high
+  driver_license: high
+  account_number: high
+  phone: medium
+  email: low
+  ip_address: low
+  employee_id: medium
+  full_name_with_ssn_context: medium     # 단독 이름은 안 잡지만 RRN 인접 시
+
+# WiSentinel dlp-core에서 포팅한 룰 위치 (Python 변환본)
+rules_dir: packages/rag_core/rag_core/pii/rules
+
+# Prompt Injection 방어 룰 위치
+injection_rules: packages/rag_core/rag_core/pii/rules/injection.yaml

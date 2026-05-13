@@ -1,0 +1,46 @@
+# ============================================================================
+# Security Tenant — UI Schema for react-jsonschema-form (ADR-015)
+# ============================================================================
+# input_schema.yaml의 도메인 필드를 어떻게 폼으로 렌더링할지 명세.
+schema_version: 1
+
+policy_document:
+  ui:order:
+    - title
+    - policy_id
+    - policy_type
+    - department
+    - authority_rank
+    - effective_date
+    - revision_date
+    - security_level
+    - acl
+    - supersedes
+    - related_procedures
+    - tags
+
+  policy_type:
+    "ui:widget": select
+    "ui:placeholder": 정책 유형 선택
+
+  authority_rank:
+    "ui:widget": range
+
+  effective_date:
+    "ui:widget": date
+
+  acl:
+    "ui:widget": array-of-strings
+    "ui:options":
+      placeholder: "group:security 또는 user:user-001"
+
+incident_case:
+  ui:order:
+    - title
+    - incident_id
+    - severity
+    - occurred_at
+    - affected_systems
+    - lessons_learned
+    - security_level
+    - acl

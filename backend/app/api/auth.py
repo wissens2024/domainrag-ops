@@ -1,0 +1,344 @@
+"""인증 API — `/api/auth/*` (ADR-017 §2, ADR-018 §2·§6).
+
+흐름:
+  1. Frontend → GET /api/auth/authorize/{tenant_id} — backend가 PKCE pair 생성 + state 저장 +
+     authorize URL 반환. Frontend가 그 URL로 redirect.
+  2. AuthFusion → GET /api/auth/callback?code&state — backend가 state로 code_verifier
+     복원 → token endpoint 호출 → httpOnly Secure 쿠키 set.
+  3. POST /api/auth/refresh — refresh_token 쿠키 사용 → 새 access/refresh 쿠키 갱신.
+  4. POST /api/auth/logout — access/refresh 쿠키의 token revoke + 쿠키 삭제.
+
+mock 모드(`auth_mode=mock`)에서는 endpoint들이 stub 응답을 반환해 dev 환경에서 frontend
+흐름을 검증할 수 있게 한다 — 실제 AuthFusion 호출 없음.
+"""
+
+from __future__ import annotations
+
+import time
+from urllib.parse import urlencode
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
+
+from app.core.auth_config import AuthConfig, AuthConfigLoader
+from app.core.authfusion_token_client import (
+    AuthFusionTokenClient,
+    TokenExchangeError,
+    TokenResponse,
+)
+from app.core.config import Settings, get_settings
+from app.core.oauth_state_store import (
+    InMemoryOAuthStateStore,
+    OAuthStateEntry,
+    generate_pkce_pair,
+    generate_state,
+)
+from app.deps import (
+    get_authfusion_token_client,
+    get_oauth_state_store,
+)
+
+router = APIRouter()
+
+
+# ----------------------------------------------------------------------------
+# helpers
+# ----------------------------------------------------------------------------
+
+
+_ACCESS_COOKIE = "domainrag_access"
+_REFRESH_COOKIE = "domainrag_refresh"
+
+
+def _set_cookies(
+    response: Response,
+    *,
+    token: TokenResponse,
+    is_production: bool,
+) -> None:
+    """access/refresh를 httpOnly Secure 쿠키로 set. local dev는 Secure 끔."""
+    common = {
+        "httponly": True,
+        "secure": is_production,
+        "samesite": "lax",
+        "path": "/",
+    }
+    response.set_cookie(
+        _ACCESS_COOKIE,
+        token.access_token,
+        max_age=token.expires_in or None,
+        **common,
+    )
+    if token.refresh_token:
+        response.set_cookie(
+            _REFRESH_COOKIE,
+            token.refresh_token,
+            max_age=token.expires_in * 4 if token.expires_in else None,
+            **common,
+        )
+
+
+def _clear_cookies(response: Response, *, is_production: bool) -> None:
+    for name in (_ACCESS_COOKIE, _REFRESH_COOKIE):
+        response.delete_cookie(name, path="/", secure=is_production, httponly=True)
+
+
+def _redirect_uri(auth_cfg: AuthConfig) -> str:
+    base = auth_cfg.app_base_url.rstrip("/")
+    return f"{base}{auth_cfg.redirect_path}"
+
+
+def _resolve_client_id(auth_cfg: AuthConfig, tenant_id: str) -> str:
+    ov = auth_cfg.tenant_overrides.get(tenant_id) or {}
+    cid = ov.get("client_id")
+    if not cid:
+        # client_tenant_map 역방향 탐색
+        for client_id, mapped in auth_cfg.client_tenant_map.items():
+            if mapped == tenant_id:
+                return client_id
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "client_id_not_configured", "tenant_id": tenant_id},
+        )
+    return str(cid)
+
+
+# ----------------------------------------------------------------------------
+# /authorize/{tenant_id} — Frontend가 SSO redirect를 시작하기 전 호출
+# ----------------------------------------------------------------------------
+
+
+@router.get("/authorize/{tenant_id}")
+async def build_authorize_url(
+    tenant_id: str,
+    settings: Settings = Depends(get_settings),
+    state_store: InMemoryOAuthStateStore = Depends(get_oauth_state_store),
+):
+    """ADR-018 §2 — PKCE pair 생성 + state 저장 + authorize URL 반환.
+
+    Frontend는 응답의 `authorize_url`로 window.location 이동.
+    mock 모드는 authorize URL 대신 즉시 callback path를 반환해 dev 흐름을 단순화한다.
+    """
+    auth_cfg = AuthConfigLoader.load(settings)
+    if auth_cfg.auth_mode == "mock":
+        return {
+            "authorize_url": None,
+            "mock_mode": True,
+            "tenant_id": tenant_id,
+            "note": "mock 모드 — frontend는 /api/auth/callback?code=mock&state=mock으로 직접 진행 가능",
+        }
+
+    if not auth_cfg.authorize_endpoint:
+        raise HTTPException(
+            status_code=500, detail={"error": "authorize_endpoint_not_configured"}
+        )
+
+    client_id = _resolve_client_id(auth_cfg, tenant_id)
+    verifier, challenge = generate_pkce_pair()
+    state = generate_state()
+    redirect_uri = _redirect_uri(auth_cfg)
+
+    state_store.put(
+        OAuthStateEntry(
+            state=state,
+            tenant_id=tenant_id,
+            code_verifier=verifier,
+            redirect_uri=redirect_uri,
+            client_id=client_id,
+            expires_at=time.time() + auth_cfg.state_ttl_seconds,
+        )
+    )
+
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": " ".join(auth_cfg.scopes),
+        "state": state,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+    }
+    return {
+        "authorize_url": f"{auth_cfg.authorize_endpoint}?{urlencode(params)}",
+        "state": state,
+        "tenant_id": tenant_id,
+    }
+
+
+# ----------------------------------------------------------------------------
+# /callback — AuthFusion이 code/state를 가지고 frontend로 redirect 후 frontend가 호출
+# ----------------------------------------------------------------------------
+
+
+class CallbackResponse(BaseModel):
+    tenant_id: str
+    expires_in: int
+    token_type: str
+    scope: str | None = None
+
+
+@router.get("/callback", response_model=CallbackResponse)
+async def oauth_callback(
+    code: str,
+    state: str,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+    state_store: InMemoryOAuthStateStore = Depends(get_oauth_state_store),
+    token_client: AuthFusionTokenClient | None = Depends(get_authfusion_token_client),
+):
+    """OAuth2 callback (ADR-018 §2 step 5). state 검증 + token 교환 + 쿠키 set."""
+    auth_cfg = AuthConfigLoader.load(settings)
+    is_production = settings.env == "production"
+
+    if auth_cfg.auth_mode == "mock":
+        mock_token = TokenResponse(
+            access_token="mock-access-token",
+            refresh_token="mock-refresh-token",
+            expires_in=900,
+            token_type="Bearer",
+            scope="openid profile email",
+        )
+        _set_cookies(response, token=mock_token, is_production=is_production)
+        return CallbackResponse(
+            tenant_id="mock",
+            expires_in=mock_token.expires_in,
+            token_type=mock_token.token_type,
+            scope=mock_token.scope,
+        )
+
+    entry = state_store.pop(state)
+    if entry is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_or_expired_state"},
+        )
+    if token_client is None:
+        raise HTTPException(
+            status_code=500, detail={"error": "token_client_not_configured"}
+        )
+
+    try:
+        token = await token_client.exchange_code(
+            code=code,
+            code_verifier=entry.code_verifier,
+            client_id=entry.client_id,
+            redirect_uri=entry.redirect_uri,
+        )
+    except TokenExchangeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "token_exchange_failed", "upstream": exc.payload},
+        ) from exc
+
+    _set_cookies(response, token=token, is_production=is_production)
+    return CallbackResponse(
+        tenant_id=entry.tenant_id,
+        expires_in=token.expires_in,
+        token_type=token.token_type,
+        scope=token.scope,
+    )
+
+
+# ----------------------------------------------------------------------------
+# /refresh
+# ----------------------------------------------------------------------------
+
+
+class RefreshRequest(BaseModel):
+    # 명시적 refresh_token 또는 cookie 사용. body 우선.
+    refresh_token: str | None = None
+    tenant_id: str  # client_id 매핑에 필요
+
+
+@router.post("/refresh")
+async def refresh_token_endpoint(
+    req: RefreshRequest,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+    token_client: AuthFusionTokenClient | None = Depends(get_authfusion_token_client),
+):
+    """ADR-018 §6 — refresh_token grant. body가 우선, 없으면 쿠키."""
+    auth_cfg = AuthConfigLoader.load(settings)
+    is_production = settings.env == "production"
+
+    if auth_cfg.auth_mode == "mock":
+        mock_token = TokenResponse(
+            access_token="mock-access-token-refreshed",
+            refresh_token="mock-refresh-token-refreshed",
+            expires_in=900,
+        )
+        _set_cookies(response, token=mock_token, is_production=is_production)
+        return {
+            "tenant_id": req.tenant_id,
+            "expires_in": mock_token.expires_in,
+            "token_type": mock_token.token_type,
+        }
+
+    refresh = req.refresh_token or request.cookies.get(_REFRESH_COOKIE)
+    if not refresh:
+        raise HTTPException(
+            status_code=400, detail={"error": "missing_refresh_token"}
+        )
+    if token_client is None:
+        raise HTTPException(
+            status_code=500, detail={"error": "token_client_not_configured"}
+        )
+
+    client_id = _resolve_client_id(auth_cfg, req.tenant_id)
+    try:
+        token = await token_client.refresh(
+            refresh_token=refresh, client_id=client_id
+        )
+    except TokenExchangeError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail={"error": "refresh_failed", "upstream": exc.payload},
+        ) from exc
+
+    _set_cookies(response, token=token, is_production=is_production)
+    return {
+        "tenant_id": req.tenant_id,
+        "expires_in": token.expires_in,
+        "token_type": token.token_type,
+    }
+
+
+# ----------------------------------------------------------------------------
+# /logout
+# ----------------------------------------------------------------------------
+
+
+class LogoutRequest(BaseModel):
+    tenant_id: str
+
+
+@router.post("/logout", status_code=204)
+async def logout(
+    req: LogoutRequest,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+    token_client: AuthFusionTokenClient | None = Depends(get_authfusion_token_client),
+):
+    """ADR-018 §6 — token revoke + 쿠키 삭제. revoke 실패는 swallow (RFC 7009)."""
+    auth_cfg = AuthConfigLoader.load(settings)
+    is_production = settings.env == "production"
+
+    access = request.cookies.get(_ACCESS_COOKIE)
+    refresh = request.cookies.get(_REFRESH_COOKIE)
+
+    if auth_cfg.auth_mode != "mock" and token_client is not None:
+        client_id = _resolve_client_id(auth_cfg, req.tenant_id)
+        if access:
+            await token_client.revoke(
+                token=access, client_id=client_id, token_type_hint="access_token"
+            )
+        if refresh:
+            await token_client.revoke(
+                token=refresh, client_id=client_id, token_type_hint="refresh_token"
+            )
+
+    _clear_cookies(response, is_production=is_production)
+    response.status_code = 204
+    return None

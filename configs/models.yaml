@@ -1,0 +1,63 @@
+# 모델 설정
+# 모든 모델 관련 설정을 중앙화하여 코드 변경 없이 모델 교체 가능
+
+# LLM 설정
+llm:
+  provider: vllm                    # vllm, openai, claude, mock
+  endpoint: http://vllm:8000/v1     # vLLM OpenAI-compatible API
+  model: qwen2.5-7b-instruct        # 모델 이름
+  max_tokens: 2048                  # 최대 생성 토큰 수
+  temperature: 0.1                  # 생성 다양성 (낮을수록 일관성 높음)
+  top_p: 0.9                        # Nucleus sampling
+  timeout: 30                       # 요청 타임아웃 (초)
+
+# Embedding 모델 설정
+embedding:
+  provider: sentence_transformers   # sentence_transformers, openai, mock
+  model_name: BAAI/bge-m3           # HuggingFace 모델 이름
+  dimension: 1024                   # 벡터 차원
+  max_seq_length: 8192              # 최대 시퀀스 길이
+  normalize_embeddings: true        # 벡터 정규화
+  device: auto                      # cpu, cuda, auto
+
+# Reranking 모델 설정
+reranking:
+  provider: sentence_transformers   # sentence_transformers, mock
+  model_name: BAAI/bge-reranker-v2-m3  # Reranker 모델
+  top_k: 50                         # Reranking 후 반환할 최대 문서 수
+  score_threshold: 0.0              # 최소 점수 임계값 (0.0 = 모두 포함)
+  device: auto                      # cpu, cuda, auto
+
+# Vector Store 설정
+vector_store:
+  provider: qdrant                  # qdrant, mock
+  url: http://qdrant:6333           # Qdrant 서버 URL
+  collection: domainrag_chunks      # 컬렉션 이름
+  distance: Cosine                  # 유사도 거리 측정 (Cosine, Dot, Euclidean)
+  hnsw_config:
+    m: 16                           # HNSW 파라미터
+    ef_construct: 100               # 인덱스 구축 효율성
+    full_scan_threshold: 10000      # 전체 스캔 임계값
+  quantization_config: null         # 양자화 설정 (선택사항)
+
+# Document Parser 설정
+parser:
+  provider: unstructured            # unstructured, pypdf, mock
+  chunk_strategy: semantic          # semantic, fixed, paragraph
+  chunk_size: 1000                  # 청크 크기 (토큰 수)
+  chunk_overlap: 200                # 청크 겹침 (토큰 수)
+  min_chunk_size: 100               # 최소 청크 크기
+  max_chunk_size: 2000              # 최대 청크 크기
+  supported_formats:                # 지원 파일 형식
+    - pdf
+    - docx
+    - txt
+    - md
+    - hwp
+
+# Mock 설정 (테스트용)
+mock:
+  llm_response: "이것은 모의 답변입니다. 실제 모델이 아닙니다."
+  embedding_dimension: 1024
+  embedding_value: 0.1
+  rerank_score: 0.8

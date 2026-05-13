@@ -1,0 +1,80 @@
+# ============================================================================
+# Platform-level Model 설정 (ADR-013·019)
+# ============================================================================
+schema_version: 1
+
+endpoints:
+  # GPU 사양: 174번 4장만 DomainRAG (RTX 3080 10GB) → AWQ 4-bit + tensor parallel 필수
+  # (ADR-019 §3·§4, 2026-05-12 WiSentinel 협의로 115번 GPU는 미사용).
+  # tenant_slm과 shared_llm은 같은 vLLM instance를 alias로 사용 — system prompt + LoRA 분기.
+  tenant_slm:
+    base_url_env: TENANT_SLM_BASE_URL    # http://174.local:8000/v1
+    backend: vllm
+    base_model: Qwen2.5-7B-Instruct-AWQ  # 4-bit 양자화 (fp16 14GB → AWQ ~4GB)
+    quantization: awq
+    multi_lora: true
+    max_loras: 8
+    tensor_parallel_size: 2
+    gpu_memory_utilization: 0.85         # 양자화 + LoRA + KV cache 여유
+    max_concurrent_requests: 64
+    timeout_seconds: 30
+
+  shared_llm:
+    base_url_env: SHARED_LLM_BASE_URL    # tenant_slm과 동일 endpoint (alias). env로 override 가능
+    backend: vllm
+    base_model: Qwen2.5-7B-Instruct-AWQ  # 14B-AWQ는 GPU 부족으로 운영 불가 — 7B baseline 사용
+    quantization: awq
+    multi_lora: false                    # judge/rewrite는 LoRA 없는 baseline
+    tensor_parallel_size: 2
+    gpu_memory_utilization: 0.85
+    max_concurrent_requests: 32
+    timeout_seconds: 60
+    note: "tenant_slm alias — 별도 vLLM instance 아님 (ADR-019 §4)"
+
+  ollama_vision:
+    base_url_env: OLLAMA_BASE_URL        # http://174.local:11434 (공유)
+    backend: ollama
+    model: qwen2-vl-7b-instruct-q4_K_M   # Ollama gguf 4-bit (10GB 카드 제약)
+    shared_with: [authfusion, wisentinel]
+    timeout_seconds: 30
+
+  embedder:
+    base_url_env: EMBEDDER_BASE_URL      # http://174.local:8082 (TEI)
+    backend: tei
+    model: bge-m3
+    dense_dim: 1024
+    sparse_supported: true
+    timeout_seconds: 30
+
+  reranker:
+    base_url_env: RERANKER_BASE_URL      # http://174.local:8083 (TEI rerank)
+    backend: tei
+    model: bge-reranker-v2-m3
+    timeout_seconds: 30
+
+defaults:
+  default_model: tenant_slm
+  default_use_rag: true
+  default_use_lora: true
+  default_max_tokens: 1024
+  default_temperature: 0.2
+
+# inference judge endpoint (ADR-010 §4)
+inference_judge:
+  endpoint: shared_llm
+  prompt_path: configs/platform/prompts/inference_judge.yaml
+  max_input_chars: 4000
+  timeout_seconds: 30
+
+# 모델 실패 chain (ADR-013 §7 fallback_chain)
+fallback_chain:
+  tenant_slm:
+    - tenant_slm_no_lora                 # LoRA 비활성 재시도
+    - shared_llm                         # 큰 모델로 escalation
+    - "fallback_response"                # 모두 실패 시
+  shared_llm:
+    - "fallback_response"
+
+health_check:
+  interval_seconds: 30
+  failure_threshold: 3                   # 연속 N회 실패 시 endpoint를 unhealthy로

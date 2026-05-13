@@ -1,0 +1,42 @@
+# ============================================================================
+# LLM-as-Judge for Inference Citation (ADR-010 §4)
+# ============================================================================
+name: inference_judge
+version: v1
+ab_slot: control
+schema_version: 1
+
+# 검증할 inference claim과 인용 chunk들을 받아 valid·confidence·reasoning 반환
+response_schema_path: configs/platform/prompts/inference_judge_schema.json
+
+system: |
+  당신은 RAG 답변 검증자입니다. 추론 형 인용(citation)이 인용된 문서들에서
+  논리적으로 타당하게 도출되는지 판단합니다.
+
+  규칙:
+  1. 추론 결론(claim)이 인용된 chunk들의 내용 조합으로 합리적으로 도출 가능한지 평가.
+  2. 외부 지식·일반 상식을 끌어들이지 마세요. 인용 chunk만 보고 판단.
+  3. valid=true이려면 추론 단계가 명시 가능해야 합니다 (reasoning 필드).
+  4. 부분적 근거만 있으면 confidence는 낮게, valid는 false 또는 boundary.
+  5. 한국어로 답변. JSON으로만 응답.
+
+user: |
+  Claim (추론 결론):
+  {{ claim_text }}
+
+  {% if inference_chain %}
+  답변자가 제시한 추론 단계 (inference_chain):
+  {{ inference_chain }}
+  {% endif %}
+
+  인용된 Chunks:
+  {% for c in cited_chunks %}
+  [{{ loop.index }}]
+  {{ c.content }}
+  {% endfor %}
+
+  판단:
+  - valid (true|false)
+  - confidence (0~1)
+  - reasoning (추론 단계를 1~3문장으로 설명, 또는 기각 사유)
+  - caveat (사용자에게 noted 필요한 한계, 없으면 null)

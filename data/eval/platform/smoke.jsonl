@@ -1,0 +1,5 @@
+{"case_id": "smoke-001", "tenant_id": "security", "question": "패스워드 정책은?", "must_include_keywords": ["패스워드"], "ui_mode": "chat_structured"}
+{"case_id": "smoke-002", "tenant_id": "security", "question": "패스워드 만료 주기는 얼마인가?", "must_include_keywords": ["90"], "ui_mode": "chat_structured"}
+{"case_id": "smoke-003", "tenant_id": "security", "question": "패스워드 길이 정책은?", "must_include_keywords": ["12"], "ui_mode": "chat_structured"}
+{"case_id": "smoke-004", "tenant_id": "security", "question": "도메인 외 질문에 대한 fallback 동작?", "expected_fallback": false, "metadata": {"note": "InMemory mock LLM은 고정 응답 — fallback 안 함"}}
+{"case_id": "smoke-005", "tenant_id": "security", "question": "보안 가이드라인을 알려주세요", "must_include_keywords": ["패스워드"]}

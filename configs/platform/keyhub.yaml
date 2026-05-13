@@ -1,0 +1,30 @@
+# ============================================================================
+# KeyHub 통합 (ADR-019)
+# ============================================================================
+schema_version: 1
+
+endpoint_env: KEYHUB_ENDPOINT
+api_key_env: KEYHUB_API_KEY
+
+# DomainRAG가 KeyHub에 보관하는 secret 카테고리
+secrets:
+  lora_adapters:
+    key_prefix: domainrag/lora/
+    encryption: aes-256-gcm
+  service_accounts:
+    key_prefix: domainrag/service/
+  external_api_keys:
+    key_prefix: domainrag/external/
+  oauth_client_secrets:
+    key_prefix: domainrag/oauth/
+
+# Dev fallback (KeyHub 없을 때 LocalSecretStore 사용)
+local_fallback:
+  enable: true                           # dev 환경에서만 true
+  forbid_in_production: true
+  local_secret_store_path: ./infra/volumes/secrets
+
+# Cache (audit·latency)
+cache:
+  enable: true
+  ttl_seconds: 300                       # 5분 — secret 변경 시 운영자가 invalidate 호출

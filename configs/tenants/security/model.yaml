@@ -1,0 +1,5 @@
+# Security tenant — Model 설정 override (필요 시)
+schema_version: 1
+
+# Tenant SLM에 보안 도메인 LoRA adapter 매핑
+lora_adapter: security-policy-v1

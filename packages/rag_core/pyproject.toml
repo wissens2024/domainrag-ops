@@ -1,0 +1,34 @@
+[tool.poetry]
+name = "rag-core"
+version = "0.1.0"
+description = "DomainRAG Ops — RAG core (Protocol/Adapter, LangGraph, 4-type citation verifier, PII)"
+authors = ["DomainRAG Ops Team"]
+readme = "README.md"
+packages = [{include = "rag_core"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+pydantic = "^2.9.0"
+qdrant-client = "^1.11.0"
+httpx = "^0.27.2"
+openai = "^1.45.0"
+langgraph = "^0.2.20"
+pyyaml = "^6.0.2"
+kiwipiepy = "^0.18.0"
+numpy = "^2.1.0"
+structlog = "^24.4.0"
+jinja2 = "^3.1.4"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.3"
+pytest-asyncio = "^0.24.0"
+ruff = "^0.6.7"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

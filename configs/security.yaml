@@ -1,0 +1,128 @@
+# 보안 설정
+# 인증, 권한, 감사 로그 관련 설정
+
+# 인증 설정
+authentication:
+  enabled: true                     # 인증 활성화
+  provider: mock                    # mock, ldap, oauth, jwt
+  session_timeout: 3600             # 세션 타임아웃 (초)
+  max_login_attempts: 5             # 최대 로그인 시도 횟수
+  lockout_duration: 900             # 계정 잠금 시간 (초)
+
+# JWT 설정 (OAuth/JWT 사용 시)
+jwt:
+  secret_key: "change-this-in-production"  # JWT 시크릿 키
+  algorithm: HS256                  # JWT 알고리즘
+  access_token_expire_minutes: 30   # 액세스 토큰 만료 시간
+  refresh_token_expire_days: 7      # 리프레시 토큰 만료 시간
+
+# LDAP 설정 (기업 환경용)
+ldap:
+  enabled: false                    # LDAP 활성화
+  server: ldap://localhost:389      # LDAP 서버
+  base_dn: "dc=company,dc=com"      # 기본 DN
+  user_dn: "ou=users,dc=company,dc=com"  # 사용자 DN
+  bind_user: null                   # 바인드 사용자
+  bind_password: null               # 바인드 비밀번호
+  user_search_filter: "(sAMAccountName={username})"
+  group_search_filter: "(member={user_dn})"
+
+# 권한 등급 (Security Clearance)
+clearance_levels:
+  - name: public                     # 공개
+    level: 0
+    description: "공개 문서 접근"
+  - name: internal                   # 내부
+    level: 1
+    description: "조직 내부 문서 접근"
+  - name: confidential               # 기밀
+    level: 2
+    description: "기밀 문서 접근"
+  - name: secret                     # 비밀
+    level: 3
+    description: "매우 제한적 문서 접근"
+
+# 보안 그룹
+security_groups:
+  - name: admin                      # 관리자
+    clearance: secret
+    description: "모든 권한"
+  - name: security                   # 보안팀
+    clearance: confidential
+    description: "보안 관련 문서"
+  - name: it                         # IT팀
+    clearance: internal
+    description: "IT 관련 문서"
+  - name: finance                    # 재무팀
+    clearance: confidential
+    description: "재무 관련 문서"
+  - name: hr                         # 인사팀
+    clearance: confidential
+    description: "인사 관련 문서"
+
+# 문서 보안 등급 기본값
+document_defaults:
+  security_level: internal           # 기본 보안 등급
+  approval_required: true            # 승인 필요 여부
+  auto_archive_days: 365             # 자동 아카이브 기간 (일)
+  retention_years: 7                 # 보존 기간 (년)
+
+# 감사 로그 설정
+audit:
+  enabled: true                      # 감사 로그 활성화
+  log_level: INFO                    # 로그 레벨
+  log_to_database: true              # 데이터베이스에 로그 저장
+  log_to_file: true                  # 파일에 로그 저장
+  log_path: "/var/log/domainrag/audit.log"  # 로그 파일 경로
+  retention_days: 2555               # 로그 보존 기간 (7년)
+
+# 감사 이벤트 타입
+audit_events:
+  - name: login                      # 로그인
+    severity: low
+  - name: logout                     # 로그아웃
+    severity: low
+  - name: search                     # 검색
+    severity: low
+  - name: document_access            # 문서 접근
+    severity: medium
+  - name: document_upload            # 문서 업로드
+    severity: medium
+  - name: admin_action               # 관리자 작업
+    severity: high
+  - name: security_violation         # 보안 위반
+    severity: critical
+
+# 데이터 마스킹
+data_masking:
+  enabled: true                      # 데이터 마스킹 활성화
+  mask_pii: true                     # 개인정보 마스킹
+  mask_sensitive: true               # 민감 정보 마스킹
+  mask_patterns:                     # 마스킹 패턴
+    - pattern: "\\d{3}-\\d{2}-\\d{4}"  # SSN
+      replacement: "***-**-****"
+    - pattern: "\\d{4}-\\d{4}-\\d{4}-\\d{4}"  # 카드 번호
+      replacement: "****-****-****-****"
+
+# 네트워크 보안
+network:
+  allowed_ips: null                  # 허용 IP 목록 (null = 모두 허용)
+  blocked_ips: []                    # 차단 IP 목록
+  rate_limit_enabled: true           # 속도 제한 활성화
+  rate_limit_requests: 100           # 분당 요청 수
+  rate_limit_window: 60              # 제한 창 (초)
+
+# 암호화 설정
+encryption:
+  enabled: true                      # 암호화 활성화
+  algorithm: AES256                  # 암호화 알고리즘
+  key_rotation_days: 90              # 키 교체 주기 (일)
+  backup_encryption: true            # 백업 암호화
+
+# 모니터링 및 알림
+monitoring:
+  security_alerts_enabled: true      # 보안 알림 활성화
+  alert_email: null                  # 알림 이메일
+  failed_login_alert: true           # 로그인 실패 알림
+  suspicious_activity_alert: true    # 의심스러운 활동 알림
+  compliance_report_enabled: true    # 컴플라이언스 보고서

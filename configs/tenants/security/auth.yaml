@@ -1,0 +1,8 @@
+# Security tenant — AuthFusion OAuth2 client 매핑 (ADR-018)
+schema_version: 1
+
+client_id: client-security
+authfusion_client_id: client-security
+
+# 이 tenant 한정 추가 platform_admin (있으면 nominal admin role 외 추가 권한)
+extra_admin_roles: []

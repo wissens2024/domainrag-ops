@@ -1,0 +1,20 @@
+# ADR-009 §7 — promotion gate. 본 도메인 평가셋(qa.jsonl + citation_gold.jsonl)이 통과해야
+# 새 모델/prompt를 승격할 수 있다. 운영자는 본 yaml을 조정하지 않고도 evaluation runner를
+# 실행해 dataset summary와 비교 가능.
+#
+# Note: 본 파일은 ADR-009 §7 표준 schema(metrics: { name: { min|max: value }})를 사용한다.
+# 이전 형식(metrics_required: { name: { operator, value } })은 2026-05-12 본 schema로 통합되었다.
+schema_version: 2
+
+metrics:
+  retrieval_recall_at_5:
+    min: 0.80
+  citation_accuracy:
+    min: 0.90        # 보안 도메인 — platform 기본 0.80 대비 강화
+  unsupported_ratio:
+    max: 0.05        # 보안 도메인 — platform 기본 0.20 대비 강화
+  fallback_rate:
+    max: 0.20
+
+# 자동 승격은 운영자 명시 승인을 요구 — false 유지가 안전 default.
+auto_promote: false

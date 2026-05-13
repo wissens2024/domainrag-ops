@@ -1,0 +1,4 @@
+{"id": "sec-001", "question": "내부망 자료 반출 시 어떤 절차가 필요한가?", "expected_doc_ids": ["DOC-2026-0001"], "expected_chunk_ids": ["DOC-2026-0001:v1:p1:chunk:0012"], "expected_answer_keywords": ["신청서", "부서장", "보안부서"], "expected_support_type": "direct"}
+{"id": "sec-002", "question": "보안 운영 매뉴얼과 반출 지침의 보관 기간이 다를 때 어느 것을 따라야 하나?", "expected_doc_ids": ["DOC-2026-0001", "DOC-2026-0002"], "expected_support_type": "conflict"}
+{"id": "sec-003", "question": "개인정보가 포함된 자료의 외부 반출 조건을 종합하면?", "expected_doc_ids": ["DOC-2026-0001", "DOC-2026-0002", "DOC-2026-0003"], "expected_support_type": "synthesis"}
+{"id": "sec-004", "question": "고객정보 엑셀을 협력사에 그대로 보내도 되나?", "expected_doc_ids": ["DOC-2026-0001"], "expected_support_type": "inference", "expected_caveat_required": true}

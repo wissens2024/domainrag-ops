@@ -1,0 +1,64 @@
+# 검색 설정
+# Retrieval, Reranking, Citation 생성 관련 파라미터
+
+# 기본 검색 설정
+retrieval:
+  top_k: 20                         # 초기 검색 문서 수
+  score_threshold: 0.0              # 최소 유사도 임계값
+  diversity_factor: 0.7             # 다양성 계수 (0.0-1.0)
+  max_tokens_per_chunk: 1000        # 청크당 최대 토큰 수
+  include_metadata: true            # 메타데이터 포함 여부
+
+# Reranking 설정
+reranking:
+  enabled: true                     # Reranking 활성화
+  top_k: 10                         # Reranking 후 최종 문서 수
+  score_threshold: 0.0              # Reranking 최소 점수
+  batch_size: 32                    # 배치 크기
+  cross_encoder_threshold: 0.5      # Cross-encoder 임계값
+
+# Citation 생성 설정
+citation:
+  enabled: true                     # Citation 생성 활성화
+  max_citations: 5                  # 최대 Citation 수
+  min_chunk_score: 0.3              # Citation에 포함할 최소 청크 점수
+  excerpt_length: 200               # 발췌문 최대 길이 (문자 수)
+  include_page_number: true         # 페이지 번호 포함
+  include_section_title: true       # 섹션 제목 포함
+  verification_enabled: true        # Citation 검증 활성화
+
+# ACL (Access Control List) 설정
+acl:
+  enabled: true                     # ACL 활성화
+  default_security_level: internal  # 기본 보안 등급
+  strict_mode: true                 # 엄격 모드 (모든 문서에 ACL 필요)
+  cache_ttl: 300                    # ACL 캐시 TTL (초)
+  max_acl_entries: 100              # 최대 ACL 엔트리 수
+
+# 캐싱 설정
+caching:
+  enabled: true                     # 캐싱 활성화
+  ttl: 3600                         # 캐시 TTL (초)
+  max_cache_size: 10000             # 최대 캐시 항목 수
+  redis_url: null                   # Redis URL (null = 인메모리)
+
+# 검색 최적화
+optimization:
+  parallel_search: true             # 병렬 검색
+  prefetch_metadata: true           # 메타데이터 프리페치
+  use_hybrid_search: false          # 하이브리드 검색 (키워드 + 벡터)
+  bm25_weight: 0.3                  # BM25 가중치 (하이브리드 검색 시)
+
+# 검색 필터
+filters:
+  date_range_enabled: true          # 날짜 범위 필터
+  document_type_filter: true        # 문서 타입 필터
+  department_filter: true           # 부서 필터
+  approval_status_filter: true      # 승인 상태 필터
+
+# 검색 품질 모니터링
+monitoring:
+  log_queries: true                 # 쿼리 로깅
+  log_performance: true             # 성능 로깅
+  collect_metrics: true             # 메트릭 수집
+  slow_query_threshold: 2.0         # 느린 쿼리 임계값 (초)

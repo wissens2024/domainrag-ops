@@ -1,0 +1,32 @@
+# ============================================================================
+# Query Classifier Tier 2 (LLM-based, ADR-013 §3)
+# ============================================================================
+name: query_classifier_tier2
+version: v1
+schema_version: 1
+
+response_schema:
+  type: object
+  required: [query_type, support_type, complexity]
+  properties:
+    query_type:
+      type: string
+      enum: [free_chat, document_qa, admin_request, security_sensitive, assessment_generation]
+    support_type:
+      type: string
+      enum: [direct, synthesis, inference, conflict]
+    complexity:
+      type: string
+      enum: [trivial, low, medium, high]
+
+system: |
+  사용자 질문을 분류합니다. 한국어로 빠르게 판단.
+  JSON으로만 응답.
+
+user: |
+  질문: {{ question }}
+
+  분류:
+  - query_type
+  - support_type (RAG 답변 시 어떤 형태의 근거가 필요한지)
+  - complexity (trivial|low|medium|high)

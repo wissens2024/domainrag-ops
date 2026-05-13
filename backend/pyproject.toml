@@ -1,0 +1,80 @@
+[tool.poetry]
+name = "domainrag-backend"
+version = "0.1.0"
+description = "DomainRAG Ops — FastAPI backend"
+authors = ["DomainRAG Ops Team"]
+readme = "README.md"
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+# Web / API
+fastapi = "^0.115.0"
+uvicorn = {extras = ["standard"], version = "^0.30.6"}
+pydantic = "^2.9.0"
+pydantic-settings = "^2.5.0"
+python-multipart = "^0.0.9"
+
+# Database
+sqlalchemy = "^2.0.35"
+alembic = "^1.13.2"
+psycopg = {extras = ["binary"], version = "^3.2.2"}
+asyncpg = "^0.29.0"
+
+# Auth / JWT
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+authlib = "^1.3.2"
+
+# Vector DB / S3
+qdrant-client = "^1.11.0"
+minio = "^7.2.8"
+
+# LLM / Embedding clients
+httpx = "^0.27.2"
+openai = "^1.45.0"                       # vLLM OpenAI-compatible
+
+# Korean text
+kiwipiepy = "^0.18.0"
+
+# Workflow
+langgraph = "^0.2.20"
+
+# RAG core (local package)
+rag-core = {path = "../packages/rag_core", develop = true}
+
+# Utilities
+pyyaml = "^6.0.2"
+jinja2 = "^3.1.4"
+redis = "^5.0.8"
+structlog = "^24.4.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.3"
+pytest-asyncio = "^0.24.0"
+pytest-cov = "^5.0.0"
+httpx = "^0.27.2"
+ruff = "^0.6.7"
+mypy = "^1.11.2"
+pre-commit = "^3.8.0"
+
+# L4 통합 테스트 — 실제 PostgreSQL/Qdrant/MinIO 컨테이너 띄움.
+# Docker daemon이 가용한 환경에서만 통합 테스트(`tests/integration/`)가 실행된다.
+[tool.poetry.group.integration.dependencies]
+testcontainers = {extras = ["postgres"], version = "^4.7.2"}
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -1,0 +1,36 @@
+# ============================================================================
+# PostgreSQL 정책 (ADR-019 §1·§2)
+# ============================================================================
+schema_version: 1
+
+connection:
+  host_env: POSTGRES_HOST
+  port_env: POSTGRES_PORT
+  database_env: POSTGRES_DB
+  app_user_env: POSTGRES_USER            # RLS 적용
+  app_password_env: POSTGRES_PASSWORD
+  admin_user_env: POSTGRES_ADMIN_USER    # BYPASSRLS
+  admin_password_env: POSTGRES_ADMIN_PASSWORD
+
+pool:
+  app_pool_min: 2
+  app_pool_max: 20
+  admin_pool_min: 1
+  admin_pool_max: 4
+  recycle_seconds: 3600
+
+rls:
+  enable: true                           # 모든 tenant-scoped 테이블에 의무 적용
+  app_role_setting: app.current_tenant   # SET LOCAL app.current_tenant = '<tenant_id>'
+
+partitioning:
+  chat_logs:
+    by: created_at
+    unit: month
+    retention_months: 12                 # 12개월 후 partition detach + cold archive
+  indexing_jobs:
+    by: created_at
+    unit: month
+    retention_months: 6
+
+slow_query_threshold_ms: 500             # 이 이상이면 로그 + Prometheus alert (ADR-022)

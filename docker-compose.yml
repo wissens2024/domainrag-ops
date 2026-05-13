@@ -1,0 +1,177 @@
+version: '3.8'
+
+services:
+  # Vector Database - Qdrant
+  qdrant:
+    image: qdrant/qdrant:v1.9.0
+    container_name: domainrag-qdrant
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - domainrag-network
+
+  # Metadata Database - PostgreSQL (ADR-019 §2)
+  # POSTGRES_USER는 superuser로만 사용 — init_postgres.sql이 두 운영 role
+  # (domainrag_app / domainrag_platform_admin)을 생성한다. backend는 두 role을 사용해
+  # 접속(POSTGRES_USER=domainrag_app, POSTGRES_ADMIN_USER=domainrag_platform_admin).
+  postgres:
+    image: postgres:16-alpine
+    container_name: domainrag-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=domainrag
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=changeme_superuser
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/scripts/init_postgres.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d domainrag"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - domainrag-network
+
+  # File Storage - MinIO
+  minio:
+    image: minio/minio:RELEASE.2024-04-06T05-26-02Z
+    container_name: domainrag-minio
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    environment:
+      - MINIO_ROOT_USER=domainrag
+      - MINIO_ROOT_PASSWORD=domainrag123
+      - MINIO_SERVER_URL=http://localhost:9000
+      - MINIO_BROWSER_REDIRECT_URL=http://localhost:9001
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - domainrag-network
+
+  # LLM Serving - vLLM (OpenAI-compatible)
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: domainrag-vllm
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL=qwen2.5-7b-instruct
+      - TRUST_REMOTE_CODE=true
+      - MAX_MODEL_LEN=4096
+      - GPU_MEMORY_UTILIZATION=0.9
+    volumes:
+      - vllm_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 120s
+    networks:
+      - domainrag-network
+
+  # Backend API - FastAPI
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: domainrag-backend
+    ports:
+      - "8001:8000"
+    environment:
+      - ENVIRONMENT=development
+      - QDRANT_URL=http://qdrant:6333
+      - POSTGRES_URL=postgresql://domainrag:domainrag123@postgres:5432/domainrag
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=domainrag
+      - MINIO_SECRET_KEY=domainrag123
+      - VLLM_BASE_URL=http://vllm:8000/v1
+      - VLLM_MODEL=qwen2.5-7b-instruct
+    volumes:
+      - ./backend:/app
+      - ./configs:/app/configs
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      vllm:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - domainrag-network
+
+  # Frontend - Next.js
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: domainrag-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8001
+      - NEXT_PUBLIC_ENVIRONMENT=development
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - domainrag-network
+
+volumes:
+  qdrant_data:
+    driver: local
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+  vllm_cache:
+    driver: local
+
+networks:
+  domainrag-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

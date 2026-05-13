@@ -1,0 +1,72 @@
+# ============================================================================
+# 모든 tenant input_schema가 상속하는 공통 필드 (ADR-015)
+# ============================================================================
+# tenant input_schema는 본 파일을 상속한 후 도메인 필드를 추가.
+schema_version: 1
+
+# 공통 필수 필드
+common_required:
+  - tenant_id           # 자동 주입 (사용자 입력 아님)
+  - input_type
+  - title
+  - security_level
+  - acl
+  - owner
+
+# 공통 선택 필드
+common_optional:
+  - quality_status      # draft | reviewed | approved | retired
+  - valid_from
+  - valid_until
+  - tags
+  - language
+  - approval_status
+
+# 필드별 도메인 / validation
+common_field_definitions:
+  tenant_id:
+    type: string
+    immutable: true
+  input_type:
+    type: string
+    enum_per_tenant: true                # tenant input_schema에서 enum 정의
+  title:
+    type: string
+    min_length: 1
+    max_length: 500
+  security_level:
+    type: string
+    enum: [public, internal, confidential, secret]
+  acl:
+    type: array
+    items: {type: string, pattern: "^(group|user|dept):"}
+    min_items: 1
+  owner:
+    type: string
+    min_length: 1
+  quality_status:
+    type: string
+    enum: [draft, reviewed, approved, retired]
+    default: draft
+  approval_status:
+    type: string
+    enum: [draft, approved, archived]
+    default: draft
+  language:
+    type: string
+    default: ko
+  tags:
+    type: array
+    items: {type: string}
+    default: []
+  valid_from:
+    type: string
+    format: date
+  valid_until:
+    type: ["string", "null"]
+    format: date
+
+# Timezone (Y4 일관성)
+timezone:
+  default: Asia/Seoul                    # date 비교 기준
+  storage_format: ISO8601_with_offset    # DB 저장 시 timestamp with time zone

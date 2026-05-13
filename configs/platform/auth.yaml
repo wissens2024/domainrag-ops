@@ -1,0 +1,66 @@
+# ============================================================================
+# Platform-level Auth (ADR-018)
+# ============================================================================
+schema_version: 1
+
+auth_mode: ${AUTH_MODE}                  # mock | authfusion (env에서 주입)
+
+authfusion:
+  issuer_env: AUTHFUSION_ISSUER
+  jwks_uri_env: AUTHFUSION_JWKS_URI
+  token_endpoint_env: AUTHFUSION_TOKEN_ENDPOINT
+  revoke_endpoint_env: AUTHFUSION_REVOKE_ENDPOINT
+  authorize_endpoint_env: AUTHFUSION_AUTHORIZE_ENDPOINT
+  jwks_cache_ttl_seconds: 3600
+  jwt_algorithm: RS256
+
+  # ADR-018 §2 — Authorization Code + PKCE flow.
+  scopes: ["openid", "profile", "email"]
+  state_ttl_seconds: 600       # /authorize → /callback 사이 유효 시간 (10분)
+
+  # client_id ≡ tenant_id 매핑 (ADR-018 §1)
+  # 신규 tenant 등록 시 이 매핑에 자동 추가 (tenant_register.sh)
+  client_tenant_map:
+    client-security: security
+    client-legal: legal
+    client-exam_bank: exam_bank
+
+  # Service account (시스템 호출용 — ADR-018 §7)
+  service_accounts:
+    service-domainrag-eval:
+      tenant_id: platform
+      roles: ["SERVICE", "EVALUATION"]
+      clearance: confidential
+    service-domainrag-indexer:
+      tenant_id: platform                # 모든 tenant 색인 가능 (BYPASSRLS)
+      roles: ["SERVICE", "INDEXER"]
+      clearance: secret
+
+  # platform_admin 판정 (ADR-016)
+  platform_admin_role: PLATFORM_ADMIN    # claim.roles에 이 값 있으면 platform_admin
+
+mock:                                     # auth_mode=mock일 때만 사용 (dev)
+  default_user:
+    user_id: dev-user-001
+    tenant_id: security
+    roles: ["USER", "ADMIN"]
+    clearance: confidential
+    department: security
+    domain_groups: ["group:security", "group:it-admin"]
+    preferred_username: dev_user
+    email: dev@example.com
+
+  # 운영 환경에서 mock 거부
+  forbid_in_production: true
+
+oauth2_callback:
+  # Frontend가 SSO 로그인 후 도착할 path. 최종 redirect_uri는 app_base_url + redirect_path.
+  redirect_path: /auth/callback
+  app_base_url: ${APP_BASE_URL:-http://localhost:3000}
+
+token_storage:
+  frontend: httponly_secure_cookie       # ADR-016
+  cookie_name_access: domainrag_access
+  cookie_name_refresh: domainrag_refresh
+  access_ttl_minutes: 15
+  refresh_ttl_days: 7

@@ -1,0 +1,197 @@
+# 평가 설정
+# RAG 시스템 성능 평가 및 모니터링 설정
+
+# 평가 활성화
+enabled: true                       # 평가 기능 활성화
+
+# 평가 메트릭
+metrics:
+  # 정확성 메트릭
+  accuracy:
+    enabled: true
+    threshold: 0.8                  # 최소 정확도 임계값
+
+  # 완전성 메트릭
+  completeness:
+    enabled: true
+    threshold: 0.7                  # 최소 완전성 임계값
+
+  # 관련성 메트릭
+  relevance:
+    enabled: true
+    threshold: 0.75                 # 최소 관련성 임계값
+
+  # Citation 정확성
+  citation_accuracy:
+    enabled: true
+    threshold: 0.9                  # Citation 정확도 임계값
+
+  # 응답 시간
+  response_time:
+    enabled: true
+    max_time: 5.0                   # 최대 응답 시간 (초)
+    warning_time: 2.0               # 경고 시간 (초)
+
+# 평가 데이터셋
+datasets:
+  # 내부 평가 데이터
+  internal:
+    path: "data/evaluation/internal.jsonl"
+    format: "jsonl"
+    fields:
+      question: "question"
+      expected_answer: "expected_answer"
+      context: "context"
+      metadata: "metadata"
+
+  # 공개 벤치마크 (선택사항)
+  public:
+    enabled: false
+    datasets:
+      - name: "squad"
+        subset: "validation"
+      - name: "natural_questions"
+        subset: "validation"
+
+# 평가 실행 설정
+execution:
+  batch_size: 10                    # 배치 크기
+  parallel_workers: 4               # 병렬 작업자 수
+  timeout: 30                       # 평가 타임아웃 (초)
+  retries: 3                        # 재시도 횟수
+  save_results: true                 # 결과 저장
+  results_path: "data/evaluation/results"
+
+# 자동 평가 설정
+auto_evaluation:
+  enabled: true                     # 자동 평가 활성화
+  schedule: "0 */4 * * *"           # 크론 스케줄 (4시간마다)
+  sample_size: 100                  # 샘플 크기
+  alert_threshold: 0.1              # 알림 임계값 (성능 저하 10%)
+
+# 수동 평가 설정
+manual_evaluation:
+  enabled: true                     # 수동 평가 활성화
+  annotators_required: 2            # 필요한 평가자 수
+  consensus_threshold: 0.8          # 합의 임계값
+  review_queue_size: 50             # 검토 큐 크기
+
+# 평가 메트릭 계산
+calculations:
+  # BLEU 스코어
+  bleu:
+    enabled: true
+    n_gram: 4                      # n-gram 크기
+
+  # ROUGE 스코어
+  rouge:
+    enabled: true
+    rouge_types: ["rouge1", "rouge2", "rougeL"]
+
+  # BERTScore
+  bertscore:
+    enabled: false                  # 계산 비용 높음
+    model: "bert-base-multilingual-cased"
+    device: "cpu"
+
+  # 사용자 만족도 (수동)
+  user_satisfaction:
+    enabled: true
+    scale: 5                        # 1-5점 척도
+    questions:
+      - "답변이 정확했나요?"
+      - "답변이 완전했나요?"
+      - "답변이 이해하기 쉬웠나요?"
+      - "Citation이 도움이 되었나요?"
+
+# 모니터링 및 알림
+monitoring:
+  enabled: true                     # 모니터링 활성화
+  dashboard_enabled: true           # 대시보드 활성화
+  alert_enabled: true               # 알림 활성화
+
+  # 알림 설정
+  alerts:
+    performance_drop:
+      enabled: true
+      threshold: 0.05               # 성능 저하 임계값 (5%)
+      channels: ["email", "slack"]
+
+    high_error_rate:
+      enabled: true
+      threshold: 0.1                # 오류율 임계값 (10%)
+      channels: ["email"]
+
+    slow_response:
+      enabled: true
+      threshold: 3.0                # 느린 응답 임계값 (초)
+      channels: ["slack"]
+
+# 보고서 생성
+reporting:
+  enabled: true                     # 보고서 생성 활성화
+  schedule: "0 9 * * 1"             # 매주 월요일 9시
+  formats: ["html", "pdf", "json"]
+  recipients: []                    # 보고서 수신자
+
+  # 보고서 내용
+  report_sections:
+    - performance_trends
+    - error_analysis
+    - user_feedback
+    - system_health
+    - recommendations
+
+# A/B 테스트 설정
+ab_testing:
+  enabled: false                    # A/B 테스트 활성화
+  variants:
+    - name: "baseline"
+      weight: 0.5
+      config: "configs/models.yaml"
+    - name: "experimental"
+      weight: 0.5
+      config: "configs/models_experimental.yaml"
+
+  metrics:
+    - response_time
+    - user_satisfaction
+    - accuracy
+
+# 데이터 수집
+data_collection:
+  enabled: true                     # 데이터 수집 활성화
+  anonymize: true                   # 익명화
+  retention_days: 365               # 보존 기간 (일)
+
+  # 수집 항목
+  collect:
+    queries: true                   # 쿼리 수집
+    responses: true                 # 응답 수집
+    feedback: true                  # 피드백 수집
+    performance: true               # 성능 메트릭 수집
+    errors: true                    # 오류 수집
+
+# 품질 게이트
+quality_gates:
+  enabled: true                     # 품질 게이트 활성화
+  deployment_block: true            # 배포 차단
+
+  gates:
+    accuracy_gate:
+      metric: "accuracy"
+      operator: ">="
+      threshold: 0.8
+      description: "정확도가 80% 이상이어야 함"
+
+    citation_gate:
+      metric: "citation_accuracy"
+      operator: ">="
+      threshold: 0.9
+      description: "Citation 정확도가 90% 이상이어야 함"
+
+    performance_gate:
+      metric: "response_time_p95"
+      operator: "<="
+      threshold: 3.0
+      description: "95% 응답 시간이 3초 이내여야 함"

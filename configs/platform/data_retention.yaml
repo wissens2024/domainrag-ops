@@ -1,0 +1,41 @@
+# ============================================================================
+# Data Retention 정책 (ADR-020)
+# ============================================================================
+schema_version: 1
+
+chat_logs:
+  default_retention_days: 90
+  per_tenant_override: true              # tenant overrides에서 조정 가능
+  pii_masked_after_days: 7               # 7일 후 input_pii_found 원문은 마스킹된 form만
+
+documents:
+  retention_policy: indefinite           # ADR-012 별도 정책
+
+indexing_jobs:
+  retention_days: 30
+
+conversations:
+  retention_days: 365                    # 사용자 대화 1년 보관
+
+# 컴플라이언스 모드별 override (ADR-020 §10)
+compliance_modes:
+  standard:                              # 기본
+    chat_logs_retention_days: 90
+    pii_storage_policy: mask
+    right_to_erasure: false
+
+  gdpr_strict:
+    chat_logs_retention_days: 30
+    pii_storage_policy: mask
+    right_to_erasure: true
+
+  hipaa_strict:
+    chat_logs_retention_days: 60         # HIPAA 6년 minimum이지만 도메인 정책에 따름
+    pii_storage_policy: mask
+    right_to_erasure: false              # HIPAA는 retention 의무
+
+# Cron 실행 시각 (월별)
+archival_schedule:
+  cron: "0 3 1 * *"                       # 매월 1일 03:00 KST
+  archive_to: minio_cold                  # MinIO cold prefix
+  delete_after_archive: true

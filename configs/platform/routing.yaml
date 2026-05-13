@@ -1,0 +1,62 @@
+# ============================================================================
+# Platform-level Routing 룰 (ADR-013)
+# ============================================================================
+# 평가 순서: 위에서 아래로 첫 매칭. tenant overrides가 더 위에 삽입 가능.
+schema_version: 1
+
+default:
+  model: tenant_slm
+  use_lora: true
+  use_rag: true
+  ui_mode: chat_structured
+
+rules:
+  - name: free_chat_streaming
+    when:
+      query_type: free_chat
+    use_model: tenant_slm
+    use_lora: false
+    use_rag: false
+    ui_mode: chat_streaming               # citation 비활성
+
+  - name: simple_document_qa
+    when:
+      query_type: document_qa
+      complexity: low
+    use_model: tenant_slm
+    use_lora: true
+    use_rag: true
+    ui_mode: chat_structured
+
+  - name: synthesis_answer
+    when:
+      support_type: synthesis
+      complexity: medium
+    use_model: tenant_slm
+    use_lora: true
+    use_rag: true
+    ui_mode: chat_structured
+
+  - name: inference_answer
+    when:
+      support_type: inference
+      complexity: high
+    use_model: shared_llm                 # 큰 모델 (ADR-010 inference 검증 부담 ↑)
+    use_lora: false
+    use_rag: true
+    ui_mode: chat_structured
+    require_judge: true
+
+  - name: assessment_generation
+    when:
+      query_type: assessment_generation
+    use_model: shared_llm
+    use_lora: false
+    use_rag: true
+    ui_mode: chat_structured
+    require_similarity_check: true        # ADR-014
+
+  - name: low_retrieval_confidence
+    when:
+      retrieval_confidence_below: 0.35    # Gate 1 직접 fallback (citation.yaml과 별도 트리거)
+    action: fallback_refusal              # 모델 호출 skip

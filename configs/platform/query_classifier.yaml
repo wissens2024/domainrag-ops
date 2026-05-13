@@ -1,0 +1,47 @@
+# ============================================================================
+# Query Classifier 룰 (ADR-013 §3)
+# ============================================================================
+# 2-tier classifier:
+#   Tier 1: 빠른 룰 기반 (정규식·키워드)
+#   Tier 2: LLM-based 분류 (Tier 1 매칭 안 될 때만)
+schema_version: 1
+
+# Tier 1 룰: 정규식 매칭 시 즉시 결정
+tier1:
+  - name: greeting
+    patterns: ["^(안녕|반가|hi|hello)"]
+    query_type: free_chat
+    complexity: trivial
+
+  - name: synthesis_pattern
+    patterns:
+      - "비교|차이|종합|총합|요약"
+      - "각각 어떤"
+    query_type: document_qa
+    support_type: synthesis
+    complexity: medium
+
+  - name: inference_pattern
+    patterns:
+      - "허용되는가|가능한가|문제없|괜찮"
+      - "이 경우|만약|가정하면"
+    query_type: document_qa
+    support_type: inference
+    complexity: high
+
+  - name: assessment_request
+    patterns:
+      - "출제|문제 만들|문제 생성"
+    query_type: assessment_generation
+    complexity: high
+
+# Tier 2: LLM 호출로 분류 (Tier 1 매칭 안 될 때)
+tier2:
+  enable: true
+  endpoint: tenant_slm                   # 분류용 가벼운 호출
+  prompt_path: configs/platform/prompts/query_classifier_tier2.yaml
+  timeout_seconds: 5
+  fallback_decision:                     # LLM 실패 시 default
+    query_type: document_qa
+    support_type: direct
+    complexity: medium

@@ -1,0 +1,63 @@
+# Scenario B — Qwen2.5-7B 단일 모델 운영 (운영 기본값)
+#
+# 상태: ACCEPTED (2026-05-12, ADR-019 §3·§4 재조정 후 운영 기본값으로 격상)
+#
+# 174번 4장(Ollama / Tenant+Shared 통합 vLLM ×2 / Embedding+Reranker)만으로 모든
+# DomainRAG 워크로드 수용. Tenant SLM + Shared LLM 모두 동일 7B-AWQ endpoint를 가리킴.
+# Tenant 측은 LoRA per-request로 도메인 차별화, Shared 측은 LoRA 없이 baseline system
+# prompt로 judge/rewrite/fallback 담당.
+#
+# 효과:
+#   - 모델 weight 다운로드/관리 1종 단일화
+#   - judge·query_rewrite 일관성 ↑ (같은 base model)
+#   - 174 4장 + 115 GPU 미사용으로 WiSentinel GS/CC 격리 충돌 0
+#
+# 트레이드오프 (ADR-019 §Consequences 부정적 영향):
+#   - reasoning 무거운 inference judge에서 14B 대비 5-10%p 정확도 손실 가능
+#     → tools/eval_compare.py로 사전 검증 의무 (citation_accuracy / unsupported_ratio)
+#   - 단일 vLLM instance 장애 시 모든 LLM 호출 차단 (HA 없음)
+#   - judge/user chat이 같은 큐 공유 — tail latency 증가 가능
+schema_version: 1
+scenario_id: B
+scenario_label: "Qwen2.5-7B-AWQ 단일 (운영 기본)"
+default: true
+
+endpoints:
+  # 174 GPU 1+2의 단일 vLLM instance를 두 endpoint가 alias로 사용 (ADR-019 §3·§4).
+  tenant_slm:
+    base_url_env: TENANT_SLM_BASE_URL      # http://174.local:8000/v1
+    backend: vllm
+    base_model: Qwen2.5-7B-Instruct-AWQ    # AWQ 4-bit + multi-LoRA
+    quantization: awq
+    multi_lora: true
+    max_loras: 8
+    tensor_parallel_size: 2
+    gpu_memory_utilization: 0.85
+    max_concurrent_requests: 64
+    timeout_seconds: 30
+
+  shared_llm:
+    base_url_env: SHARED_LLM_BASE_URL      # tenant_slm과 동일 (alias)
+    backend: vllm
+    base_model: Qwen2.5-7B-Instruct-AWQ
+    quantization: awq
+    multi_lora: false                      # judge용은 LoRA 없는 baseline
+    tensor_parallel_size: 2
+    gpu_memory_utilization: 0.85
+    max_concurrent_requests: 32
+    timeout_seconds: 60
+    note: "tenant_slm alias — 별도 vLLM instance 아님"
+
+inference_judge:
+  endpoint: shared_llm                     # 같은 7B가 judge — 추론 품질을 prompt로 보정
+  prompt_path: configs/platform/prompts/inference_judge.yaml
+  # 시나리오 B는 judge에서 reasoning이 약하므로 temperature 더 낮게
+  temperature_override: 0.05
+
+fallback_chain:
+  tenant_slm:
+    - tenant_slm_no_lora                   # 같은 7B base를 LoRA 없이 재시도
+    - shared_llm                           # 결국 같은 모델 — 다른 prompt context로 1회 더
+    - "fallback_response"
+  shared_llm:
+    - "fallback_response"

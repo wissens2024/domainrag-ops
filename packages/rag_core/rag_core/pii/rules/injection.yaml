@@ -1,0 +1,40 @@
+# ============================================================================
+# Prompt Injection 방어 룰 (ADR-020)
+# ============================================================================
+# 검출 시 chunk score penalty 또는 chunk 제외 (운영 정책 별도)
+rules:
+  - category: prompt_injection
+    severity: medium
+    pattern: '(?i)ignore\s+previous\s+instructions'
+    mask: "<injection-masked>"
+
+  - category: prompt_injection
+    severity: medium
+    pattern: '(?i)disregard\s+system\s+message'
+    mask: "<injection-masked>"
+
+  - category: prompt_injection
+    severity: medium
+    pattern: '(?i)reveal\s+system\s+prompt'
+    mask: "<injection-masked>"
+
+  - category: prompt_injection
+    severity: medium
+    pattern: '(?i)developer\s+message'
+    mask: "<injection-masked>"
+
+  # 한국어
+  - category: prompt_injection
+    severity: medium
+    pattern: '(이전|위)\s*(지시|명령|규칙|시스템\s*프롬프트)\s*(을|를)?\s*(무시|잊|덮어쓰)'
+    mask: "<injection-masked>"
+
+  - category: prompt_injection
+    severity: medium
+    pattern: '시스템\s*프롬프트\s*(를)?\s*출력'
+    mask: "<injection-masked>"
+
+  - category: prompt_injection
+    severity: medium
+    pattern: '권한\s*(을)?\s*우회'
+    mask: "<injection-masked>"

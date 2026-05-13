@@ -1,0 +1,44 @@
+# ============================================================================
+# Platform-level Lifecycle 정책 (ADR-012)
+# ============================================================================
+schema_version: 1
+
+reupload:
+  on_same_hash_same_doc_id_same_version: idempotent_noop   # ADR-012 ③-1
+  on_diff_hash_same_doc_id_same_version: reject_409        # 명시적 version up 강제
+
+versioning:
+  on_version_promote:                    # v1 → v2 활성 시
+    v_old_action: valid_until_set        # hard delete 안 함, valid_until 만료
+    keep_in_search: false                # valid_until 필터로 자동 제외
+  audit_replay_source: chat_logs.excerpt # ADR-005/010
+
+partial_failure:
+  chunk_level_commit: true
+  retry_max: 3
+  failure_rate_fail_fast: 0.30           # 30% 이상 실패 시 전체 rollback
+
+deletion:
+  default: soft_delete                   # documents.approval_status='archived'
+  hard_delete_admin_api: true            # platform_admin 한정
+  hard_delete_chat_logs_default: keep_excerpts  # keep_excerpts | mask_excerpts | delete_logs
+
+approval:
+  on_change: payload_only_sync           # chunks UPDATE + Qdrant set_payload (reindex 0)
+
+embedding_migration:                     # ADR-019 §5 워크플로우
+  enable_admin_toggle: false             # 단순 toggle 금지, 명시적 워크플로우만
+  alias_swap_atomic: true
+  old_collection_hold_days: 30
+  evaluation_required_before_swap: true
+
+archival:
+  chunks_archive_days: 90                # ADR-012 chunks archival
+  chat_logs_partition_unit: month        # ADR-019 §2
+  indexing_jobs_retention_days: 30
+
+reindex_modes:                           # ADR-012 4-mode reindex
+  parser_only: true                      # parser 변경만 재실행 (chunk_index 그대로)
+  chunk_re_split: true                   # chunker 재실행 (parser 출력 재사용)
+  embedding_only: true                   # vectors만 재생성
+  full: true                             # 전체 재실행

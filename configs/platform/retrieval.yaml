@@ -1,0 +1,50 @@
+# ============================================================================
+# Platform-level Retrieval 정책 (ADR-011 v2)
+# ============================================================================
+schema_version: 1
+
+hybrid:
+  fusion: dbsf                          # dbsf | rrf | weighted_sum (ADR-006/011)
+  weights:
+    dense: 0.5
+    sparse: 0.5
+
+top_k:
+  dense: 30                             # prefetch
+  sparse: 30                            # prefetch
+  fused: 50                             # DBSF 결과
+  rerank: 10                            # cross-encoder 재정렬 후
+  context: 5                            # LLM에 전달
+
+embedding:
+  model: bge-m3
+  dense_dim: 1024
+  base_url_env: EMBEDDING_SERVER_URL    # .env에서 읽음
+
+reranker:
+  model: bge-reranker-v2-m3
+  base_url_env: RERANKER_SERVER_URL
+  enable: true                          # tenant 별 override 가능 (per-tenant disable)
+
+query_rewriting:                        # ADR-011 §5 — tenant overrides로 활성화
+  enable: false                         # 기본 false (도메인 평가 후 활성화)
+  strategy: none                        # none | hyde | llm_expand
+  llm:
+    endpoint: tenant_slm                # tenant_slm | shared_llm
+    max_tokens: 256
+    temperature: 0.3
+  hyde:
+    instruction: "이 질문에 답할 때 적절한 가상 문서를 한 문단으로 작성하시오."
+  llm_expand:
+    instruction: "이 질문의 핵심 키워드와 동의어·관련어를 추출하시오."
+    max_terms: 8
+  prompt_yaml: configs/platform/prompts/query_rewrite.yaml
+
+acl_filter:
+  apply_at: prefetch_and_fusion         # ADR-011 §9 — 두 단계 모두 적용
+
+availability:
+  qdrant_timeout_seconds: 5
+  embedding_timeout_seconds: 3
+  reranker_timeout_seconds: 5
+  on_qdrant_unavailable: fallback_503   # ADR-011 가용성 실패 핸들링

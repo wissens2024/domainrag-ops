@@ -1,0 +1,149 @@
+# ============================================================================
+# DomainRAG Ops — 로컬 개발용 docker-compose
+# ============================================================================
+# 운영 환경:
+#   - PostgreSQL은 115번 기존 인스턴스 사용 (ADR-019). 본 compose는 dev 전용.
+#   - vLLM·Embedding·Reranker는 174번/115번 GPU 서버에서 별도 운영 (compose 외).
+#   - AuthFusion·KeyHub은 외부 의존 — compose에서 띄우지 않음.
+#
+# 사용법:
+#   cd infra && docker-compose up -d
+# ============================================================================
+
+services:
+  postgres:
+    # 운영에서는 115번 기존 인스턴스 재사용. 본 컨테이너는 dev 전용.
+    image: postgres:16-alpine
+    container_name: domainrag-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./volumes/postgres:/var/lib/postgresql/data
+      - ./scripts/init_postgres.sh:/docker-entrypoint-initdb.d/01_init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:v1.11.0
+    container_name: domainrag-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./volumes/qdrant:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/readyz | grep -q ok || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:RELEASE.2024-08-17T01-24-54Z
+    container_name: domainrag-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: changeme_minio
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Console UI
+    volumes:
+      - ./volumes/minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    # bucket·prefix 초기화
+    image: minio/mc:RELEASE.2024-08-17T11-33-50Z
+    container_name: domainrag-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/scripts/init_minio.sh"]
+    volumes:
+      - ./scripts/init_minio.sh:/scripts/init_minio.sh:ro
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: changeme_minio
+      MINIO_BUCKET: domainrag
+    restart: "no"
+
+  redis:
+    # ADR-020 WiSentinel audit publish용 (선택). 본 dev compose에서는 함께 띄움.
+    image: redis:7-alpine
+    container_name: domainrag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./volumes/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../infra/docker/Dockerfile.backend
+    container_name: domainrag-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    env_file:
+      - ../.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../backend:/app
+      - ../packages:/packages
+      - ../configs:/configs:ro
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../infra/docker/Dockerfile.frontend
+    container_name: domainrag-frontend
+    depends_on:
+      - backend
+    env_file:
+      - ../.env
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+
+# ----------------------------------------------------------------------------
+# 외부 운영 시스템 (compose에서 띄우지 않음, 참고용)
+# ----------------------------------------------------------------------------
+# AuthFusion SSO  : http://115.local:8081  (ADR-018)
+# AuthFusion KeyHub: http://115.local:8085 (ADR-019)
+# AuthFusion Ledger: http://115.local:8089 (ADR-020)
+# WiSentinel       : http://115.local:8080 (ADR-020 룰만 사용, 직접 호출 X)
+# Tenant SLM vLLM  : http://115.local:8000/v1 (Qwen 7B + multi-LoRA)
+# Shared LLM vLLM  : http://174.local:8001/v1 (Qwen 14B+)
+# Embedding TEI    : http://174.local:8002    (bge-m3)
+# Reranker         : http://174.local:8003    (bge-reranker-v2-m3)
+# Ollama Vision    : http://174.local:11434   (Qwen Vision, 공유)

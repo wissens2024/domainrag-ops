@@ -1,0 +1,34 @@
+# ============================================================================
+# Platform-level Audit (ADR-020)
+# ============================================================================
+schema_version: 1
+
+# AuthFusion Ledger (ADR-020 §8) — DomainRAG 보안 이벤트 publish
+authfusion_ledger:
+  enable: false                          # 운영 시작 시 true
+  endpoint_env: LEDGER_ENDPOINT
+  api_key_keyhub_ref: keyhub://domainrag/authfusion-ledger-token
+  events:
+    - auth_failure
+    - tenant_mismatch
+    - hard_delete
+    - platform_admin_action
+    - config_change_breaking
+    - pii_high_severity_block
+
+# WiSentinel audit:capture Redis publish (ADR-020 §7) — 선택적
+wisentinel:
+  enable: false                          # WiSentinel 운영 환경에서만 true
+  redis_url_env: WISENTINEL_REDIS_URL
+  publish_channel: audit:capture
+  publish_events:
+    - chat_response
+    - pii_detection
+    - fallback_triggered
+  payload_format: wisentinel_v1
+
+# 자체 chat_logs는 항상 PostgreSQL에 보관
+chat_logs_persistence:
+  enable: true
+  table: chat_logs
+  partitioning: month                    # ADR-019 §2

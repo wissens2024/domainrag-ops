@@ -1,0 +1,88 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+.swc/
+
+# Frontend build artifacts
+frontend/.next/
+frontend/out/
+
+# Backend
+backend/.pytest_cache/
+backend/htmlcov/
+
+# Models & weights (대용량, KeyHub로 보관)
+models/
+*.bin
+*.safetensors
+*.gguf
+*.pt
+*.pth
+
+# LoRA adapters (KeyHub envelope-encrypted)
+adapters/raw/
+adapters/decrypted/
+
+# Data
+data/eval/.cache/
+data/raw/
+data/processed/
+
+# Logs
+*.log
+logs/
+
+# Docker volumes (local dev)
+infra/volumes/
+
+# Database backup
+*.sql.gz
+*.dump
+
+# Secrets (절대 commit 금지)
+*.key
+*.pem
+*.crt
+keyhub-tokens.txt

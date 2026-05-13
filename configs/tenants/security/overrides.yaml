@@ -1,0 +1,29 @@
+# ============================================================================
+# Security tenant overrides (configs/platform/* 기본값에서 변경할 항목만)
+# ============================================================================
+schema_version: 1
+
+# 보안 도메인은 정확 키워드 비중을 약간 더 (법규·조항 검색)
+retrieval:
+  hybrid:
+    weights:
+      dense: 0.45
+      sparse: 0.55
+
+# 보안 답변은 직접 인용 비중을 높여 신뢰도 우선
+citation:
+  verification:
+    tier2:
+      thresholds:
+        strong: 0.78                     # 약간 엄격
+  citation_types:
+    inference:
+      judge_min_confidence: 0.7          # 보안 도메인은 추론 검증 더 엄격
+
+# 보관 기간 — 보안 사고 조사 대비 더 길게
+data_retention:
+  chat_logs:
+    retention_days: 180
+
+# 컴플라이언스
+compliance_mode: gdpr_strict             # 개인정보 포함 가능성 높음

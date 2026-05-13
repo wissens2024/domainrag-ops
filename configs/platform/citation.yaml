@@ -1,0 +1,89 @@
+# ============================================================================
+# Platform-level Citation 정책 (ADR-010 v2)
+# ============================================================================
+# 모든 tenant의 기본값. tenant overrides는 configs/tenants/<tenant_id>/overrides.yaml.
+# 변경 시 schema_version 올리고 ADR-009 §4 schema migration 절차 따름.
+
+schema_version: 1
+
+claim_extraction:
+  strategy: hybrid                    # hybrid | structured | heuristic
+  schema_path: configs/platform/prompts/answer_schema.json
+  heuristic:
+    sentence_splitter: kiwi           # kiwi | kss
+    cover_window: 1                   # 마커 직전 N문장을 claim으로
+
+verification:
+  tier1:
+    enable: true                       # marker 정합성 (deterministic)
+  tier2:
+    enable: true
+    embedding_model: bge-m3            # chunk indexing과 동일해야 함 (ADR-011)
+    similarity_metric: cosine
+    thresholds:
+      strong: 0.75
+      medium: 0.55                     # 미달 시 weak로 분류, marker 제거
+  tier3:
+    enable: true
+    unsupported_action: annotate       # annotate | strict | regenerate_then_annotate
+    factual_heuristic:                 # heuristic 모드에서만 사용
+      min_length: 15
+      exclude_patterns:
+        - "^(안녕|감사|죄송)"
+        - "^(네|예|아니)"
+  conflict_detection:                  # ADR-010 §7
+    primary: llm_explicit              # LLM이 support_type=conflict + conflict_groups 직접 지정
+    heuristic:
+      enable: true                     # secondary 휴리스틱 활성화
+      patterns:
+        - date_diff                    # YYYY-MM-DD / YYYY년 MM월 DD일
+        - numeric_diff                 # <숫자>(일|개월|년|자|회|원|건|점|시간|분|명|권)
+        - rule_id_diff                 # 제N조(제N항)? / Article N / Sec. N
+
+# ADR-010 4-type citation 정책
+citation_types:
+  direct:
+    require_verified: true
+  synthesis:
+    min_chunks: 2
+    max_chunks: 5
+    require_all_verified: true         # 모든 인용 chunk가 verified여야 함
+  inference:
+    require_judge: true                # LLM-as-judge 필수
+    judge_endpoint: shared_llm
+    judge_min_confidence: 0.6
+    judge_max_attempts: 1              # judge 1회 호출, 실패 시 fallback
+    require_caveat: true               # 응답에 caveat 명시 의무
+  conflict:
+    detect_strategy: heuristic         # heuristic (룰 기반) — Phase 2에 LLM judge 추가 검토
+    min_groups: 2
+
+gates:
+  retrieval:                            # Gate 1 (LLM 호출 전)
+    min_top1_rerank: 0.6
+    min_strong_chunks: 2
+    strong_chunk_threshold: 0.5
+  generation:                           # Gate 2 (verify 후)
+    min_verified_count: 1
+    max_unsupported_ratio: 0.5
+    min_confidence: 0.5
+
+confidence_weights:                     # 합 = 1.0
+  retrieval: 0.30                       # normalize(top1_rerank_score)
+  verified:  0.30                       # verified_count / max(marker_count, 1)
+  supported: 0.20                       # 1 - unsupported_claim_ratio
+  coverage:  0.20                       # 답변 segment 중 citation 매핑 비율
+
+fallback:
+  near_misses_top_k: 3
+  suggested_actions:
+    - "더 구체적인 키워드로 다시 질문해 보세요."
+    - "관련 부서에 직접 문의하세요."
+  retry_after_seconds: 60               # 503 fallback 시 retry 안내
+
+ui_rendering:
+  marker_separation: true               # citations: [1,3] → "[1][3]" 분리 표기
+  medium_hover_warning: true
+  weak_remove: true
+  unsupported_inline_marker: "⚠"
+  inference_marker: "🔍"

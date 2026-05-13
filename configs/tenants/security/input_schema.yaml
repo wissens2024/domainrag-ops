@@ -1,0 +1,93 @@
+# ============================================================================
+# Security Tenant — Input Schema (ADR-015)
+# ============================================================================
+# 보안 도메인의 input_type 정의. common_fields.yaml을 상속하고 도메인 필드 추가.
+schema_version: 1
+status: active                            # active | deprecated | archived
+inherits: configs/platform/common_fields.yaml
+
+input_types:
+
+  # ----------------------------------------------------------------------------
+  # 보안 정책 문서 (매뉴얼·지침·절차서)
+  # ----------------------------------------------------------------------------
+  policy_document:
+    display_name: 보안 정책 문서
+    domain_fields:
+      policy_id:
+        type: string
+        pattern: "^SEC-POL-[0-9]{3,}$"
+        required: true
+        ui:
+          label: 정책 ID
+          placeholder: "SEC-POL-001"
+
+      policy_type:
+        type: string
+        enum:
+          - data_export
+          - access_control
+          - incident_response
+          - asset_management
+          - audit
+        required: true
+        ui:
+          label: 정책 유형
+          widget: select
+
+      department:
+        type: string
+        enum: [security, it, hr, legal, finance]
+        required: true
+
+      authority_rank:
+        type: integer
+        minimum: 0
+        maximum: 100
+        default: 50
+        description: 충돌 시 우선순위 (높을수록 우선)
+        ui:
+          label: 권위 순위
+          widget: slider
+
+      effective_date:
+        type: string
+        format: date
+        required: true
+
+      revision_date:
+        type: string
+        format: date
+
+      supersedes:
+        type: array
+        items: {type: string}
+        description: 이 문서가 대체하는 이전 정책 IDs
+
+      related_procedures:
+        type: array
+        items: {type: string}
+
+  # ----------------------------------------------------------------------------
+  # 보안 사고 사례
+  # ----------------------------------------------------------------------------
+  incident_case:
+    display_name: 보안 사고 사례
+    domain_fields:
+      incident_id:
+        type: string
+        pattern: "^INC-[0-9]{4}-[0-9]{4}$"
+        required: true
+      severity:
+        type: string
+        enum: [low, medium, high, critical]
+        required: true
+      occurred_at:
+        type: string
+        format: date-time
+        required: true
+      affected_systems:
+        type: array
+        items: {type: string}
+      lessons_learned:
+        type: string
