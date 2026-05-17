@@ -1,0 +1,148 @@
+# ============================================================================
+# exam-engineer Tenant — Input Schema (ADR-015)
+# ----------------------------------------------------------------------------
+# 정보처리기사(국가기술자격) 도메인. 학습자료(이론서/해설서)와 문제은행(item) 2종 입력.
+# 문제은행은 ADR-014 assessment 워크플로우로 별도 처리 — 본 schema는 *학습자료 업로드*
+# 용 input_type. 시험 문제 자체는 admin UI의 Assessment Console에서 직접 등록.
+# ============================================================================
+schema_version: 1
+status: active
+inherits: configs/platform/common_fields.yaml
+
+input_types:
+
+  # --------------------------------------------------------------------------
+  # 이론서·교재 (RAG 학습자료 — chunking 대상)
+  # --------------------------------------------------------------------------
+  textbook:
+    display_name: 이론서·교재
+    domain_fields:
+      subject:
+        type: string
+        enum:
+          - software_design        # 소프트웨어 설계
+          - software_dev           # 소프트웨어 개발
+          - database               # 데이터베이스 구축
+          - programming            # 프로그래밍 언어 활용
+          - info_system            # 정보시스템 구축관리
+        required: true
+        ui:
+          label: 과목
+          widget: select
+
+      chapter:
+        type: string
+        required: true
+        ui:
+          label: 단원
+          placeholder: "예: 소프트웨어 아키텍처"
+
+      edition:
+        type: string
+        description: 판본(예 2024년 개정판)
+        ui:
+          label: 판본
+          placeholder: "2026년 개정판"
+
+      publisher:
+        type: string
+        ui:
+          label: 출판사
+
+      coverage_year:
+        type: integer
+        minimum: 2010
+        maximum: 2030
+        description: 본 자료가 다루는 출제 기준 연도
+
+      curriculum_revision:
+        type: string
+        description: 출제기준 개정 버전
+        ui:
+          label: 출제기준
+          placeholder: "2025년 개정 출제기준"
+
+  # --------------------------------------------------------------------------
+  # 기출 해설서 (RAG 학습자료 — 풀이 과정 chunking)
+  # --------------------------------------------------------------------------
+  past_exam_explanation:
+    display_name: 기출 해설서
+    domain_fields:
+      exam_year:
+        type: integer
+        minimum: 2000
+        maximum: 2030
+        required: true
+        ui:
+          label: 시행년도
+
+      exam_round:
+        type: integer
+        minimum: 1
+        maximum: 4
+        required: true
+        ui:
+          label: 회차
+          placeholder: "1 (1회), 2 (2회), 3 (3회)"
+
+      exam_type:
+        type: string
+        enum: [written, practical]    # 필기 / 실기
+        required: true
+        ui:
+          label: 시험구분
+
+      subject:
+        type: string
+        enum:
+          - software_design
+          - software_dev
+          - database
+          - programming
+          - info_system
+        required: true
+
+      question_range:
+        type: string
+        description: 본 해설서가 다루는 문항 범위 (예 "1번~20번")
+        ui:
+          label: 문항 범위
+
+  # --------------------------------------------------------------------------
+  # 학습 가이드·요약 (RAG 학습자료)
+  # --------------------------------------------------------------------------
+  study_guide:
+    display_name: 학습 가이드·요약
+    domain_fields:
+      subject:
+        type: string
+        enum:
+          - software_design
+          - software_dev
+          - database
+          - programming
+          - info_system
+          - cross_subject              # 과목 통합
+        required: true
+
+      guide_type:
+        type: string
+        enum:
+          - summary                    # 핵심 요약
+          - flashcard                  # 암기 카드
+          - cheatsheet                 # 치트시트
+          - mindmap                    # 마인드맵
+        required: true
+
+      difficulty_level:
+        type: string
+        enum: [beginner, intermediate, advanced]
+        default: intermediate
+
+      estimated_study_minutes:
+        type: integer
+        minimum: 1
+        description: 예상 학습 시간(분)
+
+# Assessment 도메인의 시험 *문제 item* 등록은 본 input_schema가 아닌 별도 Assessment
+# Console에서 처리 (ADR-014). assessment_items 테이블 스키마는 ADR-014 §1 참조.

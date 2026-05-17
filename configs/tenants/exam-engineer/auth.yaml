@@ -1,0 +1,19 @@
+# ============================================================================
+# exam-engineer tenant — AuthFusion OAuth2 client 매핑 (ADR-018)
+# ----------------------------------------------------------------------------
+# AuthFusion에서 본 RP(`DomainRAG Ops`) client 등록 후 응답값을 채워 넣는다.
+# 등록 절차: docs/operations/exam-engineer-onboarding.md §1.
+#
+# AuthFusion `clientId`는 UUID로 자동 발급되므로 본 파일은 운영 등록 후 UUID 반영.
+# 그 전엔 placeholder 유지 — backend 부팅엔 영향 없으나 운영 SSO 전 반드시 갱신.
+# ============================================================================
+schema_version: 1
+
+# AuthFusion POST /api/v1/clients 응답의 `clientId` (UUID)
+# TODO(onboarding): AuthFusion 등록 후 실 UUID로 교체
+client_id: "TODO-authfusion-client-uuid-for-domainrag-ops"
+authfusion_client_id: "TODO-authfusion-client-uuid-for-domainrag-ops"
+
+# 이 tenant 한정 추가 admin role (있으면 nominal ADMIN 외 추가 권한 부여).
+# DomainRAG는 service-scoped role 표준 (`domainrag-ops-admin`)만 사용 — 빈 list.
+extra_admin_roles: []

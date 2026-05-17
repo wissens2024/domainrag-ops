@@ -1,0 +1,56 @@
+# ============================================================================
+# exam-engineer tenant overrides (configs/platform/* 기본값에서 변경할 항목만)
+# ----------------------------------------------------------------------------
+# 도메인: 정보처리기사 문제은행 (Assessment 워크플로우 — ADR-014)
+# 사용자: WiSentinel AI dev 부서 + DomainRAG 운영자(cs@wissensbaum.com)
+# ============================================================================
+schema_version: 1
+
+# Assessment 모듈 활성 — ADR-014 §1 별도 워크플로우 (시험 문제 추출·생성·검증).
+modules:
+  rag: true             # 학습자료/해설서 기반 RAG 답변
+  assessment: true      # 문제은행 (item) 별도 collection + workflow
+
+# 문제은행 검색은 정확 일치(키워드)가 중요 — sparse 비중 ↑ (ADR-011)
+# 한글 자격증 도메인에서 "과목명·챕터명" 같은 메타데이터 필터가 우선이므로
+# retrieval은 metadata filter 강화 + sparse 보조.
+retrieval:
+  hybrid:
+    weights:
+      dense: 0.40
+      sparse: 0.60
+  metadata_filters:
+    enabled: true                      # ADR-011 §6 bypass day-1 옵션
+    priority_keys: [subject, chapter, difficulty]
+
+# Citation은 시험 정답·해설의 직접 인용 우선 (시험 도메인에서 추론 인용은 위험)
+citation:
+  verification:
+    tier2:
+      thresholds:
+        strong: 0.80                   # 시험 답안은 엄격히
+  citation_types:
+    inference:
+      enabled: false                   # 시험 도메인은 추론 인용 비활성 — 정답은 명확해야 함
+    conflict:
+      enabled: true                    # 같은 문제의 다른 답변/해설 충돌 표면화
+
+# 라우팅 — 문제 생성 요청은 assessment 워크플로우로
+routing:
+  classifier_hints:
+    assessment_keywords:
+      - "문제 만들"
+      - "출제"
+      - "기출"
+      - "비슷한 문제"
+      - "유사 문제"
+
+# Assessment 도메인 데이터 보관
+data_retention:
+  chat_logs:
+    retention_days: 90                 # 운영 통계 한정
+  assessment_items:
+    retention_days: 0                  # 영구 보관 (시험 문제는 자산)
+
+# 컴플라이언스 — 시험 도메인은 PII 거의 없음, 기본 정책
+compliance_mode: standard
