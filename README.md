@@ -211,9 +211,9 @@ npm run dev
 
 ### 접속
 
-- 사용자 채팅: `http://localhost:3000/{tenant_id}/chat`
-- Tenant Admin: `http://localhost:3000/{tenant_id}/admin/dashboard`
-- Platform Admin: `http://localhost:3000/platform/admin/tenants`
+- 사용자 채팅: `http://localhost:3010/{tenant_id}/chat`
+- Tenant Admin: `http://localhost:3010/{tenant_id}/admin/dashboard`
+- Platform Admin: `http://localhost:3010/platform/admin/tenants`
 - API 문서 (OpenAPI): `http://localhost:8000/docs`
 
 ---

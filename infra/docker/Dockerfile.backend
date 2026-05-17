@@ -1,7 +1,5 @@
 FROM python:3.11-slim
 
-WORKDIR /app
-
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -17,12 +15,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip install poetry==$POETRY_VERSION
 
-COPY pyproject.toml ./
-COPY ../packages /packages
+# Build context = workspace root. rag-core는 backend/pyproject.toml의 path dep
+# (../packages/rag_core)로 참조되므로 컨테이너 안에서도 동일한 상대 경로가 필요하다.
+WORKDIR /workspace
+COPY packages /workspace/packages
+COPY backend /workspace/backend
 
+WORKDIR /workspace/backend
 RUN poetry install --no-interaction --no-ansi --without dev
-
-COPY . .
 
 EXPOSE 8000
 

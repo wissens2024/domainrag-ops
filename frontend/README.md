@@ -469,7 +469,8 @@ npm run lint
 npm run test
 ```
 
-서버: http://localhost:3000
+서버 (Docker compose 기준): http://localhost:3010 (호스트 매핑 — 컨테이너 내부는 :3000)
+서버 (로컬 `next dev` 직접 실행): http://localhost:3000
 
 ---
 

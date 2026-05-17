@@ -34,7 +34,7 @@ sudo systemctl reload nginx
 | `/api/{tenant_id}/chat/stream` | 127.0.0.1:8001 | SSE — `proxy_buffering off` |
 | `/api/*` | 127.0.0.1:8001 | FastAPI 일반 |
 | `/api/health` `/api/openapi.json` `/api/docs` `/api/redoc` | 127.0.0.1:8001 | 운영 진단 |
-| `/` (그 외 모든 path) | 127.0.0.1:3000 | Next.js — `/auth/callback`, `/{tenant_id}/chat` 등 |
+| `/` (그 외 모든 path) | 127.0.0.1:3010 | Next.js — `/auth/callback`, `/{tenant_id}/chat` 등 (호스트 3010, 컨테이너 내부 3000) |
 
 ## 검증
 

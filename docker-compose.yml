@@ -1,30 +1,20 @@
-version: '3.8'
+# ============================================================================
+# DomainRAG Ops — docker-compose
+# ============================================================================
+# 기본(`docker compose up`): postgres + qdrant + minio + backend + frontend.
+#   backend는 RAG_BACKEND=inmemory로 기동 — chat 데모는 vLLM 없이 동작한다.
+# GPU 프로필(`docker compose --profile gpu up`): + vllm + tei-embedder + tei-reranker.
+#   실제 GPU(174 서버) 운영 위에서만 의미가 있다.
+#
+# 자세한 결정 근거: ADR-019 §3·§4, ADR-021 §3 (Docker 시동 순서).
 
 services:
-  # Vector Database - Qdrant
-  qdrant:
-    image: qdrant/qdrant:v1.9.0
-    container_name: domainrag-qdrant
-    ports:
-      - "6333:6333"  # REST API
-      - "6334:6334"  # gRPC
-    volumes:
-      - qdrant_data:/qdrant/storage
-    environment:
-      - QDRANT__SERVICE__HTTP_PORT=6333
-      - QDRANT__SERVICE__GRPC_PORT=6334
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - domainrag-network
-
-  # Metadata Database - PostgreSQL (ADR-019 §2)
-  # POSTGRES_USER는 superuser로만 사용 — init_postgres.sql이 두 운영 role
-  # (domainrag_app / domainrag_platform_admin)을 생성한다. backend는 두 role을 사용해
-  # 접속(POSTGRES_USER=domainrag_app, POSTGRES_ADMIN_USER=domainrag_platform_admin).
+  # --------------------------------------------------------------------------
+  # 1. PostgreSQL (ADR-019 §2 two-role RLS)
+  # --------------------------------------------------------------------------
+  # POSTGRES_USER는 superuser 컨테이너 부트스트랩 전용. init_postgres.sql이
+  # 운영 role 두 개(domainrag_app / domainrag_platform_admin)를 별도 생성한다.
+  # backend는 두 role을 사용하므로 compose env의 POSTGRES_USER와는 별개다.
   postgres:
     image: postgres:16-alpine
     container_name: domainrag-postgres
@@ -36,49 +26,78 @@ services:
       - POSTGRES_PASSWORD=changeme_superuser
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infra/scripts/init_postgres.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./infra/scripts/init_postgres.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d domainrag"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - domainrag-network
+
+  # --------------------------------------------------------------------------
+  # 2. Qdrant (collection-per-tenant, named vectors dense+sparse)
+  # --------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.10.1
+    container_name: domainrag-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
     networks:
       - domainrag-network
 
-  # File Storage - MinIO
+  # --------------------------------------------------------------------------
+  # 3. MinIO (prefix-per-tenant)
+  # --------------------------------------------------------------------------
   minio:
     image: minio/minio:RELEASE.2024-04-06T05-26-02Z
     container_name: domainrag-minio
     ports:
-      - "9000:9000"  # API
-      - "9001:9001"  # Console
+      - "9000:9000"
+      - "9001:9001"
     environment:
       - MINIO_ROOT_USER=domainrag
-      - MINIO_ROOT_PASSWORD=domainrag123
-      - MINIO_SERVER_URL=http://localhost:9000
-      - MINIO_BROWSER_REDIRECT_URL=http://localhost:9001
+      - MINIO_ROOT_PASSWORD=changeme_minio_root
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
     networks:
       - domainrag-network
 
-  # LLM Serving - vLLM (OpenAI-compatible)
+  # --------------------------------------------------------------------------
+  # 4. vLLM — tenant_slm / shared_llm alias (ADR-019 §3·§4 통합 vLLM)
+  # --------------------------------------------------------------------------
+  # 단일 vLLM instance를 alias로 공유. multi-LoRA per-request로 tenant 분기.
+  # 운영(174 GPU 4장)에서는 별도 호스트, dev는 GPU 보유 시에만 --profile gpu로 활성.
   vllm:
-    image: vllm/vllm-openai:latest
+    image: vllm/vllm-openai:v0.6.3
     container_name: domainrag-vllm
+    profiles: ["gpu"]
     ports:
       - "8000:8000"
-    environment:
-      - MODEL=qwen2.5-7b-instruct
-      - TRUST_REMOTE_CODE=true
-      - MAX_MODEL_LEN=4096
-      - GPU_MEMORY_UTILIZATION=0.9
+    command:
+      - "--model=Qwen/Qwen2.5-7B-Instruct-AWQ"
+      - "--quantization=awq"
+      - "--tensor-parallel-size=2"
+      - "--gpu-memory-utilization=0.85"
+      - "--max-model-len=4096"
+      - "--enable-lora"
+      - "--max-loras=8"
+      - "--max-lora-rank=64"
+      - "--trust-remote-code"
     volumes:
       - vllm_cache:/root/.cache/huggingface
     deploy:
@@ -86,62 +105,142 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: 2
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
       interval: 60s
       timeout: 30s
       retries: 5
-      start_period: 120s
+      start_period: 180s
     networks:
       - domainrag-network
 
-  # Backend API - FastAPI
+  # --------------------------------------------------------------------------
+  # 5. TEI Embedder (bge-m3 dense+sparse)
+  # --------------------------------------------------------------------------
+  tei-embedder:
+    image: ghcr.io/huggingface/text-embeddings-inference:1.5
+    container_name: domainrag-tei-embedder
+    profiles: ["gpu"]
+    ports:
+      - "8082:80"
+    command: ["--model-id", "BAAI/bge-m3"]
+    volumes:
+      - tei_cache:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - domainrag-network
+
+  # --------------------------------------------------------------------------
+  # 6. TEI Reranker (bge-reranker-v2-m3)
+  # --------------------------------------------------------------------------
+  tei-reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:1.5
+    container_name: domainrag-tei-reranker
+    profiles: ["gpu"]
+    ports:
+      - "8083:80"
+    command: ["--model-id", "BAAI/bge-reranker-v2-m3"]
+    volumes:
+      - tei_cache:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - domainrag-network
+
+  # --------------------------------------------------------------------------
+  # 7. Backend — FastAPI + LangGraph
+  # --------------------------------------------------------------------------
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: infra/docker/Dockerfile.backend
     container_name: domainrag-backend
     ports:
       - "8001:8000"
     environment:
-      - ENVIRONMENT=development
-      - QDRANT_URL=http://qdrant:6333
-      - POSTGRES_URL=postgresql://domainrag:domainrag123@postgres:5432/domainrag
+      - ENV=development
+      - LOG_LEVEL=INFO
+      - CONFIG_DIR=/workspace/configs
+      # PostgreSQL — Settings는 개별 env vars 사용 (ADR-019 §2)
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=domainrag
+      - POSTGRES_USER=domainrag_app
+      - POSTGRES_PASSWORD=changeme
+      - POSTGRES_ADMIN_USER=domainrag_platform_admin
+      - POSTGRES_ADMIN_PASSWORD=changeme_admin
+      # Qdrant
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      # MinIO
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=domainrag
-      - MINIO_SECRET_KEY=domainrag123
-      - VLLM_BASE_URL=http://vllm:8000/v1
-      - VLLM_MODEL=qwen2.5-7b-instruct
+      - MINIO_SECRET_KEY=changeme_minio_root
+      - MINIO_BUCKET=domainrag
+      # vLLM — 통합 instance를 alias로 공유 (gpu profile 활성 시에만 의미)
+      - TENANT_SLM_BASE_URL=http://vllm:8000/v1
+      - SHARED_LLM_BASE_URL=http://vllm:8000/v1
+      - EMBEDDING_SERVER_URL=http://tei-embedder:80
+      - RERANKER_SERVER_URL=http://tei-reranker:80
+      # 기본 dev: inmemory backend로 vLLM 없이 chat 데모 가능
+      # gpu 프로필일 때 RAG_BACKEND=production으로 override
+      - RAG_BACKEND=inmemory
+      # AUTH_MODE는 authfusion 단일 (ADR-018 §9). 실 SSO 검증은 AuthFusion 컨테이너
+      # 필요 — 로컬 dev에서 SSO 미가동 시 frontend가 oauth2/authorize 호출에 실패한다.
+      # backend 단위 테스트는 conftest.py가 mock adapter를 dependency override로 주입.
+      - AUTH_MODE=oidc
+      # 호스트 포트 3010 — WiSentinel frontend(:3000)와 충돌 회피.
+      # 컨테이너 내부 Next.js는 :3000 그대로 listen, 호스트 매핑만 3010.
+      - APP_BASE_URL=http://localhost:3010
+      # KeyHub / Ledger (mock or disabled in dev)
+      - LEDGER_ENABLE=false
     volumes:
-      - ./backend:/app
-      - ./configs:/app/configs
+      # hot-reload — 운영 build에선 제거 권장
+      - ./backend:/workspace/backend
+      - ./packages:/workspace/packages
+      - ./configs:/workspace/configs:ro
+    # postgres 의존은 override가 결정 — base에선 의존 없음.
+    # 운영(115)은 ai_aware_sse_postgres 컨테이너 공유라 base postgres service 미사용.
+    # dev는 docker-compose.dev.yml(있다면) 또는 base 직접 사용. backend가 부팅 시
+    # connection retry로 postgres ready 대기 — 별도 healthcheck 의존 불필요.
     depends_on:
       qdrant:
         condition: service_healthy
-      postgres:
-        condition: service_healthy
       minio:
         condition: service_healthy
-      vllm:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
     networks:
       - domainrag-network
 
-  # Frontend - Next.js
+  # --------------------------------------------------------------------------
+  # 8. Frontend — Next.js
+  # --------------------------------------------------------------------------
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: ../infra/docker/Dockerfile.frontend
     container_name: domainrag-frontend
+    # 호스트 3010 → 컨테이너 3000. WiSentinel frontend(host:3000)와 같은 호스트에서
+    # 공존 가능하도록. nginx rag.aines.kr.conf도 127.0.0.1:3010으로 정합.
     ports:
-      - "3000:3000"
+      - "3010:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8001
       - NEXT_PUBLIC_ENVIRONMENT=development
@@ -151,27 +250,23 @@ services:
       - /app/.next
     depends_on:
       - backend
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     networks:
       - domainrag-network
 
 volumes:
-  qdrant_data:
-    driver: local
   postgres_data:
+    driver: local
+  qdrant_data:
     driver: local
   minio_data:
     driver: local
   vllm_cache:
     driver: local
+  tei_cache:
+    driver: local
 
 networks:
   domainrag-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
+    # subnet은 docker가 자동 할당 — 운영 호스트에서 AuthFusion·WiSentinel network가
+    # 이미 172.20.0.0/16 등을 점유한 환경에서 충돌 회피. 자동 할당은 default pool에서.
