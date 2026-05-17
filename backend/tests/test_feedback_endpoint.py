@@ -116,8 +116,9 @@ def test_feedback_cross_user_returns_404():
     app.dependency_overrides[get_user_context] = _other_user
     with TestClient(app) as client:
         mid = _send_chat(client, "다른 사용자 질문")
-    # mock 기본 user로 돌아가서 feedback 시도
-    app.dependency_overrides.clear()
+    # mock 기본 user로 돌아가서 feedback 시도. clear()는 conftest의 autouse mock
+    # adapter override까지 지우므로 명시 pop만 사용 (ADR-018 §9 옵션 C).
+    app.dependency_overrides.pop(get_user_context, None)
     with TestClient(app) as client:
         resp = _post_feedback(client, message_id=mid, value="bad")
     assert resp.status_code == 404

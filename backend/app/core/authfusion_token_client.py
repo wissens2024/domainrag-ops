@@ -78,7 +78,11 @@ class AuthFusionTokenClient(Protocol):
 
 
 class HttpxAuthFusionTokenClient:
-    """운영 구현체 — httpx.AsyncClient로 token/revoke endpoint 호출."""
+    """운영 구현체 — httpx.AsyncClient로 token/revoke endpoint 호출.
+
+    AuthFusion은 CONFIDENTIAL client + PKCE를 권장한다 (OIDC-INTEGRATION-GUIDE §8).
+    `default_client_secret`을 생성자에 주입하면 호출 시점에 명시되지 않더라도 자동 적용.
+    """
 
     def __init__(
         self,
@@ -86,12 +90,14 @@ class HttpxAuthFusionTokenClient:
         token_endpoint: str,
         revoke_endpoint: str | None = None,
         timeout_seconds: float = 5.0,
+        default_client_secret: str | None = None,
     ) -> None:
         if not token_endpoint:
             raise ValueError("token_endpoint required")
         self._token_endpoint = token_endpoint
         self._revoke_endpoint = revoke_endpoint
         self._timeout = timeout_seconds
+        self._default_secret = default_client_secret
 
     async def exchange_code(
         self,
@@ -140,7 +146,8 @@ class HttpxAuthFusionTokenClient:
             "client_id": client_id,
             "token_type_hint": token_type_hint,
         }
-        auth = (client_id, client_secret) if client_secret else None
+        secret = client_secret if client_secret is not None else self._default_secret
+        auth = (client_id, secret) if secret else None
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(self._revoke_endpoint, data=form, auth=auth)
         # RFC 7009: revoke는 200 OK 정상. 4xx도 무시(이미 만료된 토큰 등).
@@ -152,7 +159,8 @@ class HttpxAuthFusionTokenClient:
         client_id: str,
         client_secret: str | None,
     ) -> TokenResponse:
-        auth = (client_id, client_secret) if client_secret else None
+        secret = client_secret if client_secret is not None else self._default_secret
+        auth = (client_id, secret) if secret else None
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(self._token_endpoint, data=form, auth=auth)
         if resp.status_code >= 400:

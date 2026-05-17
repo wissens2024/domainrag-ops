@@ -12,7 +12,8 @@ def setup_function(_func):
 
 def test_loader_reads_platform_yaml():
     cfg = AuthConfigLoader.load(get_settings())
-    assert cfg.auth_mode in {"mock", "authfusion"}
+    # ADR-018 §9 — AUTH_MODE는 oidc 단일 (AuthFusion 가이드 표준). mock은 격리됨.
+    assert cfg.auth_mode == "oidc"
     assert cfg.jwt_algorithm == "RS256"
     assert cfg.jwks_cache_ttl_seconds == 3600
     assert cfg.platform_admin_role == "PLATFORM_ADMIN"
@@ -46,12 +47,14 @@ def test_service_accounts_loaded():
     assert sa.clearance == "secret"
 
 
-def test_mock_default_user_loaded():
+def test_no_mock_fields_in_auth_config():
+    """ADR-018 §9 — AuthConfig는 mock 필드를 더 이상 노출하지 않는다.
+
+    mock default_user는 backend/tests/_fixtures/mock_auth.py:MockUserConfig 상수로 격리.
+    """
     cfg = AuthConfigLoader.load(get_settings())
-    assert cfg.mock_default_user is not None
-    assert cfg.mock_default_user.tenant_id == "security"
-    assert "ADMIN" in cfg.mock_default_user.roles
-    assert cfg.mock_forbid_in_production is True
+    assert not hasattr(cfg, "mock_default_user")
+    assert not hasattr(cfg, "mock_forbid_in_production")
 
 
 def test_authfusion_endpoints_resolved_from_env():

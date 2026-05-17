@@ -158,6 +158,19 @@ POST /api/auth/logout
   → AuthFusion의 token_version (FCS_COP.1)으로 즉시 무효화
 ```
 
+#### Access token 만료 도중 처리
+
+**일반 sync request** (`POST /api/{tid}/chat` 등):
+1. backend가 401 + body `{error: "token_expired"}` 반환.
+2. frontend HTTP client interceptor가 401을 가로채 `POST /api/auth/refresh` 시도.
+3. 갱신 성공 시 원래 요청을 *같은 body*로 재시도. 실패 시 `/api/auth/authorize/{tid}` redirect.
+4. interceptor에 mutex로 동시 401 다발 시 refresh 단일화.
+
+**SSE streaming 도중 만료** (`GET /api/{tid}/chat/stream`):
+- SSE connection은 진행 중 token re-attach 불가. backend가 첫 verify 시 token이 만료 직전이면 **남은 TTL이 stream 예상 최대 시간보다 작을 때 새 stream 생성 차단** 후 frontend에 refresh 안내 (HTTP 401 + body).
+- stream 도중 token이 만료되어도 backend는 이미 검증된 UserContext로 응답 완료한다 — 한 stream의 lifetime은 UserContext가 시작 시 freeze.
+- 운영 기본값: AuthFusion access_token TTL=3600s, stream 최대 lifetime=300s → 정상 케이스 위험 거의 없음.
+
 ### 7. Service Account (시스템 호출)
 
 평가 러너·indexing worker·cron 작업 등 사람 없는 호출:
@@ -174,6 +187,15 @@ AuthFusionAdapter는 roles에 "SERVICE" 포함 시 user_tenant_membership 조회
   configs/platform/auth.yaml의 service_accounts 매핑으로 tenant_id/clearance 결정.
 ```
 
+#### Service Account 의 `tenant_id` 의미
+
+| `tenant_id` 값 | 의미 |
+|---|---|
+| 일반 tenant id (e.g., `security`) | 해당 tenant scope 호출만 허용. 다른 tenant URL path 진입 시 403 (UserContext.is_service_account=True 이지만 tenant_match 검증은 동일). |
+| `platform` (sentinel) | platform_admin scope. 모든 `/api/{tid}/...` 진입 허용 (tenant_match 우회) + `/api/platform/admin/*` 진입 허용. 단, RLS BYPASSRLS는 별도 — admin DB engine(`domainrag_platform_admin` role) 사용 시에만 cross-tenant 행 조회. service_account 자체가 BYPASSRLS를 자동 부여하지 않는다. |
+
+운영 권장: 대부분의 cron·worker는 일반 tenant scope service account 사용. cross-tenant 통계·hard_delete 같은 cluster-wide 작업만 `tenant_id=platform` 사용.
+
 ### 8. 한 user 다수 tenant 소속
 
 - AuthFusion에 같은 user가 여러 OAuth2 client에 등록될 수 있음
@@ -181,47 +203,66 @@ AuthFusionAdapter는 roles에 "SERVICE" 포함 시 user_tenant_membership 조회
 - 다른 tenant로 전환은 **새 OIDC login flow** (다른 client_id로 authorize) — frontend의 tenant selector가 client_id를 바꿔 재로그인 트리거
 - 이중 token을 frontend에 동시 보관하지 않음 — 단순성·보안 우선
 
-### 9. Dev / Mock 모드
+### 9. Dev / 테스트 인증 — Mock은 test fixture로 격리 (2026-05-18 옵션 C)
 
-`configs/platform/auth.yaml`:
+`AUTH_MODE`는 운영 코드에서 **`oidc` 단일** (AuthFusion 가이드 표준, WiSentinel cutover 후 값과 동일). `mock` 값은 더 이상 허용 안 함 — `get_settings()`의 `_enforce_auth_policy()`가 부팅 시 fail-fast.
 
 ```yaml
-auth_mode: authfusion              # authfusion | mock
-authfusion:
-  issuer: https://sso.aines.kr
-  jwks_uri: https://sso.aines.kr/.well-known/jwks.json
-  token_endpoint: https://sso.aines.kr/oauth2/token
-  revoke_endpoint: https://sso.aines.kr/oauth2/revoke
-  client_tenant_map:
-    client-security: security
-    client-legal: legal
-mock:
-  default_user:
-    user_id: dev-user-001
-    tenant_id: security
-    roles: ["USER", "ADMIN"]
-    clearance: confidential
-    department: security
-    domain_groups: ["group:security"]
+# configs/platform/auth.yaml
+auth_mode: ${AUTH_MODE}             # 실효 값은 "oidc"만 가능
+oidc:                                # 블록 이름도 oidc — IdP 종류와 무관한 일반 OIDC 설정
+  issuer_env: AUTHFUSION_ISSUER      # 실 IdP는 AuthFusion이지만 env name은 그대로 유지
+  discovery_url_env: AUTHFUSION_DISCOVERY_URL
+  client_id_env: AUTHFUSION_CLIENT_ID
+  client_secret_env: AUTHFUSION_CLIENT_SECRET
+  ...
+# mock 블록 — 운영 yaml에서 *완전히 제거됨*. 흔적 0.
 ```
 
-`auth_mode: mock`일 때 `MockAuthAdapter`가 토큰 검증을 우회하고 default_user를 주입. 운영 환경에서는 절대 사용 금지 (config validator가 prod 환경에서 mock 거부).
+#### Mock 위치
+
+| 항목 | 위치 |
+|---|---|
+| `MockUserConfig` (default_user 코드 상수) | `backend/tests/_fixtures/mock_auth.py` |
+| `MockAuthAdapter` (Bearer 무시, default UserContext 반환) | `backend/tests/_fixtures/mock_auth.py` |
+| 주입 메커니즘 | `backend/tests/conftest.py`의 autouse fixture가 `app.dependency_overrides[get_auth_adapter] = MockAuthAdapter()` 박음 |
+| 운영 코드 import | **금지** — `app/` 어디에서도 `tests._fixtures` import 0건 |
+
+운영 backend는 `AuthFusionAdapter` 단일 사용. 테스트는 `app.dependency_overrides`로 mock adapter를 가로채므로 settings.auth_mode 값과 무관.
+
+#### `user_tenant_membership` seed
+
+이전엔 mock 모드 진입 시 자동 seed했으나, mock이 test fixture로 격리된 후엔 다음과 같이 분리:
+
+- **운영 (oidc 모드)**: user → tenant 매핑은 admin이 명시 등록 (절차서: `docs/operations/exam-engineer-onboarding.md` §2.4 SQL seed 또는 admin UI).
+- **테스트 (inmemory backend)**: `user_tenant_membership` 의존 자체가 inmemory mock으로 충족 — DB 없이 동작.
+- **로컬 dev (AuthFusion 실 가동)**: AuthFusion에서 JIT으로 사용자 첫 SSO 시 row 자동 생성 (`sso-integration-lifecycle.md` §2.1).
 
 ### 10. AuthFusion 등록 자동화 (tenant 신규 등록)
 
-ADR-008 §4의 tenant 등록 자동화 단계에 추가:
+본 절은 단계 책임만 명시하고, atomic rollback·step 순서 단일 진실 소스는 **[ADR-021 §5](./021-operational-bootstrap.md)** 에서 통합 관리한다.
+
+핵심:
+- Step 1 AuthFusion OAuth2 client 자동 등록 (Admin API `POST {authfusion}/api/v1/clients`) — `infra/scripts/tenant_register.sh` 내부에서 자동 실행
+- 실패 시 rollback은 `DELETE /api/v1/clients/<client_id>` (best-effort, swallow + dead-letter 누적)
+- 사람의 수동 단계: 사용자 IdP 등록(누가 어느 client 사용하는지)은 AuthFusion 운영자 책임
 
 ```text
-0) tenant_id 결정·검증
-1) AuthFusion OAuth2 client 등록 (Admin API: POST /api/v1/clients)  ← 신규
-2) configs/tenants/<tenant_id>/auth.yaml 생성
-3) Qdrant collection 자동 생성
-4) MinIO prefix 초기화
-5) configs 시드 + RLS context 검증
-6) (수동) IdP 사용자 → 새 client에 등록
+[ADR-021 §5 흐름 참조]
+Step 0. tenants 미존재 검증 (Y5)
+Step 1. AuthFusion OAuth2 client 등록  ← 본 ADR 책임
+Step 2. tenants INSERT
+Step 3. configs/tenants/<id>/ seed (auth.yaml 포함)
+Step 4. Qdrant collections 생성
+Step 5. MinIO prefix
+Step 6. tenant_input_schemas v1
+Step 7. DB commit + NOTIFY
+Step 8. lifecycle_logs + Ledger publish
 ```
 
-step 1 자동화는 AuthFusion Admin API 호출. 실패 시 rollback.
+사후 작업 (수동):
+- AuthFusion 운영자가 user ↔ client 매핑 추가
+- DomainRAG admin이 `user_tenant_membership` row INSERT (clearance/department 보강, ADR-018 §4)
 
 ---
 

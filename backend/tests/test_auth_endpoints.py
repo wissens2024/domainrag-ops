@@ -12,7 +12,8 @@ from dataclasses import dataclass
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.auth_config import AuthConfig, AuthConfigLoader, MockUserConfig
+from app.core.auth_config import AuthConfig, AuthConfigLoader
+from tests._fixtures.mock_auth import MockUserConfig
 from app.core.authfusion_token_client import TokenExchangeError, TokenResponse
 from app.core.oauth_state_store import (
     InMemoryOAuthStateStore,
@@ -58,57 +59,9 @@ def _reset_all():
     AuthConfigLoader.reset()
 
 
-# ----------------------------------------------------------------------------
-# Mock 모드 — endpoint stub 흐름 검증
-# ----------------------------------------------------------------------------
-
-
-def test_authorize_returns_mock_notice_in_mock_mode():
-    """mock 모드 — authorize endpoint는 mock_mode=True 응답."""
-    with TestClient(app) as client:
-        resp = client.get("/api/auth/authorize/security")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["mock_mode"] is True
-    assert body["authorize_url"] is None
-
-
-def test_callback_mock_returns_cookies_and_metadata():
-    with TestClient(app) as client:
-        resp = client.get("/api/auth/callback?code=mock&state=mock")
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["tenant_id"] == "mock"
-    assert body["expires_in"] == 900
-    # Set-Cookie 검증
-    cookies = resp.cookies
-    assert cookies.get("domainrag_access") == "mock-access-token"
-    assert cookies.get("domainrag_refresh") == "mock-refresh-token"
-
-
-def test_refresh_mock_returns_new_cookies():
-    with TestClient(app) as client:
-        resp = client.post(
-            "/api/auth/refresh",
-            json={"tenant_id": "security"},
-        )
-    assert resp.status_code == 200, resp.text
-    assert resp.cookies.get("domainrag_access") == "mock-access-token-refreshed"
-
-
-def test_logout_mock_clears_cookies():
-    with TestClient(app) as client:
-        # 먼저 callback으로 쿠키 set
-        client.get("/api/auth/callback?code=mock&state=mock")
-        resp = client.post("/api/auth/logout", json={"tenant_id": "security"})
-    assert resp.status_code == 204
-    # delete_cookie는 max_age=0이거나 Expires 과거 — 빈 문자열로 set됨
-    # TestClient.cookies는 set이 되어 있을 수 있으니 raw header로 확인
-    set_cookie_headers = resp.headers.get("set-cookie", "")
-    # access/refresh 둘 다 명시 삭제 헤더가 포함되어 있어야 한다
-    assert "domainrag_access" in set_cookie_headers
-    assert "domainrag_refresh" in set_cookie_headers
-
+# Mock 모드 endpoint stub 테스트는 ADR-018 §9 옵션 C 적용으로 삭제 (2026-05-18).
+# 운영 코드에 mock 분기가 더 이상 없으므로 그 분기 검증도 불필요.
+# AuthFusion 모드 흐름은 아래 dependency_override + AuthFusionTokenClient stub 사용.
 
 # ----------------------------------------------------------------------------
 # AuthFusion 모드 — dependency_override로 mock token client 주입
@@ -163,32 +116,27 @@ class _MockTokenClient:
 
 def _authfusion_auth_config(**overrides) -> AuthConfig:
     base = dict(
-        auth_mode="authfusion",
+        auth_mode="oidc",
         issuer="https://sso.test",
         jwks_uri="https://sso.test/jwks",
         token_endpoint="https://sso.test/oauth2/token",
         revoke_endpoint="https://sso.test/oauth2/revoke",
         authorize_endpoint="https://sso.test/oauth2/authorize",
+        userinfo_endpoint=None,
+        discovery_url=None,
         scopes=["openid", "profile"],
         state_ttl_seconds=600,
-        app_base_url="http://localhost:3000",
+        app_base_url="http://localhost:3010",
         redirect_path="/auth/callback",
         jwt_algorithm="RS256",
         jwks_cache_ttl_seconds=3600,
         platform_admin_role="PLATFORM_ADMIN",
+        client_id=None,
+        client_secret=None,
+        require_verified_email=False,
+        rp_slug="domainrag-ops",
         client_tenant_map={"client-security": "security"},
         service_accounts={},
-        mock_default_user=MockUserConfig(
-            user_id="x",
-            tenant_id="security",
-            roles=["USER"],
-            clearance="internal",
-            department=None,
-            domain_groups=[],
-            preferred_username=None,
-            email=None,
-        ),
-        mock_forbid_in_production=True,
         tenant_overrides={"security": {"client_id": "client-security"}},
     )
     base.update(overrides)
@@ -237,7 +185,7 @@ def test_callback_exchanges_code_and_sets_cookies():
     call = token_client.calls.exchanges[0]
     assert call["code"] == "real-code"
     assert call["client_id"] == "client-security"
-    assert call["redirect_uri"] == "http://localhost:3000/auth/callback"
+    assert call["redirect_uri"] == "http://localhost:3010/auth/callback"
     # Set-Cookie
     assert resp.cookies.get("domainrag_access") == "real-access"
     assert resp.cookies.get("domainrag_refresh") == "real-refresh"
@@ -264,7 +212,7 @@ def test_callback_rejects_expired_state():
             state=state,
             tenant_id="security",
             code_verifier="v",
-            redirect_uri="http://localhost:3000/auth/callback",
+            redirect_uri="http://localhost:3010/auth/callback",
             client_id="client-security",
             expires_at=0,  # 이미 만료
         )

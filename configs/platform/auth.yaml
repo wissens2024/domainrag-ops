@@ -1,29 +1,64 @@
 # ============================================================================
 # Platform-level Auth (ADR-018)
+# ----------------------------------------------------------------------------
+# AuthFusion SSO 연동 표준 (sso-integration-guide.md / OIDC-INTEGRATION-GUIDE):
+#   - issuer = https://api.aines.kr  (사용자 API + OIDC)
+#     console.aines.kr은 관리자 콘솔(클라이언트/사용자/role 등록)이며 RP는 직접 호출 안 함
+#   - discovery: issuer + /.well-known/openid-configuration → endpoint 4종 일괄 fetch
+#   - CONFIDENTIAL client + PKCE 동시 (Authorization Code + PKCE flow)
+#   - service-scoped role: <rp-slug>-admin / <rp-slug>-auditor / <rp-slug>-user
+#     전역 ADMIN 매칭 금지 (ADR-0019)
 # ============================================================================
 schema_version: 1
 
-auth_mode: ${AUTH_MODE}                  # mock | authfusion (env에서 주입)
+auth_mode: ${AUTH_MODE}                  # oidc 단일 (AuthFusion 가이드 표준, ADR-018 §9). mock은 격리.
 
-authfusion:
+oidc:
+  # 1순위: discovery URL. 미설정 시 issuer 기반 합성.
+  # 본 블록은 *OIDC IdP 연동 설정* — IdP가 AuthFusion이든 다른 OIDC Provider든
+  # AUTH_MODE=oidc 단일로 처리. AuthFusion 가이드 표준과 정합.
   issuer_env: AUTHFUSION_ISSUER
+  discovery_url_env: AUTHFUSION_DISCOVERY_URL
+
+  # 2순위 fallback: 개별 endpoint env (discovery 미가용 환경 한정).
   jwks_uri_env: AUTHFUSION_JWKS_URI
   token_endpoint_env: AUTHFUSION_TOKEN_ENDPOINT
   revoke_endpoint_env: AUTHFUSION_REVOKE_ENDPOINT
   authorize_endpoint_env: AUTHFUSION_AUTHORIZE_ENDPOINT
+  userinfo_endpoint_env: AUTHFUSION_USERINFO_ENDPOINT
+
   jwks_cache_ttl_seconds: 3600
   jwt_algorithm: RS256
+
+  # OIDC client credentials (CONFIDENTIAL + PKCE). KeyHub 권장이나 env 직접도 지원.
+  # AuthFusion Admin Console에서 client 등록 후 응답의 clientId(UUID)/clientSecret(평문) 사용.
+  client_id_env: AUTHFUSION_CLIENT_ID
+  client_secret_env: AUTHFUSION_CLIENT_SECRET
 
   # ADR-018 §2 — Authorization Code + PKCE flow.
   scopes: ["openid", "profile", "email"]
   state_ttl_seconds: 600       # /authorize → /callback 사이 유효 시간 (10분)
 
+  # AuthFusion `OIDC_REQUIRE_VERIFIED_EMAIL` 표준 동작 — id_token email_verified=true 강제.
+  require_verified_email: true
+
+  # service-scoped role prefix (ADR-0019). 전역 ADMIN 매칭 금지.
+  # AuthFusion client 등록 후 Seed Roles로 자동 생성되는 3개 role:
+  #   domainrag-ops-admin / domainrag-ops-auditor / domainrag-ops-user
+  rp_slug: domainrag-ops
+
   # client_id ≡ tenant_id 매핑 (ADR-018 §1)
-  # 신규 tenant 등록 시 이 매핑에 자동 추가 (tenant_register.sh)
+  # AuthFusion에서 client_id는 UUID로 발급되므로 매번 본 mapping table을 lookup.
+  # 신규 tenant 등록 시 이 매핑에 자동 추가 (tenant_register.sh + AuthFusion Admin API).
+  #
+  # 운영 환경의 실 매핑은 configs/tenants/<tid>/auth.yaml의 client_id 필드에서 가져온다.
+  # AuthConfigLoader가 tenants 디렉터리를 스캔해 자동 등록 (auth_config.py:196-202).
   client_tenant_map:
+    # legacy/dev 형식 fallback (mock 모드에서 사용)
     client-security: security
     client-legal: legal
-    client-exam_bank: exam_bank
+    client-exam_bank: exam-engineer    # legacy alias
+    # 운영 UUID는 configs/tenants/<tid>/auth.yaml에서 자동 등록됨
 
   # Service account (시스템 호출용 — ADR-018 §7)
   service_accounts:
@@ -36,27 +71,18 @@ authfusion:
       roles: ["SERVICE", "INDEXER"]
       clearance: secret
 
-  # platform_admin 판정 (ADR-016)
-  platform_admin_role: PLATFORM_ADMIN    # claim.roles에 이 값 있으면 platform_admin
+  # platform_admin 판정 (ADR-016). 본 role은 service-scoped prefix 적용 안 함 (전역 role).
+  platform_admin_role: PLATFORM_ADMIN
 
-mock:                                     # auth_mode=mock일 때만 사용 (dev)
-  default_user:
-    user_id: dev-user-001
-    tenant_id: security
-    roles: ["USER", "ADMIN"]
-    clearance: confidential
-    department: security
-    domain_groups: ["group:security", "group:it-admin"]
-    preferred_username: dev_user
-    email: dev@example.com
-
-  # 운영 환경에서 mock 거부
-  forbid_in_production: true
+# mock 블록은 ADR-018 §9에 따라 본 운영 yaml에서 제거됨 (2026-05-18 옵션 C).
+# 테스트용 default_user는 backend/tests/_fixtures/mock_auth.py:MockUserConfig에
+# 코드 상수로 박혀있으며, 운영 backend는 mock을 import하지 않는다.
 
 oauth2_callback:
   # Frontend가 SSO 로그인 후 도착할 path. 최종 redirect_uri는 app_base_url + redirect_path.
+  # AuthFusion `redirectUris`에 등록할 값 = `{app_base_url}{redirect_path}`.
   redirect_path: /auth/callback
-  app_base_url: ${APP_BASE_URL:-http://localhost:3000}
+  app_base_url: ${APP_BASE_URL:-http://localhost:3010}
 
 token_storage:
   frontend: httponly_secure_cookie       # ADR-016

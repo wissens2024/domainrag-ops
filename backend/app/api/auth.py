@@ -8,8 +8,8 @@
   3. POST /api/auth/refresh — refresh_token 쿠키 사용 → 새 access/refresh 쿠키 갱신.
   4. POST /api/auth/logout — access/refresh 쿠키의 token revoke + 쿠키 삭제.
 
-mock 모드(`auth_mode=mock`)에서는 endpoint들이 stub 응답을 반환해 dev 환경에서 frontend
-흐름을 검증할 수 있게 한다 — 실제 AuthFusion 호출 없음.
+ADR-018 §9 — auth_mode는 `authfusion` 단일 (mock은 backend/tests/_fixtures로 격리).
+운영 backend는 mock 분기 코드를 포함하지 않는다.
 """
 
 from __future__ import annotations
@@ -117,16 +117,8 @@ async def build_authorize_url(
     """ADR-018 §2 — PKCE pair 생성 + state 저장 + authorize URL 반환.
 
     Frontend는 응답의 `authorize_url`로 window.location 이동.
-    mock 모드는 authorize URL 대신 즉시 callback path를 반환해 dev 흐름을 단순화한다.
     """
     auth_cfg = AuthConfigLoader.load(settings)
-    if auth_cfg.auth_mode == "mock":
-        return {
-            "authorize_url": None,
-            "mock_mode": True,
-            "tenant_id": tenant_id,
-            "note": "mock 모드 — frontend는 /api/auth/callback?code=mock&state=mock으로 직접 진행 가능",
-        }
 
     if not auth_cfg.authorize_endpoint:
         raise HTTPException(
@@ -190,22 +182,6 @@ async def oauth_callback(
     auth_cfg = AuthConfigLoader.load(settings)
     is_production = settings.env == "production"
 
-    if auth_cfg.auth_mode == "mock":
-        mock_token = TokenResponse(
-            access_token="mock-access-token",
-            refresh_token="mock-refresh-token",
-            expires_in=900,
-            token_type="Bearer",
-            scope="openid profile email",
-        )
-        _set_cookies(response, token=mock_token, is_production=is_production)
-        return CallbackResponse(
-            tenant_id="mock",
-            expires_in=mock_token.expires_in,
-            token_type=mock_token.token_type,
-            scope=mock_token.scope,
-        )
-
     entry = state_store.pop(state)
     if entry is None:
         raise HTTPException(
@@ -262,19 +238,6 @@ async def refresh_token_endpoint(
     auth_cfg = AuthConfigLoader.load(settings)
     is_production = settings.env == "production"
 
-    if auth_cfg.auth_mode == "mock":
-        mock_token = TokenResponse(
-            access_token="mock-access-token-refreshed",
-            refresh_token="mock-refresh-token-refreshed",
-            expires_in=900,
-        )
-        _set_cookies(response, token=mock_token, is_production=is_production)
-        return {
-            "tenant_id": req.tenant_id,
-            "expires_in": mock_token.expires_in,
-            "token_type": mock_token.token_type,
-        }
-
     refresh = req.refresh_token or request.cookies.get(_REFRESH_COOKIE)
     if not refresh:
         raise HTTPException(
@@ -328,7 +291,7 @@ async def logout(
     access = request.cookies.get(_ACCESS_COOKIE)
     refresh = request.cookies.get(_REFRESH_COOKIE)
 
-    if auth_cfg.auth_mode != "mock" and token_client is not None:
+    if token_client is not None:
         client_id = _resolve_client_id(auth_cfg, req.tenant_id)
         if access:
             await token_client.revoke(

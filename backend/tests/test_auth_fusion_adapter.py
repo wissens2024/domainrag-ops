@@ -13,9 +13,10 @@ from fastapi import HTTPException
 from jose import jwk as jose_jwk
 from jose import jwt as jose_jwt
 
-from app.core.auth_adapter import AuthFusionAdapter, MockAuthAdapter
+from app.core.auth_adapter import AuthFusionAdapter
 from app.core.auth_config import AuthConfigLoader
 from app.core.config import get_settings
+from tests._fixtures.mock_auth import MockAuthAdapter
 
 
 # ---------------------------------------------------------------------------
@@ -368,13 +369,13 @@ async def test_platform_admin_role_recognized(km, auth_config):
 
 
 # ---------------------------------------------------------------------------
-# Mock adapter 시나리오
+# Mock adapter 시나리오 (test fixture로 격리됨 — ADR-018 §9)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_mock_adapter_returns_default_user():
-    adapter = MockAuthAdapter(get_settings())
+    adapter = MockAuthAdapter()
     ctx = await adapter.verify_and_extract("", "security")
     assert ctx.tenant_id == "security"
     assert "ADMIN" in ctx.roles
@@ -384,21 +385,19 @@ async def test_mock_adapter_returns_default_user():
 @pytest.mark.asyncio
 async def test_mock_adapter_uses_path_tenant():
     """mock은 default tenant 외에도 path tenant를 그대로 인정."""
-    adapter = MockAuthAdapter(get_settings())
+    adapter = MockAuthAdapter()
     ctx = await adapter.verify_and_extract("", "legal")
     assert ctx.tenant_id == "legal"
 
 
-@pytest.mark.asyncio
-async def test_mock_adapter_forbidden_in_production(monkeypatch):
-    from app.core.config import get_settings
+def test_mock_adapter_isolated_from_production_code():
+    """ADR-018 §9 — MockAuthAdapter는 운영 코드(app/)에 import 흔적 없어야 한다."""
+    import app.core.auth_adapter as mod
 
-    s = get_settings()
-    monkeypatch.setattr(s, "env", "production")
-    AuthConfigLoader.reset()
-    adapter = MockAuthAdapter(s)
-    with pytest.raises(RuntimeError):
-        await adapter.verify_and_extract("", "security")
+    assert not hasattr(mod, "MockAuthAdapter")
+    # `app.core.auth_config`에서도 MockUserConfig 제거 확인
+    import app.core.auth_config as cfg_mod
+    assert not hasattr(cfg_mod, "MockUserConfig")
 
 
 # ---------------------------------------------------------------------------

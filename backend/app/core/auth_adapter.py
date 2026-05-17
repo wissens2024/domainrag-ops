@@ -1,10 +1,11 @@
 """
 AuthAdapter — JWT 검증 + UserContext 빌드 (ADR-008 §7, ADR-018).
 
-본 모듈은 ADR-002 Protocol/Adapter 패턴.
-구현체:
-  - AuthFusionAdapter (ADR-018): 운영. JWKS RS256 + user_tenant_membership 보강
-  - MockAuthAdapter: 개발/테스트. configs/platform/auth.yaml.mock.default_user 기반
+본 모듈은 ADR-002 Protocol/Adapter 패턴. 운영 구현체 1종:
+  - AuthFusionAdapter (ADR-018): JWKS RS256 + user_tenant_membership 보강
+
+MockAuthAdapter는 ADR-018 §9에 따라 `backend/tests/_fixtures/mock_auth.py`로 격리됨
+(2026-05-18 옵션 C). 운영 코드는 mock을 import하지 않는다.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth_config import AuthConfig, AuthConfigLoader, MockUserConfig
+from app.core.auth_config import AuthConfig, AuthConfigLoader
 from app.core.config import Settings, get_settings
 from app.core.jwks_client import JWKSClient, JWKSFetchError
 
@@ -61,56 +62,7 @@ class AuthAdapter(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Mock
-# ---------------------------------------------------------------------------
-
-
-class MockAuthAdapter:
-    """Dev/test용 — JWT 검증 우회. ADR-018 §9.
-
-    configs/platform/auth.yaml.mock.default_user에서 default 로딩.
-    """
-
-    def __init__(self, settings: Settings, auth_config: AuthConfig | None = None):
-        self.settings = settings
-        self.auth_config = auth_config or AuthConfigLoader.load(settings)
-        if self.auth_config.mock_default_user is None:
-            raise RuntimeError(
-                "configs/platform/auth.yaml mock.default_user 누락 — MockAuthAdapter 사용 불가"
-            )
-        self._default = self.auth_config.mock_default_user
-
-    async def verify_and_extract(
-        self, bearer_token: str, expected_tenant_id: str
-    ) -> UserContext:
-        if (
-            self.settings.env == "production"
-            and self.auth_config.mock_forbid_in_production
-        ):
-            raise RuntimeError(
-                "MockAuthAdapter는 production에서 사용 금지 (ADR-018 §9)"
-            )
-        return _user_context_from_mock(self._default, expected_tenant_id)
-
-
-def _user_context_from_mock(
-    mock: MockUserConfig, expected_tenant_id: str
-) -> UserContext:
-    """mock default_user를 expected_tenant_id에 맞춰 반환."""
-    return UserContext(
-        user_id=mock.user_id,
-        tenant_id=expected_tenant_id,
-        roles=list(mock.roles),
-        clearance=mock.clearance,
-        department=mock.department,
-        domain_groups=list(mock.domain_groups),
-        preferred_username=mock.preferred_username,
-        email=mock.email,
-    )
-
-
-# ---------------------------------------------------------------------------
-# AuthFusion (운영)
+# AuthFusion (운영) — 유일한 운영 AuthAdapter 구현
 # ---------------------------------------------------------------------------
 
 
@@ -253,14 +205,18 @@ class AuthFusionAdapter:
                 status_code=401, detail={"error": "missing_client_id_claim"}
             )
 
-        roles = list(claims.get("roles") or [])
-        # platform_admin_role을 표준 PLATFORM_ADMIN으로 정규화 (UserContext 판정용)
-        if (
-            self.auth_config.platform_admin_role != "PLATFORM_ADMIN"
-            and self.auth_config.platform_admin_role in roles
-            and "PLATFORM_ADMIN" not in roles
-        ):
-            roles = [*roles, "PLATFORM_ADMIN"]
+        raw_roles = list(claims.get("roles") or [])
+        # AuthFusion RP_ONBOARDING ADR-0019 — service-scoped role prefix-only 매칭.
+        # `<rp-slug>-admin/auditor/user`만 ADMIN/AUDITOR/USER로 매핑, 전역 ADMIN 제외.
+        # PLATFORM_ADMIN은 platform_admin_role과 일치 시 통과.
+        roles: list[str] = []
+        for r in raw_roles:
+            mapped = self.auth_config.map_oidc_role(r)
+            if mapped is not None and mapped not in roles:
+                roles.append(mapped)
+        # service account 분기를 위해 raw_roles의 SERVICE도 보존
+        if "SERVICE" in raw_roles and "SERVICE" not in roles:
+            roles.append("SERVICE")
 
         # 4) Service account vs 일반 user
         sa = self.auth_config.service_accounts.get(client_id)
@@ -321,7 +277,24 @@ class AuthFusionAdapter:
                 },
             )
 
-        # 5) user_tenant_membership 조회로 clearance/department/domain_groups 보강
+        # 5) email_verified 검증 (AuthFusion OIDC_REQUIRE_VERIFIED_EMAIL 표준).
+        # claim에 email_verified가 없으면 통과 — IdP가 email scope 미발급한 client만.
+        if (
+            self.auth_config.require_verified_email
+            and "email_verified" in claims
+            and claims.get("email_verified") is not True
+        ):
+            await self._publish_auth_failure(
+                expected_tenant_id=expected_tenant_id,
+                error="email_not_verified",
+                actor=claims.get("sub"),
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={"error": "email_not_verified"},
+            )
+
+        # 6) user_tenant_membership 조회로 clearance/department/domain_groups 보강
         sub = claims.get("sub")
         if not sub:
             await self._publish_auth_failure(
@@ -424,10 +397,12 @@ def _build_authfusion_adapter(settings: Settings) -> AuthFusionAdapter:
 
 
 def get_auth_adapter(settings: Settings = Depends(get_settings)) -> AuthAdapter:
-    """FastAPI dependency — auth_mode에 따라 구현체 dispatch."""
+    """FastAPI dependency — 운영은 AuthFusionAdapter 단일 구현.
+
+    테스트는 `app.dependency_overrides[get_auth_adapter] = lambda: MockAuthAdapter(...)`로
+    가로채야 한다 (ADR-018 §9, conftest.py 참고).
+    """
     global _authfusion_singleton
-    if settings.auth_mode == "mock":
-        return MockAuthAdapter(settings)
     if _authfusion_singleton is None:
         _authfusion_singleton = _build_authfusion_adapter(settings)
     return _authfusion_singleton
@@ -452,10 +427,6 @@ async def get_user_context(
     """
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        # mock 모드는 토큰 없어도 진행 (dev only)
-        settings = get_settings()
-        if settings.auth_mode == "mock":
-            return await adapter.verify_and_extract("", tenant_id)
         raise HTTPException(status_code=401, detail={"error": "missing_bearer_token"})
 
     token = auth_header.removeprefix("Bearer ").strip()

@@ -45,6 +45,71 @@ _assessment_extract_service = None
 _assessment_generate_service = None
 _assessment_hybrid_service = None
 _assessment_logger = None
+_keyhub_adapter = None
+
+
+def get_keyhub_adapter(settings: Settings = Depends(get_settings)):
+    """ADR-019 §8 — secret store. dev: LocalSecretStore (filesystem)."""
+    global _keyhub_adapter
+    if _keyhub_adapter is None:
+        if settings.keyhub_mode == "authfusion":
+            # 운영 — AuthFusionKeyHub은 SSO 결선 작업에서 별도 구현
+            raise NotImplementedError(
+                "AuthFusionKeyHub 구현체는 ADR-018 SSO 결선 완료 후 추가됩니다."
+                " 현재는 KEYHUB_MODE=local 사용."
+            )
+        from rag_core.clients import LocalSecretStore
+
+        fernet_key = (
+            settings.keyhub_local_fernet_key.encode("utf-8")
+            if settings.keyhub_local_fernet_key
+            else None
+        )
+        _keyhub_adapter = LocalSecretStore(
+            base_path=Path(settings.keyhub_local_path),
+            fernet_key=fernet_key,
+        )
+    return _keyhub_adapter
+
+
+def reset_keyhub_adapter() -> None:
+    global _keyhub_adapter
+    _keyhub_adapter = None
+
+
+_lora_orchestrator = None
+
+
+def get_lora_orchestrator(settings: Settings = Depends(get_settings)):
+    """ADR-013 §5 — registry + KeyHub + vLLM 결선.
+
+    inmemory backend / RAG_BACKEND=inmemory에서는 vLLM=None으로 두어 registry 상태만
+    전이한다. production은 VllmLLMClient를 주입.
+    """
+    global _lora_orchestrator
+    if _lora_orchestrator is None:
+        from app.services.lora_orchestrator import LoRAOrchestrator
+
+        registry = get_lora_registry(settings)
+        keyhub = get_keyhub_adapter(settings)
+        if settings.rag_backend == "inmemory":
+            vllm = None
+        else:
+            from rag_core.clients.vllm_client import VllmLLMClient
+
+            vllm = VllmLLMClient(base_url=settings.tenant_slm_base_url)
+        _lora_orchestrator = LoRAOrchestrator(
+            registry=registry,
+            keyhub=keyhub,
+            vllm=vllm,
+            shared_lora_path=Path(settings.vllm_shared_lora_path),
+        )
+    return _lora_orchestrator
+
+
+def reset_lora_orchestrator() -> None:
+    global _lora_orchestrator
+    _lora_orchestrator = None
 
 
 def get_pii_approval_service(
@@ -579,7 +644,11 @@ def reset_oauth_state_store() -> None:
 
 
 def get_authfusion_token_client(settings: Settings = Depends(get_settings)):
-    """ADR-018 §6 — token/revoke endpoint 호출 클라이언트."""
+    """ADR-018 §6 — token/revoke endpoint 호출 클라이언트.
+
+    AuthFusion은 CONFIDENTIAL client + PKCE 권장 (OIDC-INTEGRATION-GUIDE §8).
+    client_secret 미설정 시 4xx `invalid_client` 발생하므로 본 wiring에서 명시 주입.
+    """
     global _authfusion_token_client
     if _authfusion_token_client is None:
         from app.core.auth_config import AuthConfigLoader
@@ -592,6 +661,7 @@ def get_authfusion_token_client(settings: Settings = Depends(get_settings)):
         _authfusion_token_client = HttpxAuthFusionTokenClient(
             token_endpoint=auth_cfg.token_endpoint,
             revoke_endpoint=auth_cfg.revoke_endpoint,
+            default_client_secret=auth_cfg.client_secret,
         )
     return _authfusion_token_client
 
