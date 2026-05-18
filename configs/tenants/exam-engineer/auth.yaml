@@ -10,8 +10,8 @@
 schema_version: 1
 
 # AuthFusion POST /api/v1/clients 응답의 `clientId` (UUID). 2026-05-18 등록 완료.
-client_id: "911eec0b-841a-4a4f-a076-966bde38ff0c"
-authfusion_client_id: "911eec0b-841a-4a4f-a076-966bde38ff0c"
+client_id: "6cb9d56c-6b60-47cc-9317-d1b3f64eaf23"
+authfusion_client_id: "6cb9d56c-6b60-47cc-9317-d1b3f64eaf23"
 
 # 이 tenant 한정 추가 admin role (있으면 nominal ADMIN 외 추가 권한 부여).
 # DomainRAG는 service-scoped role 표준 (`domainrag-ops-admin`)만 사용 — 빈 list.
