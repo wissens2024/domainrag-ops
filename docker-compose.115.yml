@@ -51,11 +51,16 @@ services:
       # 115에는 GPU 없음 — RAG_BACKEND=inmemory 권장 (vLLM 미사용)
       # 또는 production으로 두고 174 endpoint 가리키기
       - RAG_BACKEND=inmemory
-      # AUTH_MODE는 authfusion 단일 (ADR-018 §9 — mock 격리). 115에서 SSO 흐름은
-      # AuthFusion api.aines.kr / console.aines.kr를 실 가동 인스턴스로 사용.
+      # AuthFusion OIDC — .env가 compose interpolation으로 주입 (base의 APP_BASE_URL override).
+      # 운영 .env 필수 키: AUTHFUSION_CLIENT_ID, AUTHFUSION_CLIENT_SECRET, AUTHFUSION_ISSUER,
+      # AUTHFUSION_DISCOVERY_URL, APP_BASE_URL, OIDC_REQUIRE_VERIFIED_EMAIL.
       - AUTH_MODE=oidc
-      # 115에서 frontend 호스트 포트는 3010 (WiSentinel frontend:3000 충돌 회피).
-      - APP_BASE_URL=http://115:3010
+      - APP_BASE_URL=${APP_BASE_URL:-https://rag.aines.kr}
+      - AUTHFUSION_ISSUER=${AUTHFUSION_ISSUER:-https://api.aines.kr}
+      - AUTHFUSION_DISCOVERY_URL=${AUTHFUSION_DISCOVERY_URL:-}
+      - AUTHFUSION_CLIENT_ID=${AUTHFUSION_CLIENT_ID:-}
+      - AUTHFUSION_CLIENT_SECRET=${AUTHFUSION_CLIENT_SECRET:-}
+      - OIDC_REQUIRE_VERIFIED_EMAIL=${OIDC_REQUIRE_VERIFIED_EMAIL:-true}
       - LEDGER_ENABLE=false
       - OPS_CRON_MODE=external  # 운영은 외부 cron 권장
     depends_on:

@@ -46,6 +46,9 @@ _assessment_generate_service = None
 _assessment_hybrid_service = None
 _assessment_logger = None
 _keyhub_adapter = None
+_chat_log_eraser = None
+_oauth_state_store = None
+_authfusion_token_client = None
 
 
 def get_keyhub_adapter(settings: Settings = Depends(get_settings)):
