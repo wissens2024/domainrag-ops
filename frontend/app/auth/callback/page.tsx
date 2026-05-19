@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { API_BASE } from '@/lib/api';
 
 type Status = 'exchanging' | 'success' | 'error';
 
@@ -42,7 +43,7 @@ export default function AuthCallbackPage() {
     }
     exchangedRef.current = key;
 
-    const url = `/api/auth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+    const url = `${API_BASE}/api/auth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
     fetch(url, { credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) {

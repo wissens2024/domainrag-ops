@@ -48,6 +48,17 @@ export function middleware(req: NextRequest) {
   // 미인증 — backend authorize endpoint로 302. backend가 다시 IdP로 302.
   // /platform/admin/*은 tenant=platform → backend 측 client_id 매핑이 필요.
   // 단일 platform_admin client_id가 등록되어 있다고 가정 (ADR-018 §7).
+  //
+  // NEXT_PUBLIC_API_URL이 설정되어 있으면 그 절대 URL을 사용 (dev에서 frontend
+  // 포트 3010 ≠ backend 8001). 운영(115)은 same-origin이라 NEXT_PUBLIC_API_URL을
+  // 빈 문자열로 두면 host 그대로.
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+  if (apiBase) {
+    return NextResponse.redirect(
+      `${apiBase}/api/auth/authorize/${tenant}?redirect=1`,
+      302,
+    );
+  }
   const url = req.nextUrl.clone();
   url.pathname = `/api/auth/authorize/${tenant}`;
   url.search = '?redirect=1';
