@@ -10,7 +10,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import useSWR from 'swr';
 import AnswerCard from '@/components/AnswerCard';
 import CitationPanel from '@/components/CitationPanel';
 import ModeSelector from '@/components/ModeSelector';
@@ -20,8 +22,9 @@ import {
   deleteConversation,
   getConversation,
   listConversations,
+  swrFetcher,
 } from '@/lib/api';
-import type { ChatResponse, Citation, Conversation } from '@/lib/types';
+import type { ChatResponse, Citation, Conversation, UserContext } from '@/lib/types';
 
 export default function ChatPage() {
   const params = useParams<{ tenantId: string }>();
@@ -35,6 +38,11 @@ export default function ChatPage() {
   const [mode, setMode] = useState<'structured' | 'streaming'>('structured');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // RBAC 메뉴 노출용 — admin/platform_admin 사용자에게만 콘솔 진입 링크 표시.
+  const { data: me } = useSWR<UserContext>('/api/auth/me', swrFetcher, {
+    shouldRetryOnError: false,
+  });
 
   const refreshConversations = async () => {
     try {
@@ -200,6 +208,25 @@ export default function ChatPage() {
         >
           + 새 대화
         </button>
+        {/* RBAC 메뉴 (ADR-016 Y9) — admin role 보유자에게만 노출 */}
+        {(me?.is_admin || me?.is_platform_admin) && (
+          <div className="mb-3 space-y-1">
+            <Link
+              href={`/${tenantId}/admin/dashboard`}
+              className="block px-3 py-1.5 border border-gray-300 rounded text-xs text-center hover:bg-gray-50"
+            >
+              🏢 관리자 콘솔
+            </Link>
+            {me?.is_platform_admin && (
+              <Link
+                href="/platform/admin/tenants"
+                className="block px-3 py-1.5 border border-gray-300 rounded text-xs text-center hover:bg-gray-50"
+              >
+                🌐 Platform Admin
+              </Link>
+            )}
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto space-y-1">
           {conversations.length === 0 && (
             <p className="text-xs text-gray-400">아직 대화가 없습니다.</p>
