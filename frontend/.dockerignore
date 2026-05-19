@@ -1,0 +1,12 @@
+node_modules
+.next
+.swc
+.git
+.gitignore
+Dockerfile
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env.local
+.DS_Store
