@@ -44,13 +44,14 @@ services:
       - MINIO_ACCESS_KEY=domainrag
       - MINIO_SECRET_KEY=changeme_minio_root
       - MINIO_BUCKET=domainrag
-      - TENANT_SLM_BASE_URL=http://174.local:8000/v1
-      - SHARED_LLM_BASE_URL=http://174.local:8000/v1
-      - EMBEDDING_SERVER_URL=http://174.local:8082
-      - RERANKER_SERVER_URL=http://174.local:8083
-      # 115에는 GPU 없음 — RAG_BACKEND=inmemory 권장 (vLLM 미사용)
-      # 또는 production으로 두고 174 endpoint 가리키기
-      - RAG_BACKEND=inmemory
+      # 같은 내부망 — DNS(174.local) 의존 끊고 IP 직접
+      - TENANT_SLM_BASE_URL=http://192.168.0.174:8000/v1
+      - SHARED_LLM_BASE_URL=http://192.168.0.174:8000/v1
+      - EMBEDDING_SERVER_URL=http://192.168.0.174:8082
+      - RERANKER_SERVER_URL=http://192.168.0.174:8083
+      # 174 vLLM(8000) 가동 확인됨. embedding/reranker(8082/8083)는 미가동
+      # — retrieval은 fail하지만 chat_streaming mode는 LLM만 호출하므로 동작
+      - RAG_BACKEND=production
       # AuthFusion OIDC — .env가 compose interpolation으로 주입 (base의 APP_BASE_URL override).
       # 운영 .env 필수 키: AUTHFUSION_CLIENT_ID, AUTHFUSION_CLIENT_SECRET, AUTHFUSION_ISSUER,
       # AUTHFUSION_DISCOVERY_URL, APP_BASE_URL, OIDC_REQUIRE_VERIFIED_EMAIL.
