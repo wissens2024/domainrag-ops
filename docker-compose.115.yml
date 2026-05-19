@@ -52,6 +52,8 @@ services:
       # 174 vLLM(8000) 가동 확인됨. embedding/reranker(8082/8083)는 미가동
       # — retrieval은 fail하지만 chat_streaming mode는 LLM만 호출하므로 동작
       - RAG_BACKEND=production
+      # 174 vLLM의 실제 model id (`Qwen/Qwen2.5-7B-Instruct-AWQ`)와 일치시킴
+      - RAG_DEFAULT_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
       # AuthFusion OIDC — .env가 compose interpolation으로 주입 (base의 APP_BASE_URL override).
       # 운영 .env 필수 키: AUTHFUSION_CLIENT_ID, AUTHFUSION_CLIENT_SECRET, AUTHFUSION_ISSUER,
       # AUTHFUSION_DISCOVERY_URL, APP_BASE_URL, OIDC_REQUIRE_VERIFIED_EMAIL.
