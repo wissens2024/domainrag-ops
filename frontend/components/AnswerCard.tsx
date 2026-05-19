@@ -11,6 +11,8 @@
 'use client';
 
 import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import ConflictBox from './ConflictBox';
 import InferenceJudgePopover from './InferenceJudgePopover';
 import { postFeedback } from '@/lib/api';
@@ -102,14 +104,22 @@ export default function AnswerCard({ response, tenantId, onCitationClick }: Prop
   const answerSegments = response.answer_segments ?? [{ text: response.answer ?? '', citations: [] }];
   const conflictCitations = citations.filter((c) => c.support_type === 'conflict');
 
+  // citation marker가 있는 segment는 inline node로, 없는 경우는 markdown으로.
+  // streaming/일반 대화에는 citations[]이 비어 markdown 전용 렌더 사용.
+  const hasCitations = citations.length > 0;
+
   return (
-    <div className="bg-white border border-gray-200 rounded p-4 my-4 shadow-sm">
-      <div className="prose prose-sm max-w-none">
-        {answerSegments.map((seg, i) => (
-          <span key={i}>
-            {seg.text}
-            {(seg.citations ?? []).length > 0 &&
-              (seg.citations ?? []).map((cIdx) => {
+    <div className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 my-1 text-sm">
+      <div className="prose prose-sm max-w-none prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-code:before:hidden prose-code:after:hidden prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
+        {!hasCitations ? (
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {response.answer || ''}
+          </ReactMarkdown>
+        ) : (
+          answerSegments.map((seg, i) => (
+            <span key={i}>
+              {seg.text}
+              {(seg.citations ?? []).map((cIdx) => {
                 const cit = citations.find((c) => c.marker === `[${cIdx}]`);
                 if (!cit) return null;
                 const colorClass = citationColorClass(cit.support_type);
@@ -141,13 +151,14 @@ export default function AnswerCard({ response, tenantId, onCitationClick }: Prop
                 }
                 return button;
               })}
-            {seg.unsupported && (
-              <span className="text-yellow-600 mx-1" title="근거 미확보">
-                ⚠
-              </span>
-            )}{' '}
-          </span>
-        ))}
+              {seg.unsupported && (
+                <span className="text-yellow-600 mx-1" title="근거 미확보">
+                  ⚠
+                </span>
+              )}{' '}
+            </span>
+          ))
+        )}
       </div>
 
       {conflictCitations.map((c) => (
@@ -158,43 +169,51 @@ export default function AnswerCard({ response, tenantId, onCitationClick }: Prop
         />
       ))}
 
-      <div className="mt-4 pt-3 border-t border-gray-100 text-xs text-gray-500 flex flex-wrap gap-x-3">
+      <div className="mt-3 pt-2 border-t border-gray-200 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500">
         <span>모델: {response.metadata.llm_model}</span>
-        <span>응답 시간: {(response.metadata.latency_ms / 1000).toFixed(2)}s</span>
-        <span>confidence: {response.metadata.confidence.toFixed(2)}</span>
+        {response.metadata.latency_ms > 0 && (
+          <span>{(response.metadata.latency_ms / 1000).toFixed(2)}s</span>
+        )}
+        {response.metadata.confidence > 0 && (
+          <span>confidence {response.metadata.confidence.toFixed(2)}</span>
+        )}
         {response.metadata.lora_adapter && (
           <span>LoRA: {response.metadata.lora_adapter}</span>
         )}
-        <span>mode: {response.metadata.ui_mode}</span>
-      </div>
-
-      <div className="mt-2 flex gap-2 items-center">
-        <button
-          onClick={() => sendFeedback('good')}
-          disabled={feedbackSent !== null}
-          className={`px-2 py-1 text-xs border rounded ${
-            feedbackSent === 'good' ? 'bg-green-100 border-green-300' : ''
-          }`}
-        >
-          👍 좋아요
-        </button>
-        <button
-          onClick={() => sendFeedback('bad')}
-          disabled={feedbackSent !== null}
-          className={`px-2 py-1 text-xs border rounded ${
-            feedbackSent === 'bad' ? 'bg-red-100 border-red-300' : ''
-          }`}
-        >
-          👎 별로예요
-        </button>
-        <button onClick={copyToClipboard} className="px-2 py-1 text-xs border rounded">
-          📋 복사
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            onClick={copyToClipboard}
+            className="px-2 py-1 rounded hover:bg-gray-200 text-gray-500"
+            title="답변 복사"
+          >
+            📋
+          </button>
+          <button
+            onClick={() => sendFeedback('good')}
+            disabled={feedbackSent !== null}
+            className={`px-2 py-1 rounded hover:bg-gray-200 ${
+              feedbackSent === 'good' ? 'bg-green-100 text-green-700' : 'text-gray-500'
+            }`}
+            title="좋아요"
+          >
+            👍
+          </button>
+          <button
+            onClick={() => sendFeedback('bad')}
+            disabled={feedbackSent !== null}
+            className={`px-2 py-1 rounded hover:bg-gray-200 ${
+              feedbackSent === 'bad' ? 'bg-red-100 text-red-700' : 'text-gray-500'
+            }`}
+            title="별로예요"
+          >
+            👎
+          </button>
+        </div>
         {feedbackError && (
-          <span className="text-xs text-red-600">{feedbackError}</span>
+          <span className="w-full text-red-600">{feedbackError}</span>
         )}
         {feedbackSent && !feedbackError && (
-          <span className="text-xs text-gray-500">피드백 감사합니다.</span>
+          <span className="w-full text-gray-400">피드백 감사합니다.</span>
         )}
       </div>
     </div>

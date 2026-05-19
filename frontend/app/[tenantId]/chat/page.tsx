@@ -209,55 +209,72 @@ export default function ChatPage() {
     }
   };
 
+  // 현재 대화 제목 (사이드바 row에서 가져옴)
+  const currentTitle =
+    conversations.find((c) => c.conversation_id === currentConversationId)
+      ?.title ?? null;
+
+  // textarea 자동 높이 + Enter 전송 (Shift+Enter 줄바꿈)
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      void handleSubmit(e as unknown as React.FormEvent);
+    }
+  };
+
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-gray-50 text-gray-900">
       {/* 좌측 — 대화 목록 */}
-      <aside className="w-64 border-r border-gray-200 p-4 flex flex-col">
-        <h2 className="font-bold mb-3">대화 목록</h2>
-        <button
-          onClick={handleNewConversation}
-          className="w-full px-3 py-2 bg-blue-600 text-white rounded text-sm mb-3"
-        >
-          + 새 대화
-        </button>
-        {/* RBAC 메뉴 (ADR-016 Y9) — admin role 보유자에게만 노출 */}
+      <aside className="w-72 border-r border-gray-200 bg-white flex flex-col">
+        <div className="p-3 border-b border-gray-200">
+          <button
+            onClick={handleNewConversation}
+            className="w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+          >
+            + 새 대화
+          </button>
+        </div>
+
         {(me?.is_admin || me?.is_platform_admin) && (
-          <div className="mb-3 space-y-1">
+          <div className="px-3 py-2 border-b border-gray-200 space-y-1">
             <Link
               href={`/${tenantId}/admin/dashboard`}
-              className="block px-3 py-1.5 border border-gray-300 rounded text-xs text-center hover:bg-gray-50"
+              className="flex items-center gap-2 px-2 py-1.5 rounded text-xs text-gray-700 hover:bg-gray-100"
             >
-              🏢 관리자 콘솔
+              <span>🏢</span> 관리자 콘솔
             </Link>
             {me?.is_platform_admin && (
               <Link
                 href="/platform/admin/tenants"
-                className="block px-3 py-1.5 border border-gray-300 rounded text-xs text-center hover:bg-gray-50"
+                className="flex items-center gap-2 px-2 py-1.5 rounded text-xs text-gray-700 hover:bg-gray-100"
               >
-                🌐 Platform Admin
+                <span>🌐</span> Platform Admin
               </Link>
             )}
           </div>
         )}
-        <div className="flex-1 overflow-y-auto space-y-1">
+
+        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
           {conversations.length === 0 && (
-            <p className="text-xs text-gray-400">아직 대화가 없습니다.</p>
+            <p className="text-xs text-gray-400 px-3 py-4 text-center">
+              아직 대화 없음
+            </p>
           )}
           {conversations.map((c) => (
             <div
               key={c.conversation_id}
-              className={`group relative px-2 py-2 rounded text-sm cursor-pointer ${
+              className={`group relative px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${
                 currentConversationId === c.conversation_id
-                  ? 'bg-blue-100'
+                  ? 'bg-gray-200'
                   : 'hover:bg-gray-100'
               }`}
               onClick={() => handleSelectConversation(c.conversation_id)}
             >
-              <div className="truncate font-medium">
-                {c.title || c.conversation_id.slice(0, 12)}
+              <div className="truncate font-medium pr-5">
+                {c.title || '새 대화'}
               </div>
-              <div className="text-xs text-gray-500">
-                {new Date(c.updated_at).toLocaleString('ko-KR')} ·{' '}
+              <div className="text-xs text-gray-500 mt-0.5">
+                {new Date(c.updated_at).toLocaleDateString('ko-KR')} ·{' '}
                 {c.message_count}건
               </div>
               <button
@@ -265,7 +282,7 @@ export default function ChatPage() {
                   e.stopPropagation();
                   void handleDeleteConversation(c.conversation_id);
                 }}
-                className="absolute right-1 top-1 hidden group-hover:block text-red-500 text-xs px-1"
+                className="absolute right-1.5 top-2 hidden group-hover:block text-gray-400 hover:text-red-500 text-xs px-1"
                 title="삭제"
               >
                 ✕
@@ -273,82 +290,114 @@ export default function ChatPage() {
             </div>
           ))}
         </div>
+
+        {/* 사이드바 하단: user */}
+        {me && (
+          <div className="p-3 border-t border-gray-200 text-xs text-gray-500">
+            <div className="truncate font-medium text-gray-700">
+              {me.preferred_username ?? me.email ?? me.user_id}
+            </div>
+            <div className="truncate">{me.tenant_id}</div>
+          </div>
+        )}
       </aside>
 
       {/* 중앙 — 채팅 영역 */}
-      <main className="flex-1 flex flex-col">
-        <header className="p-4 border-b border-gray-200 flex justify-between items-center">
-          <h1 className="font-bold">DomainRAG · {tenantId}</h1>
-          <div className="flex gap-3 items-center">
+      <main className="flex-1 flex flex-col bg-white">
+        <header className="px-6 py-3 border-b border-gray-200 flex justify-between items-center bg-white">
+          <div className="flex items-center gap-3 min-w-0">
+            <h1 className="font-semibold text-sm text-gray-900 truncate">
+              {currentTitle ?? '새 대화'}
+            </h1>
+            <span className="text-xs text-gray-400 hidden sm:inline">
+              · {tenantId}
+            </span>
+          </div>
+          <div className="flex gap-2 items-center">
             <ModeSelector value={mode} onChange={setMode} />
-            <a
-              href={`/${tenantId}/admin/dashboard`}
-              className="text-xs px-3 py-1 border rounded text-gray-700 hover:bg-gray-50"
-            >
-              관리자
-            </a>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {thread.length === 0 && !loading && !streamingResponse && (
-            <div className="text-center text-gray-400 mt-12 text-sm">
-              질문을 입력해 대화를 시작하세요.
-            </div>
-          )}
-          {thread.map((item, i) =>
-            item.role === 'user' ? (
-              <div key={i} className="flex justify-end">
-                <div className="max-w-[75%] bg-blue-600 text-white rounded-2xl px-4 py-2 whitespace-pre-wrap">
-                  {item.content}
-                </div>
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+            {thread.length === 0 && !loading && !streamingResponse && (
+              <div className="text-center text-gray-400 mt-24">
+                <p className="text-lg">무엇을 도와드릴까요?</p>
+                <p className="text-xs mt-2 text-gray-300">
+                  질문을 입력해 대화를 시작하세요
+                </p>
               </div>
-            ) : (
-              <div key={i} className="flex justify-start">
-                <div className="max-w-[85%]">
+            )}
+            {thread.map((item, i) =>
+              item.role === 'user' ? (
+                <div key={i} className="flex justify-end">
+                  <div className="max-w-[75%] bg-gray-900 text-white rounded-2xl px-4 py-2.5 whitespace-pre-wrap break-words text-sm leading-relaxed">
+                    {item.content}
+                  </div>
+                </div>
+              ) : (
+                <div key={i} className="flex justify-start">
+                  <div className="max-w-[85%] w-full">
+                    <AnswerCard
+                      response={item.response}
+                      tenantId={tenantId}
+                      onCitationClick={setSelectedCitation}
+                    />
+                  </div>
+                </div>
+              ),
+            )}
+            {streamingResponse && (
+              <div className="flex justify-start">
+                <div className="max-w-[85%] w-full">
                   <AnswerCard
-                    response={item.response}
+                    response={streamingResponse}
                     tenantId={tenantId}
                     onCitationClick={setSelectedCitation}
                   />
                 </div>
               </div>
-            ),
-          )}
-          {streamingResponse && (
-            <div className="flex justify-start">
-              <div className="max-w-[85%]">
-                <AnswerCard
-                  response={streamingResponse}
-                  tenantId={tenantId}
-                  onCitationClick={setSelectedCitation}
-                />
+            )}
+            {loading && !streamingResponse && (
+              <div className="flex justify-start">
+                <div className="text-gray-400 text-sm flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 bg-gray-400 rounded-full animate-pulse" />
+                  답변 생성 중…
+                </div>
               </div>
-            </div>
-          )}
-          {loading && !streamingResponse && (
-            <div className="text-gray-500 text-sm">답변 생성 중…</div>
-          )}
-          {error && <div className="text-red-600 text-sm">오류: {error}</div>}
+            )}
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">
+                오류: {error}
+              </div>
+            )}
+          </div>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="p-4 border-t border-gray-200 bg-white sticky bottom-0"
+          className="border-t border-gray-200 bg-white px-4 py-3 sticky bottom-0"
         >
-          <div className="flex gap-2">
-            <input
-              type="text"
+          <div className="max-w-3xl mx-auto flex gap-2 items-end">
+            <textarea
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
-              placeholder="질문을 입력하세요..."
-              className="flex-1 px-3 py-2 border border-gray-300 rounded"
+              onKeyDown={onKeyDown}
+              placeholder="질문을 입력하세요. Shift+Enter 로 줄바꿈."
+              rows={1}
+              className="flex-1 px-4 py-2.5 border border-gray-300 rounded-2xl resize-none focus:outline-none focus:ring-2 focus:ring-gray-900 text-sm leading-relaxed max-h-40"
+              style={{ minHeight: '44px' }}
               disabled={loading}
+              onInput={(e) => {
+                const el = e.currentTarget;
+                el.style.height = 'auto';
+                el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+              }}
             />
             <button
               type="submit"
               disabled={loading || !question.trim()}
-              className="px-4 py-2 bg-blue-600 text-white rounded disabled:bg-gray-400"
+              className="px-5 py-2.5 bg-gray-900 text-white rounded-2xl text-sm font-medium disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-gray-800 transition-colors"
             >
               전송
             </button>
@@ -358,15 +407,17 @@ export default function ChatPage() {
 
       {/* 우측 — Citation Panel (citation 클릭 시만 노출) */}
       {selectedCitation && (
-        <aside className="w-96 border-l border-gray-200 p-4 overflow-y-auto relative">
+        <aside className="w-96 border-l border-gray-200 bg-white overflow-y-auto relative">
           <button
             onClick={() => setSelectedCitation(null)}
-            className="absolute top-2 right-2 text-gray-500 hover:text-gray-800 text-xl"
+            className="absolute top-3 right-3 text-gray-400 hover:text-gray-700 text-xl leading-none z-10"
             aria-label="닫기"
           >
             ✕
           </button>
-          <CitationPanel citation={selectedCitation} />
+          <div className="p-4">
+            <CitationPanel citation={selectedCitation} />
+          </div>
         </aside>
       )}
     </div>
