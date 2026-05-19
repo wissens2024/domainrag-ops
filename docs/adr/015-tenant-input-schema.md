@@ -377,16 +377,17 @@ ADR-014 §1 assessment_items 테이블 컬럼은 schema가 정의한 필드와 1
    - 새 schema가 적용된 후의 신규 문서만 새 schema로 검증
 ```
 
-### 9. tenant_input_schemas 테이블 (감사)
+### 9. tenant_input_schemas 테이블 (감사 + Optimistic Locking, Y8)
 
 ```sql
 CREATE TABLE tenant_input_schemas (
     id UUID PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL,
-    schema_version VARCHAR(20) NOT NULL,
-    yaml_content TEXT NOT NULL,            -- 전체 YAML
+    schema_version VARCHAR(20) NOT NULL,    -- 단조 증가 (v1, v2, v3, …)
+    yaml_content TEXT NOT NULL,             -- 전체 YAML (원본)
     json_schema JSONB NOT NULL,             -- 변환된 JSON Schema
-    is_active BOOLEAN DEFAULT true,
+    status VARCHAR(20) DEFAULT 'active',    -- 'active' | 'deprecated'
+    is_active BOOLEAN DEFAULT true,         -- view용 boolean (status='active'와 동기)
     created_by VARCHAR(255),
     created_at TIMESTAMP DEFAULT NOW(),
     deactivated_at TIMESTAMP,
@@ -399,6 +400,23 @@ CREATE POLICY tenant_isolation ON tenant_input_schemas
 ```
 
 각 schema_version의 YAML·JSON Schema 모두 보존 → audit·rollback·과거 데이터 검증에 사용.
+
+#### Optimistic Locking 절차 (CLAUDE.md Y8)
+
+복수 admin이 같은 tenant의 schema를 동시 편집할 때 마지막 PUT이 silently 덮어쓰지 않도록 `schema_version`을 **lock token**으로 사용한다.
+
+1. 클라이언트(Schema Editor UI)가 `GET /admin/schema`를 호출해 현재 `active` row를 받는다. 응답 body에 `schema_version` 포함.
+2. 사용자가 편집 후 `PUT /admin/schema` body `{schema_yaml, ui_schema_yaml?, base_version}`을 보낸다. `base_version`은 1번에서 받은 값이어야 한다.
+3. 서버 트랜잭션:
+   - `SELECT … FROM tenant_input_schemas WHERE tenant_id=… AND status='active' FOR UPDATE`로 행 잠금.
+   - `current_active.schema_version`이 `base_version`과 일치하지 않으면 → `SchemaVersionConflictError` → HTTP **409** `schema_version_conflict` + body `{current_version, base_version}` 반환. 클라이언트는 GET으로 최신본을 받아 사용자에게 merge UI 노출.
+   - 일치하면 `UPDATE … SET status='deprecated', deactivated_at=NOW()` 후 새 schema를 `schema_version=current_version+1`로 `INSERT … status='active'`.
+   - 같은 트랜잭션이므로 `UNIQUE (tenant_id, schema_version)` 위반이 IntegrityError로 표면화될 수 있고 그때도 `SchemaVersionConflictError`로 정규화한다.
+4. 트랜잭션 commit 직후 서버는 in-process `InputSchemaLoader.apply_runtime_override`를 호출해 같은 인스턴스의 다음 요청에 새 schema가 즉시 반영되게 한다. multi-instance 동기화는 [ADR-021](./021-operational-bootstrap.md) §LISTEN/NOTIFY 책임.
+
+`schema_version`은 SemVer가 아니라 단조 증가하는 정수 string(`"v1"`, `"v2"`, …)로 운영한다 — lock token 비교가 simple equality로 충분하다.
+
+운영 진실 소스: `backend/app/repositories/tenant_input_schema_repository.py PostgresTenantInputSchemaRepository.insert_new_active`.
 
 ---
 
@@ -477,7 +495,7 @@ CREATE POLICY tenant_isolation ON tenant_input_schemas
 - [ADR-011: Hybrid Retrieval v2](./011-hybrid-retrieval-v2.md) — payload 검색 필터 schema-aware
 - [ADR-012: Lifecycle v2](./012-lifecycle-v2.md) — re-index 시 schema_version 보존
 - [ADR-014: Assessment Workflow](./014-assessment-workflow.md) — assessment_item이 input_type
-- [SPEC.md §5 (관리자 콘솔), §6 (메타데이터), §8 (Document API)](../../SPEC.md) — 본 ADR로 갱신 예정
+- SPEC.md §5 / §6 / §8 — 폐기 (본 ADR + [ADR-016](./016-ui-architecture.md) + [ADR-017](./017-api-specification.md)이 흡수)
 
 ---
 

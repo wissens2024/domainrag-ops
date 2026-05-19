@@ -1,15 +1,16 @@
-"""4-type Citation verifier (ADR-010)."""
+"""4-type Citation verifier (ADR-010).
+
+InferenceJudge 운영 구현은 `rag_core.services.judge_service.JudgeService`.
+"""
 
 from .verifier import (
     Tier1MarkerVerifier,
     Tier2SimilarityVerifier,
     Tier3UnsupportedDetector,
-    InferenceJudge,
 )
 
 __all__ = [
     "Tier1MarkerVerifier",
     "Tier2SimilarityVerifier",
     "Tier3UnsupportedDetector",
-    "InferenceJudge",
 ]

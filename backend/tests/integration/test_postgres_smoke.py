@@ -184,3 +184,104 @@ def test_admin_role_bypasses_rls(alembic_upgraded, admin_dsn):
     # 방법으로 확인. RLS 정책상 admin은 context 미설정으로도 조회 가능.
     # 최소 검증: 쿼리가 에러 없이 동작 + 결과 도달 가능.
     assert rows is not None
+
+
+def test_migration_009_notify_payload_is_4field(alembic_upgraded, admin_dsn, app_dsn):
+    """ADR-021 §2 — notify_tenant_config_changed payload가 4-field로 갱신됨 (migration 009)."""
+    import psycopg
+
+    # 'config-test' tenant 등록 + tenant_config_overrides INSERT 후 LISTEN으로 payload 캡쳐
+    with psycopg.connect(admin_dsn, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO tenants (tenant_id, name, status)
+                VALUES ('t-config-test', 'Config Test', 'active')
+                ON CONFLICT (tenant_id) DO NOTHING
+                """
+            )
+
+    # LISTEN connection + 별도 NOTIFY trigger connection
+    import select
+
+    listener = psycopg.connect(admin_dsn, autocommit=True)
+    try:
+        with listener.cursor() as cur:
+            cur.execute("LISTEN tenant_config_changed")
+
+        # 별도 connection으로 INSERT — trigger 발사
+        with psycopg.connect(app_dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL app.current_tenant = 't-config-test'")
+                cur.execute(
+                    """
+                    INSERT INTO tenant_config_overrides (
+                        tenant_id, category, path, value, schema_version_at_write, author
+                    ) VALUES (
+                        't-config-test', 'routing', 'verification.tier2.strong',
+                        '0.78'::jsonb, 2, 'integration_test'
+                    )
+                    ON CONFLICT (tenant_id, category, path) DO UPDATE
+                        SET value = EXCLUDED.value
+                    """
+                )
+
+        # NOTIFY payload 캡쳐
+        select.select([listener], [], [], 5.0)
+        listener.poll()
+        notifies = list(listener.notifies)
+        assert len(notifies) >= 1, "tenant_config_changed NOTIFY 미발사"
+        payload = json.loads(notifies[0].payload)
+        # ADR-021 §2: 4-field (tenant_id, category, key, schema_version)
+        assert payload["tenant_id"] == "t-config-test"
+        assert payload["category"] == "routing"
+        assert payload["key"] == "verification.tier2.strong"
+        assert payload["schema_version"] == 2
+    finally:
+        listener.close()
+
+
+def test_migration_010_tenant_register_failures_table(alembic_upgraded, admin_dsn):
+    """ADR-021 §5 — tenant_register_failures dead-letter 테이블이 alembic upgrade로 생성됨."""
+    rows = _run_sql(
+        admin_dsn,
+        """
+        SELECT column_name FROM information_schema.columns
+         WHERE table_name = 'tenant_register_failures'
+         ORDER BY ordinal_position
+        """,
+    )
+    cols = {r[0] for r in rows}
+    expected = {
+        "id", "tenant_id", "failed_step", "error_message",
+        "rollback_succeeded", "details", "created_at",
+        "resolved_at", "resolved_by", "resolution_note",
+    }
+    missing = expected - cols
+    assert not missing, f"missing columns in tenant_register_failures: {missing}"
+
+
+def test_migration_008_schema_lifecycle_triggers_exist(alembic_upgraded, admin_dsn):
+    """ADR-021 §2 — tenant_input_schemas + tenants 트리거 함수·트리거가 존재."""
+    rows = _run_sql(
+        admin_dsn,
+        """
+        SELECT proname FROM pg_proc
+         WHERE proname IN ('notify_tenant_schema_changed',
+                           'notify_tenant_lifecycle_changed')
+        """,
+    )
+    fnames = {r[0] for r in rows}
+    assert "notify_tenant_schema_changed" in fnames
+    assert "notify_tenant_lifecycle_changed" in fnames
+
+    rows = _run_sql(
+        admin_dsn,
+        """
+        SELECT tgname FROM pg_trigger
+         WHERE tgname IN ('trg_tenant_schema_changed',
+                          'trg_tenant_lifecycle_changed')
+        """,
+    )
+    tnames = {r[0] for r in rows}
+    assert tnames == {"trg_tenant_schema_changed", "trg_tenant_lifecycle_changed"}

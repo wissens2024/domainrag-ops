@@ -40,7 +40,9 @@ from app.deps import (
     get_hard_delete_service,
     get_indexing_orchestrator,
     get_input_schema_service,
+    get_keyhub_adapter,
     get_ledger_audit_service,
+    get_lora_orchestrator,
     get_lora_registry,
     get_prompt_studio_service,
     get_schema_editor_service,
@@ -1093,13 +1095,17 @@ async def upload_lora_adapter(
     metadata: str = Form(...),
     user: UserContext = Depends(require_admin),
     registry=Depends(get_lora_registry),
+    keyhub=Depends(get_keyhub_adapter),
 ):
     """ADR-017 §14 — multipart adapter weights + metadata JSON.
 
     metadata: `{adapter_id, version, base_model, training_metadata?, keyhub_secret_ref?}`.
-    실제 weights 저장은 KeyHub 통합 작업(ADR-019)이 별도 — 본 endpoint는 메타데이터만
-    adapter_registry에 INSERT한다. weights 바이트는 size 검증 후 폐기(또는 KeyHub upload
-    호출이 추후 추가).
+
+    흐름 (ADR-019 §8):
+      1. metadata JSON 파싱 + adapter_id 검증
+      2. weights 바이트를 KeyHub에 저장 → keyhub_secret_ref 반환
+      3. adapter_registry에 INSERT (KeyHub ref 포함)
+      4. 충돌 시 KeyHub에 저장된 secret 정리 (best-effort)
     """
     await _ensure_tenant_match(tenant_id, user)
 
@@ -1111,12 +1117,34 @@ async def upload_lora_adapter(
             detail={"error": "adapter_id_missing"},
         )
 
-    # weights는 size 정도만 보관 (KeyHub 통합 전까지 placeholder)
     blob = await weights.read()
     training_metadata = dict(meta.get("training_metadata") or {})
     training_metadata.setdefault("weights_size_bytes", len(blob))
     training_metadata.setdefault("filename", weights.filename)
 
+    # 1) KeyHub에 weights 저장 — keyhub_secret_ref 산출
+    secret_key = f"lora/{tenant_id}/{adapter_id}"
+    if meta.get("version"):
+        secret_key = f"{secret_key}/{meta['version']}"
+    try:
+        keyhub_secret_ref = await keyhub.put_secret(
+            secret_key,
+            blob,
+            metadata={
+                "tenant_id": tenant_id,
+                "adapter_id": adapter_id,
+                "version": meta.get("version"),
+                "base_model": meta.get("base_model"),
+                "filename": weights.filename,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "keyhub_put_failed", "message": str(exc)},
+        ) from exc
+
+    # 2) adapter_registry에 INSERT
     from rag_core.interfaces.lora_registry import (
         AdapterRecord,
         LoRAConflictError,
@@ -1127,16 +1155,27 @@ async def upload_lora_adapter(
         tenant_id=tenant_id,
         version=meta.get("version"),
         base_model=meta.get("base_model"),
-        keyhub_secret_ref=meta.get("keyhub_secret_ref"),
+        keyhub_secret_ref=keyhub_secret_ref,
         training_metadata=training_metadata,
     )
     try:
         created = await registry.upload(record)
     except LoRAConflictError as exc:
+        # 3) 충돌 시 KeyHub secret 정리
+        try:
+            await keyhub.delete_secret(secret_key)
+        except Exception:  # noqa: BLE001
+            pass
         raise HTTPException(
             status_code=409,
             detail={"error": "adapter_id_exists", "adapter_id": adapter_id},
         ) from exc
+    except Exception:
+        try:
+            await keyhub.delete_secret(secret_key)
+        except Exception:  # noqa: BLE001
+            pass
+        raise
 
     return _adapter_to_dict(created)
 
@@ -1146,17 +1185,24 @@ async def activate_lora_adapter(
     tenant_id: str,
     adapter_id: str,
     user: UserContext = Depends(require_admin),
-    registry=Depends(get_lora_registry),
+    orchestrator=Depends(get_lora_orchestrator),
 ):
-    """ADR-017 §14 — registered → active. retired→active는 400."""
+    """ADR-017 §14 + ADR-013 §5 — registered → active.
+
+    KeyHub fetch → vLLM load → registry.activate 순서. vLLM 미운영(dev) 환경은
+    registry 상태만 전이. retired→active는 400.
+    """
     await _ensure_tenant_match(tenant_id, user)
+    from app.services.lora_orchestrator import LoRAOrchestrationError
     from rag_core.interfaces.lora_registry import (
         LoRAInvalidTransitionError,
         LoRANotFoundError,
     )
 
     try:
-        rec = await registry.activate(tenant_id=tenant_id, adapter_id=adapter_id)
+        rec = await orchestrator.activate(
+            tenant_id=tenant_id, adapter_id=adapter_id
+        )
     except LoRANotFoundError as exc:
         raise HTTPException(
             status_code=404,
@@ -1167,8 +1213,14 @@ async def activate_lora_adapter(
             status_code=400,
             detail={
                 "error": "invalid_transition",
-                "from": exc.current, "to": exc.target,
+                "from": getattr(exc, "current", None),
+                "to": getattr(exc, "target", None),
             },
+        ) from exc
+    except LoRAOrchestrationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "lora_orchestration_failed", "message": str(exc)},
         ) from exc
     return _adapter_to_dict(rec)
 
@@ -1178,14 +1230,16 @@ async def retire_lora_adapter(
     tenant_id: str,
     adapter_id: str,
     user: UserContext = Depends(require_admin),
-    registry=Depends(get_lora_registry),
+    orchestrator=Depends(get_lora_orchestrator),
 ):
-    """ADR-017 §14 — active|registered → retired. idempotent."""
+    """ADR-017 §14 — active|registered → retired. vLLM unload + idempotent."""
     await _ensure_tenant_match(tenant_id, user)
     from rag_core.interfaces.lora_registry import LoRANotFoundError
 
     try:
-        rec = await registry.retire(tenant_id=tenant_id, adapter_id=adapter_id)
+        rec = await orchestrator.retire(
+            tenant_id=tenant_id, adapter_id=adapter_id
+        )
     except LoRANotFoundError as exc:
         raise HTTPException(
             status_code=404,

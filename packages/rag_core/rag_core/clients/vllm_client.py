@@ -150,3 +150,42 @@ class VllmLLMClient:
             except httpx.HTTPError:
                 continue
         return False
+
+    # ---------------------------------------------------------- LoRA hot-swap
+    # ADR-013 §5 + ADR-019 §8 — vLLM 0.6+ extension API.
+    # 운영은 KeyHub에서 weights 가져와 vLLM이 접근 가능한 로컬 경로에 둔 뒤 호출.
+
+    async def load_lora_adapter(self, *, lora_name: str, lora_path: str) -> None:
+        """vLLM에 LoRA adapter 등록 (POST /v1/load_lora_adapter).
+
+        vLLM은 lora_path가 *자신의 로컬 파일시스템*에서 접근 가능해야 함. KeyHub
+        fetch + 파일 쓰기는 caller(LoRAOrchestrator) 책임.
+
+        성공: 응답 status<400. 실패: HTTPStatusError 또는 RuntimeError raise.
+        """
+        resp = await self._client.post(
+            f"{self._base_url}/load_lora_adapter",
+            headers=self._headers(),
+            json={"lora_name": lora_name, "lora_path": lora_path},
+            timeout=self._timeout,
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"vllm load_lora_adapter failed: {resp.status_code} {resp.text}"
+            )
+
+    async def unload_lora_adapter(self, *, lora_name: str) -> None:
+        """vLLM에서 LoRA adapter 해제 (POST /v1/unload_lora_adapter).
+
+        idempotent — 이미 unload 된 어댑터 호출도 swallow 권장 (caller가 결정).
+        """
+        resp = await self._client.post(
+            f"{self._base_url}/unload_lora_adapter",
+            headers=self._headers(),
+            json={"lora_name": lora_name},
+            timeout=self._timeout,
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"vllm unload_lora_adapter failed: {resp.status_code} {resp.text}"
+            )

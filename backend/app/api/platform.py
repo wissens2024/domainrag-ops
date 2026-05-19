@@ -311,6 +311,28 @@ async def cross_tenant_health(
     return await list_endpoints(user=user)
 
 
+@router.get("/health/metrics")
+async def get_health_metrics(
+    user: UserContext = Depends(require_platform_admin),
+):
+    """ADR-021 후속 — 단일 process 내 운영 지표 노출 (관제 polling).
+
+    포함 항목:
+      - ledger publish 실패 누적 + dead-letter 최근 10건
+      - chat_log write 실패 누적 + dead-letter 최근 10건
+
+    multi-instance 환경에선 각 process별로 다른 값이므로 관제 dashboard에선 instance
+    단위로 분리 표시 권장.
+    """
+    from app.services.chat_log_writer import get_chat_log_failure_metrics
+    from app.services.ledger_client import get_ledger_failure_metrics
+
+    return {
+        "ledger": get_ledger_failure_metrics(),
+        "chat_log_writer": get_chat_log_failure_metrics(),
+    }
+
+
 # ----------------------------------------------------------------------------
 # Platform Configs (ADR-017 §18)
 # ----------------------------------------------------------------------------

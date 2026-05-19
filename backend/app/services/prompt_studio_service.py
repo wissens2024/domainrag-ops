@@ -7,13 +7,16 @@
   - preview(tid, task, system?, user?, sample_question, contexts?): Jinja2 렌더 + 선택 LLM 호출
 
 저장:
-  - in-process dict (PromptStudioService._runtime_overrides) — 같은 프로세스 내 즉시 반영
-  - history는 별도 in-process 리스트 (audit는 추후 ADR-009 §5 DB→load 영구화 작업에서 통합)
+  - in-process dict (`PromptStudioService._runtime`) — 같은 프로세스 내 즉시 반영
+  - history는 별도 in-process 리스트
+  - 프로세스 재시작 후 영속화는 별도 작업(현재는 tenant_config_overrides 테이블에 category='prompts'로 흡수 후보 — ADR-021 §1 preload 활용)
 
-PATCH 시 GenerationPrompt cache 무효화 — 다음 chat 호출이 새 prompt를 로드해야 한다.
-현재 GenerationService는 호출마다 자체 prompt를 들고 있으므로(생성자 주입) 변경이 chat
-flow에 즉시 반영되려면 GenerationService 재구성 트리거가 필요. 본 작업의 책임 밖이며
-follow-up으로 명시.
+PATCH가 chat 흐름에 즉시 반영되는 메커니즘 (이미 결선됨):
+  - `backend/app/services/rag_service.py:_build_prompt_provider`가 GenerationService의
+    `prompt_provider` hook으로 주입됨.
+  - GenerationService는 매 호출에서 `prompt_provider(tenant_id)`를 통해 effective
+    prompt를 받는다 — PATCH 직후 다음 chat 호출이 새 system/user를 즉시 사용.
+  - 테스트: backend/tests/test_runtime_connections.py
 """
 
 from __future__ import annotations

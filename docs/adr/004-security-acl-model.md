@@ -321,7 +321,7 @@ class AuditLog:
 ## Related
 
 - [ADR-001: Citation 메타데이터](./001-citation-metadata-design.md) - ACL이 포함된 메타데이터
-- [IMPLEMENTATION_SPEC.md](../../IMPLEMENTATION_SPEC.md#11-보안-설계) - 보안 설계
+- IMPLEMENTATION_SPEC.md §11 보안 설계 — 폐기 (본 ADR + [ADR-008](./008-multi-tenant-architecture.md) RLS로 흡수)
 - [backend/README.md](../../backend/README.md#보안--acl) - 구현 가이드
 
 ---

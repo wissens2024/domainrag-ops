@@ -260,6 +260,27 @@ retrieval:
 
 bypass=true이면 LangGraph가 `rerank_context` 노드 skip + Gate 1은 fused_score 기준으로 평가.
 
+#### 한국어 RAG 운영 우선순위 (memory `feedback_korean_rag_priority` 정합)
+
+한국어 도메인의 검색 품질은 다음 순으로 결정된다. **reranker는 8순위**이며 *품질 보정 장치*이지 *입력 보완 마법*이 아니다:
+
+1. 입력 스키마 (ADR-015)
+2. 메타데이터 (ADR-001) — 도메인 filter의 핵심
+3. 문서 버전/유효기간 (ADR-012 §3)
+4. 정확한 chunking (ADR-007/012)
+5. dense+sparse hybrid (본 ADR §1·§3)
+6. ACL/tenant filter (ADR-004/008 + 본 ADR §2)
+7. citation verifier (ADR-010)
+8. **reranker (본 절 bypass)**
+
+운영 결정: **현재 가용한 한국어 cross-encoder 다수(`bge-reranker-v2-m3`/`base`/`large`)가 모두 XLM-RoBERTa 기반**이라 TEI Candle FlashBert backend와 비호환이다. 따라서 *플랫폼 기본값을 `reranker.bypass: true`로 운영*하고 dense+sparse fusion + 위 1~7번을 견고히 한 뒤, 다음 중 하나가 가용해질 때 별도 작업으로 reranker 결선한다:
+
+- vLLM 0.7+ cross-encoder 지원 (현재 0.6.3은 generation only)
+- [Infinity](https://github.com/michaelfeil/infinity) 같은 XLM-RoBERTa 지원 inference engine (별도 ADR로 외부 의존성 정식화)
+- BERT 기반 한국어 cross-encoder 신규 모델 등장
+
+`configs/platform/retrieval.yaml`의 platform default는 `bypass: false`로 두되, 실제 운영 환경의 인프라가 reranker 모델을 지원하지 않으면 platform_admin이 `bypass: true`로 전환. tenant override로 도메인별 토글 가능.
+
 ---
 
 ## Consequences
@@ -335,7 +356,7 @@ bypass=true이면 LangGraph가 `rerank_context` 노드 skip + Gate 1은 fused_sc
 - ADR-012 (예정): Lifecycle v2 — collection 생성·alias swap·archival
 - ADR-013 (예정): Model Routing — query rewriting LLM 결정
 - ADR-014 (예정): Assessment Workflow — reranker bypass 활용
-- [SPEC.md §4, §6.2, §10.2](../../SPEC.md) — 본 ADR로 갱신 예정
+- SPEC.md §4, §6.2, §10.2 — 폐기 (본 ADR이 흡수)
 
 ---
 

@@ -10,7 +10,6 @@ LLM-as-judge: inference type 검증
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 
@@ -86,30 +85,5 @@ class Tier3UnsupportedDetector:
         return unsupported, len(unsupported) / total
 
 
-class InferenceJudge:
-    """ADR-010 §4 — LLM-as-judge.
-
-    실제 호출은 LLMClient로 위임. 골격 단계는 stub.
-    """
-
-    def __init__(self, llm_client: Any, prompt_path: str, min_confidence: float = 0.6):
-        self.llm = llm_client
-        self.prompt_path = prompt_path
-        self.min_confidence = min_confidence
-
-    async def judge(
-        self,
-        claim_text: str,
-        cited_chunks: list[dict],
-    ) -> dict:
-        """반환: {valid, confidence, reasoning, caveat}."""
-        # TODO: configs/platform/prompts/inference_judge.yaml 로드 + LLM 호출
-        return {
-            "valid": False,
-            "confidence": 0.0,
-            "reasoning": "stub — 미구현",
-            "caveat": None,
-        }
-
-    def passes(self, judge_result: dict) -> bool:
-        return bool(judge_result.get("valid")) and judge_result.get("confidence", 0) >= self.min_confidence
+# ADR-010 §4 LLM-as-judge 운영 구현은 `rag_core.services.judge_service.JudgeService`다.
+# 이전에 본 모듈에 존재하던 `InferenceJudge` stub은 dead code였으므로 제거했다.

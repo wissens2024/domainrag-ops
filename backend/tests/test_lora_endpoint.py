@@ -28,6 +28,7 @@ from app.deps import (
     reset_feedback_writer,
     reset_indexing_orchestrator,
     reset_ledger_audit_service,
+    reset_lora_orchestrator,
     reset_lora_registry,
     reset_oauth_state_store,
     reset_pii_approval_service,
@@ -63,6 +64,7 @@ def _reset():
     reset_tenant_config_override_service()
     reset_prompt_studio_service()
     reset_lora_registry()
+    reset_lora_orchestrator()
     yield
     app.dependency_overrides.clear()
     reset_rag_service()
@@ -78,6 +80,7 @@ def _reset():
     reset_oauth_state_store()
     reset_authfusion_token_client()
     reset_ledger_audit_service()
+    reset_lora_orchestrator()
     reset_tenant_config_override_service()
     reset_prompt_studio_service()
     reset_lora_registry()

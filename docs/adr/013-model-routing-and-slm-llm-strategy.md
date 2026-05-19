@@ -37,7 +37,7 @@
 - LangGraph `model_router` 노드가 yaml 규칙 평가
 - `configs/platform/routing.yaml` (기본) + `configs/tenants/<id>/routing.yaml` (override)
 - 결정론적·설명 가능·즉시 운영
-- 학습된 SLM router는 본 시스템에서 지원하지 않음 — 추후 도입 시 별도 ADR
+- 본 시스템은 학습된 SLM router를 지원하지 않는다. 도입이 필요해지면 새 ADR을 작성한다.
 
 ### 2. Routing rule schema
 
@@ -150,7 +150,30 @@ tier1:
 - prompt: `query`를 받아 `{query_type, complexity, support_type}` 반환
 - schema: `configs/platform/prompts/query_classify_schema.json`
 
+#### Classifier 출력 enum (공식 정의)
+
+routing rule (`when:`), citation metadata, chat_logs, frontend type 모두 다음 enum을 단일 진실 소스로 본다. **신규 값을 추가하려면 본 ADR 보완 + frontend `lib/types.ts` + ADR-010 `support_type` 동시 갱신**.
+
+| 필드 | 허용 값 | 의미 |
+|---|---|---|
+| `query_type` | `document_qa` | 문서 검색 + 답변 |
+| | `assessment_extract` | Assessment 추출 모드 (ADR-014 §3) |
+| | `assessment_generate` | Assessment 생성 모드 (ADR-014 §4) |
+| | `assessment_hybrid` | Assessment 혼합 모드 |
+| | `free_chat` | RAG 비활성 자유 대화 (chat_streaming) |
+| | `meta` | 시스템·도움말 질의 |
+| `complexity` | `low` / `medium` / `high` | 추론 단계 수 추정 |
+| `support_type` | `direct` | ADR-010 §2 직접 인용 |
+| | `synthesis` | ADR-010 §3 종합 |
+| | `inference` | ADR-010 §4 추론 (LLM-as-judge 필수) |
+| | `conflict` | ADR-010 §7 충돌 |
+| | `unknown` | 분류 모호 — 기본 정책으로 fallback (Tier 2가 결정 못 한 경우) |
+
+**Naming**: 본 ADR과 ADR-010·ADR-014·frontend는 모두 snake_case lowercase 사용. Python `Enum` 정의를 사용한다면 value(`'direct'`)와 member name(`DIRECT`)을 분리하고 직렬화는 value로 통일.
+
 ### 4. Endpoint 구성 (Topology)
+
+> **2026-05-12 보완 노트 ([ADR-019](./019-infrastructure-sharing.md) §3·§4)**: 본 절은 두 vLLM instance(tenant + shared)를 별도 호스트로 가정했으나, GPU 자원 재산정 결과(174 RTX 3080 4장만 가용, WiSentinel과 분리 협의 2026-05-12) **단일 vLLM instance를 alias로 공유**하는 구조로 통합됐다. `tenant_slm`과 `shared_llm`은 같은 endpoint URL을 가리키고 LoRA 활성 여부(`multi_lora`)와 system prompt로만 분기한다. 본 §4 본문은 historical 설계로 보존하되 운영 진실 소스는 ADR-019 + `configs/platform/model.yaml`이다.
 
 ```text
 [vLLM-tenant-shared]   → Tenant SLM 멀티테넌트 (LoRA per-request adapter)
@@ -165,20 +188,30 @@ tier1:
                               host: vllm-tenant-X:8000
 ```
 
-`configs/platform/model.yaml`:
+> **운영 현황 (ADR-019 §3·§4 결정)**: 위 topology는 2026-05-12 다음과 같이 통합됐다.
+> - `tenant_slm` / `shared_llm`이 동일 vLLM instance를 가리키는 **alias** (`SHARED_LLM_BASE_URL == TENANT_SLM_BASE_URL`).
+> - base_model: `Qwen2.5-7B-Instruct-AWQ` (4-bit 양자화 — 10GB GPU 제약).
+> - tensor parallel size 2 (GPU 두 장 묶음). 14B 분리 instance는 GPU 부족으로 미운영.
+> - LoRA는 multi-LoRA per-request(`max_loras=8`)로 같은 instance에서 분기. `shared_llm`은 `multi_lora: false`로 baseline 강제.
+> - dedicated tenant 옵션은 ADR-019 §4 후속 결정 대기 (현재 미운영).
+
+`configs/platform/model.yaml` (현 진실 소스):
 ```yaml
 endpoints:
-  vllm_tenant_shared:
-    url: http://vllm-tenant:8000/v1
-    base_model: qwen3-7b-instruct
-    supports_lora: true
-    max_concurrent: 50
+  tenant_slm:
+    base_url_env: TENANT_SLM_BASE_URL   # 운영 환경: http://174.local:8000/v1
+    base_model: Qwen2.5-7B-Instruct-AWQ
+    quantization: awq
+    multi_lora: true
+    max_loras: 8
+    tensor_parallel_size: 2
 
-  vllm_shared:
-    url: http://vllm-shared:8000/v1
-    base_model: qwen3-14b
-    supports_lora: false
-    max_concurrent: 20
+  shared_llm:
+    base_url_env: SHARED_LLM_BASE_URL   # tenant_slm과 동일 endpoint (alias)
+    base_model: Qwen2.5-7B-Instruct-AWQ
+    multi_lora: false                   # judge·rewrite는 baseline
+    tensor_parallel_size: 2
+    note: "tenant_slm alias — 별도 vLLM instance 아님 (ADR-019 §4)"
 ```
 
 `configs/tenants/<id>/model.yaml`:
@@ -217,13 +250,27 @@ inference_judge:                  # ADR-010
    adapter_registry 테이블에 row 추가
    vLLM admin API로 LoRA 모듈 등록 (--lora-modules 추가)
 
-4. 활성화
+4. 활성화 (LoRAOrchestrator.activate)
+   - KeyHub에서 weights 가져오기 (ADR-019 §8 KeyHubAdapter)
+   - VLLM_SHARED_LORA_PATH/<tenant>/<adapter_id>/adapter_model.bin 으로 저장
+   - vLLM POST /v1/load_lora_adapter (lora_name + lora_path)
+   - adapter_registry.status='active' 전이
    tenant configs/model.yaml의 lora_adapter 갱신
-   TenantConfigService LISTEN/NOTIFY로 즉시 반영
+   TenantConfigService LISTEN/NOTIFY로 즉시 반영 (ADR-021 §2)
 
 5. Rollback
    configs lora_adapter를 이전 버전으로 변경 (또는 null로 base 회귀)
 ```
+
+#### 환경변수 명세
+
+| 환경변수 | 의미 | 기본값 |
+|---|---|---|
+| `VLLM_SHARED_LORA_PATH` | backend ↔ vLLM 공유 디렉터리. KeyHub에서 fetch한 weights를 LoRAOrchestrator가 저장하고 vLLM이 `lora_path`로 읽는다 | `./var/lora` |
+
+운영 환경(k8s/멀티노드)에서는 NFS·PersistentVolume(ReadWriteMany)로 backend pod와 vLLM pod 모두 같은 경로 마운트. dev compose는 단일 호스트 hostPath bind mount로 충분.
+
+KeyHub 운영 모드 환경변수는 [ADR-019 §8](./019-infrastructure-sharing.md)을 참조.
 
 #### Adapter Registry 스키마
 ```sql
@@ -300,6 +347,25 @@ shared_llm:
 
 각 실패는 chat_logs에 `model_failure_chain` JSONB로 기록 (어느 모델에서 어떤 이유로 실패했는지 시계열).
 
+#### Retry·Backoff·Timeout 정책
+
+각 단계 호출 자체의 retry는 **동일 모델 내부**가 아니라 **다음 단계로 escalate**한다 — 같은 endpoint를 여러 번 두드리면 latency만 누적되고 성공률 변화 없음. 운영 결정:
+
+| 단계 | connect_timeout | read_timeout | 단계 내부 retry | 다음 단계 escalate 조건 |
+|---|---|---|---|---|
+| `tenant_slm` (with LoRA) | 5s | 10s (configs `timeout_seconds`) | 0 | timeout / OOM / connection_error / refused / parse_error |
+| `tenant_slm_no_lora` | 5s | 10s | 0 | timeout / OOM / connection_error / refused |
+| `shared_llm` | 10s (cold start 여유) | 30s | **1회** (cold start 회복 윈도) | retry 후에도 동일 분류 실패면 chain 끝 |
+| chain 전체 끝 | — | — | — | ADR-010 fallback 응답 (`status: fallback`, `reason: low_generation_quality`) |
+
+**Exponential backoff은 단계 *간*에서 적용**: `tenant_slm` 실패 후 `tenant_slm_no_lora`로 곧장 escalate, `shared_llm` 단계 내부 retry는 0.5초 backoff 후 1회.
+
+**Cold start 보호**: `shared_llm` 첫 호출이 vLLM cold start와 겹치면 connect_timeout이 길게 소요될 수 있음 — connect_timeout만 별도로 길게 두고 read_timeout은 짧게 유지.
+
+**User-facing 표현**: chain 전체 실패 시 frontend로 200 OK + body `{status: "fallback", fallback: {reason: "low_generation_quality", model_failure_chain: [...], retry_after_seconds: 60}}` 반환. 503은 사용하지 않는다 (k8s가 backend pod를 unhealthy 처리할 위험). ADR-017 §3 응답 schema와 정합.
+
+**관제**: `chat_logs.model_failure_chain` 누적이 24h 윈도에서 X% 이상이면 platform_admin 알림(별도 metric 추적은 ADR-021 §6 health metrics 확장 후보).
+
 ### 8. Budget Tracking — 미지원
 
 > 본 시스템은 라우팅 결정에 cost/latency budget을 사용하지 않는다. 라우팅은 query 신호(query_type, complexity, support_type) + tenant configs로만 결정. budget 추적이 필요해지면 별도 ADR로 도입.
@@ -307,10 +373,12 @@ shared_llm:
 ### 9. LangGraph 흐름 통합 (전체 그래프)
 
 ```text
-tenant_resolver (ADR-008)
+tenant_resolver (ADR-008) — *검증* 책임만
   · UserContext 빌드 (AuthFusionAdapter, ADR-018)
+  · JWT.client_id ≡ URL path tenant_id 일치 검증, 불일치 시 403 (ADR-008 격리 3중 방어)
   · clearance/department/domain_groups를 user_tenant_membership에서 보강 (ADR-018 §4)
-  · PostgreSQL connection에 SET LOCAL app.current_tenant 적용 (ADR-019 §2)
+  · PostgreSQL `SET LOCAL app.current_tenant` *주입*은 FastAPI dependency 책임 (ADR-019 §2 진실 소스).
+    tenant_resolver는 RLS context 주입을 *호출 안 함* — endpoint 진입 직후 session 획득 시점에 dependency가 처리.
   → tenant_health_check (ADR-011)
   → load_tenant_config (TenantConfigService, ADR-009)
        · platform defaults + tenant static + DB overrides 합성
@@ -445,7 +513,7 @@ ALTER TABLE chat_logs ADD COLUMN classifier_decision JSONB DEFAULT '{}';
 - [ADR-011: Hybrid Retrieval v2](./011-hybrid-retrieval-v2.md) — query_rewriting LLM endpoint 결정
 - [ADR-012: Lifecycle v2](./012-lifecycle-v2.md) — 임베딩 모델 교체와 별개로 LLM 모델 교체 절차 적용
 - ADR-014 (예정): Assessment Workflow — assessment_generation 라우팅 룰 정합
-- [SPEC.md §5, §11~12, §14](../../SPEC.md) — 본 ADR로 갱신 예정
+- SPEC.md §5, §11~12, §14 — 폐기 (본 ADR이 흡수)
 
 ---
 

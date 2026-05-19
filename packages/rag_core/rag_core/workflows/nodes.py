@@ -318,24 +318,85 @@ def gate_1_router(state: RAGState) -> str:
 async def generate_answer_node(
     state: RAGState, deps: RAGGraphDeps
 ) -> dict[str, Any]:
+    """ADR-013 §7 fallback chain 실행.
+
+    chain (configs/platform/model.yaml.fallback_chain):
+      1. tenant_slm + selected_lora           (router 결정)
+      2. tenant_slm_no_lora (lora_adapter=None) — same model, LoRA off
+      3. shared_llm (다른 endpoint)
+      4. 전부 실패 → fallback_reason=low_generation_quality
+
+    각 단계 실패(예외 또는 parse_error)는 model_failure_chain에 누적된다.
+    """
     contexts = [
         _dict_to_chunk(c) for c in (state.final_contexts or [])
     ]
-    result = await deps.generation_service.generate_structured(
-        question=state.question,
-        contexts=contexts,
-        lora_adapter=state.selected_lora,
-        tenant_id=state.tenant_id,
-    )
-    out: dict[str, Any] = {
-        "raw_response": result.raw_response,
-        "answer_segments": result.answer_segments,
-        "limitations": result.limitations,
+    failure_chain: list[dict[str, Any]] = list(state.model_failure_chain or [])
+
+    # chain 단계 정의 — selected_model/lora는 router 결과를 기본으로
+    selected_model = state.selected_model or "tenant_slm"
+    selected_lora = state.selected_lora
+    steps: list[dict[str, Any]] = [
+        {"model": selected_model, "lora": selected_lora, "label": "primary"},
+    ]
+    # selected_model이 tenant_slm이고 LoRA가 활성일 때만 no_lora 단계
+    if selected_model == "tenant_slm" and selected_lora:
+        steps.append({"model": "tenant_slm", "lora": None, "label": "tenant_slm_no_lora"})
+    # shared_llm fallback — primary가 shared_llm이 아니라면
+    if selected_model != "shared_llm":
+        steps.append({"model": "shared_llm", "lora": None, "label": "shared_llm"})
+
+    last_result = None
+    for step in steps:
+        try:
+            result = await deps.generation_service.generate_structured(
+                question=state.question,
+                contexts=contexts,
+                lora_adapter=step["lora"],
+                tenant_id=state.tenant_id,
+                model_override=step["model"],
+            )
+            last_result = result
+            if result.parse_ok and result.answer_segments:
+                # 성공 — failure_chain은 이전 단계 실패 목록만
+                return {
+                    "raw_response": result.raw_response,
+                    "answer_segments": result.answer_segments,
+                    "limitations": result.limitations,
+                    "selected_model": step["model"],
+                    "selected_lora": step["lora"],
+                    "model_failure_chain": failure_chain,
+                }
+            # 파싱 실패 → 다음 단계
+            failure_chain.append(
+                {
+                    "model": step["model"],
+                    "lora": step["lora"],
+                    "label": step["label"],
+                    "reason": "parse_error",
+                    "detail": result.parse_error,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            failure_chain.append(
+                {
+                    "model": step["model"],
+                    "lora": step["lora"],
+                    "label": step["label"],
+                    "reason": type(exc).__name__,
+                    "detail": str(exc),
+                }
+            )
+
+    # chain 전체 실패 — ADR-010 fallback 응답 (Gate 2가 처리)
+    return {
+        "raw_response": last_result.raw_response if last_result else "",
+        "answer_segments": [],
+        "limitations": None,
+        "fallback_reason": "low_generation_quality",
+        "error": "all_models_failed",
+        "model_failure_chain": failure_chain,
     }
-    if not result.parse_ok:
-        out["fallback_reason"] = "generation_parse_error"
-        out["error"] = result.parse_error
-    return out
 
 
 def _dict_to_chunk(d: dict[str, Any]):

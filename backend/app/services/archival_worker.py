@@ -32,6 +32,11 @@ from app.core.rls import set_tenant_context
 logger = logging.getLogger(__name__)
 
 
+# ADR-021 §3 — chunks archival cron 전용 advisory lock id.
+# 다른 lock과 겹치지 않는 임의 정수. 변경 금지.
+_ARCHIVAL_LOCK_KEY = 7019_0301  # 70190301 (ADR-021 §3 표)
+
+
 @dataclass
 class WorkerSummary:
     tenant_results: list[ArchivalBatchResult] = field(default_factory=list)
@@ -107,14 +112,38 @@ class ArchivalWorker:
         return result
 
     async def run_all_tenants(self) -> WorkerSummary:
-        tenant_ids = await self._list_active_tenant_ids()
-        summary = WorkerSummary()
-        for tid in tenant_ids:
-            try:
-                summary.tenant_results.append(await self.run_for_tenant(tid))
-            except Exception:  # noqa: BLE001 — tenant 1개 실패가 나머지를 막지 않음
-                logger.exception("archival worker failed for tenant=%s", tid)
-        return summary
+        """모든 active tenant 순회. ADR-021 §3 — pg_try_advisory_lock으로
+        multi-instance 중복 실행 차단. lock 미획득 시 silent skip.
+        """
+        # advisory lock 시도 — 다른 instance가 처리 중이면 빈 summary 반환
+        async with self._admin() as session:
+            lock_row = (
+                await session.execute(
+                    text("SELECT pg_try_advisory_lock(:key) AS got"),
+                    {"key": _ARCHIVAL_LOCK_KEY},
+                )
+            ).first()
+            got_lock = bool(lock_row[0]) if lock_row else False
+
+        if not got_lock:
+            logger.info("archival_worker: advisory lock busy — skip")
+            return WorkerSummary()
+
+        try:
+            tenant_ids = await self._list_active_tenant_ids()
+            summary = WorkerSummary()
+            for tid in tenant_ids:
+                try:
+                    summary.tenant_results.append(await self.run_for_tenant(tid))
+                except Exception:  # noqa: BLE001 — tenant 1개 실패가 나머지를 막지 않음
+                    logger.exception("archival worker failed for tenant=%s", tid)
+            return summary
+        finally:
+            async with self._admin() as unlock_session:
+                await unlock_session.execute(
+                    text("SELECT pg_advisory_unlock(:key)"),
+                    {"key": _ARCHIVAL_LOCK_KEY},
+                )
 
     async def _list_active_tenant_ids(self) -> list[str]:
         async with self._admin() as session:

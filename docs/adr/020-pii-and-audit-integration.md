@@ -116,11 +116,19 @@ ALTER TABLE chat_logs
   -- [{category, severity, position, masked_form}, ...]
   ADD COLUMN output_pii_masked JSONB DEFAULT '[]',
   ADD COLUMN pii_storage_policy VARCHAR(20) DEFAULT 'mask';
-  -- 'mask' (마스킹된 형태로만 보관) | 'plain' (원본 보관, 컴플라이언스 사유 명시 시)
 ```
 
-기본 정책: `mask` — chat_logs.question 자체에 PII 마스킹 적용 후 보관. 원본은 PII detection 후 즉시 폐기.
-`plain`은 platform_admin 명시 승인 시에만 (예: 보안 사고 조사 사유). audit log에 사유 기록.
+#### `pii_storage_policy` enum (공식 정의)
+
+| 값 | 의미 | 전이 |
+|---|---|---|
+| `mask` | chat_logs.question·answer에 PII 마스킹 적용 후 보관. 원본은 PII detection 후 즉시 폐기. **기본값** | `plain` 승인 시 → `plain` (platform_admin 명시 승인, §8 ledger event) |
+| `plain` | 원본 PII 그대로 보관 (보안 사고 조사 등 합법 사유). | 운영 종료 시 `mask`로 회수 가능 / right-to-erasure 시 `erased`로 전이 |
+| `erased` | 사용자 right-to-erasure(§10) 후 상태. question/answer NULL + citations/retrieved_chunks 빈 배열 + input_pii_found/output_pii_masked 빈 배열 + user_id NULL. 운영 지표(confidence/latency/routing_decision 등)는 보존. | 단방향 (다시 mask/plain으로 복원 불가) |
+
+기본 정책: `mask`. `plain`은 platform_admin 명시 승인(POST `/api/platform/admin/tenants/{tid}/pii-storage-approvals`) 시에만. `compliance_mode='gdpr_strict'`은 어떠한 승인에도 `mask` 강제(§10).
+
+`erased`는 right-to-erasure 흐름의 종착 상태로, ADR-021 §3에 등록될 자동 보관 정책 cron(`pii.storage.pii_masked_after_days`)이 *plain → mask 자동 전환*만 책임지고 `erased` 전이는 사용자 명시 요청에만 일어난다.
 
 ### 5. 인덱싱 단계 PII Detection (Layer 3)
 
@@ -288,7 +296,7 @@ compliance_mode: gdpr_strict       # standard | gdpr_strict | hipaa_strict (도�
 
 ### 5. NLP 기반 NER (Named Entity Recognition)
 - **장점**: 정규식 한계 보완 (인명·주소 등)
-- **기각 사유**: 추가 모델 부담. Phase 2에서 정규식 부족 시 도입 검토.
+- **기각 사유**: 추가 모델 부담. 본 시스템은 NER을 지원하지 않는다. 정규식이 부족하다는 운영 증거가 누적되면 별도 ADR을 작성한다.
 
 ### 6. WiSentinel과 동일 audit 시스템 단일화 (DomainRAG chat_logs 폐기)
 - **장점**: 통합 단일 source

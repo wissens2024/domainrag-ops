@@ -16,6 +16,7 @@ from .in_memory import (
     InMemoryReranker,
     InMemoryVectorStore,
 )
+from .local_secret_store import LocalSecretStore, SecretNotFoundError
 from .qdrant_store import QdrantVectorStore
 from .tei_embedder import TEIBgeM3Embedder
 from .tei_reranker import TEIReranker
@@ -26,6 +27,8 @@ __all__ = [
     "QdrantVectorStore",
     "TEIBgeM3Embedder",
     "TEIReranker",
+    "LocalSecretStore",
+    "SecretNotFoundError",
     "InMemoryLLMClient",
     "InMemoryVectorStore",
     "InMemoryEmbedder",

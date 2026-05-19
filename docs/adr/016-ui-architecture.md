@@ -27,7 +27,7 @@
 - react-jsonschema-form 또는 동급 (ADR-015)
 - Monaco editor (Schema YAML editor용)
 - SSE 클라이언트 (chat_streaming용)
-- 한국어 단일 언어 (i18n 추후 별도 ADR)
+- 한국어 단일 언어. 다국어(i18n)는 본 시스템에서 지원하지 않는다(필요 시 새 ADR 작성).
 
 가정 깨지면 재검토 — 특히 디자인 시스템 변경 시 컴포넌트 사양 영향.
 
@@ -61,11 +61,18 @@
 /{tenant_id}/admin/assessment/review-queue
 /platform/admin                            # platform_admin 전용
 /platform/admin/tenants                    # Tenant Management
-/platform/admin/health                     # Endpoint Health Dashboard
+/platform/admin/endpoints                  # Endpoint Health Dashboard
+/platform/admin/analytics/usage            # Cross-tenant 사용량
+/platform/admin/health                     # Process 운영 metrics (ledger/chat_log 실패 등, ADR-021 §6)
 /platform/admin/configs                    # Platform-level configs
+
+# 인증 불필요 (ADR-021 §6)
+/api/health/live                           # k8s liveness probe — 항상 200
+/api/health/ready                          # k8s readiness probe — DB+migration 검사
+/api/health                                # legacy 단축형 (ADR-017 §1)
 ```
 
-JWT claim의 `tenant_id`와 URL path의 `{tenant_id}`가 mismatch면 403 리다이렉트. `/platform/admin/*`은 `platform_admin` role만.
+JWT claim의 `tenant_id`와 URL path의 `{tenant_id}`가 mismatch면 403 리다이렉트. `/platform/admin/*`은 `platform_admin` role만. `/api/health/*`는 인증 면제 (k8s 인프라용).
 
 ### 2. 사용자 채팅 화면 (`/{tenant_id}/chat`)
 
@@ -177,6 +184,34 @@ Assessment (모듈 활성 시)
 `tenant.domain_modules`에 따라 Assessment 섹션 표시.
 
 `platform_admin`은 Sidebar 상단에 `[Platform ▾]` 토글로 platform 메뉴 진입.
+
+#### RBAC 메뉴 매핑 (CLAUDE.md Y9)
+
+frontend RBAC 미들웨어(`/{tenant_id}/admin/*` route guard)가 다음 표대로 접근을 강제한다. 백엔드는 endpoint 단위로 동일 정책을 재검증 — *두 layer 모두 의무*다.
+
+| 메뉴 | USER | ADMIN | PLATFORM_ADMIN |
+|---|:---:|:---:|:---:|
+| `/{tenant_id}/chat` | ✓ | ✓ | ✓ |
+| `/{tenant_id}/admin/dashboard` |  | ✓ | ✓ |
+| `/{tenant_id}/admin/documents` |  | ✓ | ✓ |
+| `/{tenant_id}/admin/indexing` |  | ✓ | ✓ |
+| `/{tenant_id}/admin/schema` |  | ✓ | ✓ |
+| `/{tenant_id}/admin/assessment/*` (모듈 활성 시) |  | ✓ | ✓ |
+| `/{tenant_id}/admin/logs/chat` |  | ✓ | ✓ |
+| `/{tenant_id}/admin/citation-inspector` |  | ✓ | ✓ |
+| `/{tenant_id}/admin/routing` |  | ✓ | ✓ |
+| `/{tenant_id}/admin/prompts` |  | ✓ | ✓ |
+| `/{tenant_id}/admin/lora` |  | ✓ | ✓ |
+| `/{tenant_id}/admin/evaluation` |  | ✓ | ✓ |
+| `/{tenant_id}/admin/configs` |  | ✓ | ✓ (+ restricted_to keys) |
+| `/platform/admin/tenants` |  |  | ✓ |
+| `/platform/admin/endpoints` |  |  | ✓ |
+| `/platform/admin/analytics/*` |  |  | ✓ |
+| `/platform/admin/configs/*` |  |  | ✓ |
+
+#### Lifecycle 비활성 표기 (CLAUDE.md Y1)
+
+`documents.approval_status='archived'` (ADR-012)와 `assessment_items.quality_status='retired'` (ADR-014)는 의미가 같다 — "더 이상 검색·출제 대상이 아니지만 row는 보존된 비활성 상태." UI는 두 상태 모두 동일 칩(badge)으로 "**비활성**" 표기 + 회색 톤. 내부 status 문자열은 보존(API·로그)하지만 사용자 노출은 통일한다. 코드에서 둘을 같이 다룰 때는 `is_inactive(row)` 헬퍼 사용.
 
 #### 3.1 대시보드 (`/admin/dashboard`)
 

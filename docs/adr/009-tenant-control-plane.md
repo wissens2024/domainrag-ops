@@ -43,6 +43,19 @@
 TenantConfig = merge(platform_defaults, tenant_static_files, db_overrides)
 ```
 
+#### Merge 규칙 (CLAUDE.md Y3)
+
+`TenantConfigService` 는 다음 의미로 합성한다. 운영 진실 소스: `backend/app/core/tenant_config_service.py`.
+
+| Type | Rule |
+|---|---|
+| `dict` | **deep merge** — override의 key만 차례로 base 위에 덮어쓴다. 양쪽 모두에 같은 key가 있고 그 값이 dict면 재귀적으로 deep merge. |
+| `list` | **override가 base를 통째로 교체**. 부분 추가는 지원하지 않는다 (의미 모호성 회피). |
+| 기타 primitive (`str`/`int`/`float`/`bool`) | override 값으로 교체. |
+| `None` (`null` in YAML) | **explicit** — key 존재하나 값이 None인 것과 key 부재는 다르다. `None` override는 base 값을 명시적으로 None으로 만들 의도. |
+
+`db_overrides`는 `(category, key)` 형식의 평면 row이고, key에 dot notation(`verification.tier2.thresholds.strong`)을 사용해 deep path를 표현한다. service가 path를 dict 구조로 풀어 deep merge에 합류.
+
 ### 2. 디렉터리 구조
 
 ```
@@ -138,7 +151,7 @@ class TenantCitationPolicy(BaseModel):   # ADR-005/010 정합
 
 class TenantAnswerPolicy(BaseModel):
     response_format: str                 # "structured" | "freeform"
-    streaming: bool = False              # MVP는 false (ADR-005)
+    streaming: bool = False              # ADR-013 §6 ui_mode 분기 — false=chat_structured 기본, true=chat_streaming
     caveat_policy: str
     domain_modules: list[str]            # ["assessment"] (ADR-014)
 
@@ -182,6 +195,8 @@ Config schema가 변하면 (예: citation.yaml v1 → v2에서 `tier3.unsupporte
 - Filesystem 변경: dev 모드에서만 watcher; prod는 재배포 시 reload
 - 수동 invalidate: `POST /api/admin/{tenant_id}/configs/reload` (admin RBAC)
 - `TenantConfig` 객체는 source 추적 보유: `config.citation.thresholds.strong → from: db_override` (디버깅 시 "이 값 어디서 왔나?" 즉답)
+
+> **[ADR-021 §2](./021-operational-bootstrap.md) 정합**: LISTEN/NOTIFY 채널 이름·payload 스키마·재연결 backoff·multi-instance broadcast 동작은 ADR-021 §2가 단일 진실 소스다. 본 절은 정책 결정(LISTEN/NOTIFY 채택)만 정의하고 운영 결선은 ADR-021을 참조한다. 신규 prompt PATCH 영구화·lifespan startup hook의 preload도 동일하게 ADR-021 §1 책임.
 
 ### 6. Per-tenant Prompt 관리
 
@@ -274,9 +289,9 @@ ADR-009 도입으로 SPEC §5 admin console에 신규 메뉴:
 - **장점**: admin UI 통한 단일 진입점, 즉시 편집·즉시 반영
 - **기각 사유**: schema 진화·마이그레이션 부담 ↑, structural decisions(input_schema)도 DB row가 되어 git review 못 받음. ML 팀이 model.yaml를 조심히 관리할 길 없음.
 
-### 3. Filesystem 우선 + Phase 2에 admin UI 도입
-- **장점**: MVP 단순
-- **기각 사유**: 비전이 명시한 admin UI(Citation Inspector, Model Console, Evaluation Console)가 이미 MVP 약속. UI를 Phase 2로 미루는 건 비전 후퇴.
+### 3. Filesystem 우선 + admin UI 지연 도입
+- **장점**: 초기 단순
+- **기각 사유**: 비전이 admin UI(Citation Inspector, Model Console, Evaluation Console)를 day 1 산출물로 명시. 본 시스템은 완제품 단일 설계라 UI를 별도 단계로 미루지 않는다.
 
 ### 4. JSON 또는 TOML 사용
 - **장점**: 파서 다양성
@@ -296,7 +311,8 @@ ADR-009 도입으로 SPEC §5 admin console에 신규 메뉴:
 - [ADR-008: Multi-Tenant Architecture](./008-multi-tenant-architecture.md) — 본 ADR이 그 경계 안 채움
 - ADR-013 (예정): Model Routing — model 매핑 카테고리 schema 본격 정의
 - ADR-015 (예정): Tenant Input Schema — input_schema 카테고리 본격 정의
-- [SPEC.md §5, §13 Prompt 5](../../SPEC.md) — 본 ADR로 갱신 예정
+- [ADR-021: Operational Bootstrap](./021-operational-bootstrap.md) — 본 ADR §5 LISTEN/NOTIFY 결선·preload·재연결 운영 책임
+- SPEC.md §5 관리자 콘솔 / §13 Prompt 5 — 폐기 (본 ADR + [ADR-016](./016-ui-architecture.md)로 흡수)
 
 ---
 

@@ -128,6 +128,7 @@ class GenerationService:
         contexts: list[RetrievedChunk],
         lora_adapter: str | None = None,
         tenant_id: str | None = None,
+        model_override: str | None = None,
     ) -> GenerationResult:
         effective = self._effective_prompt(tenant_id)
         rendered = self._render(
@@ -135,7 +136,7 @@ class GenerationService:
         )
         raw = await self._llm.generate(
             rendered,
-            model=self._model,
+            model=model_override or self._model,
             max_tokens=self._max_tokens,
             temperature=self._temperature,
             guided_json_schema=effective.response_schema,

@@ -156,7 +156,7 @@ chunk_id = "<doc_id>:<doc_version>:<parser_version>:chunk:<index>"
 - [ADR-001: Citation 메타데이터 설계](./001-citation-metadata-design.md) — chunk/citation 필드 스키마
 - [ADR-005: Citation 신뢰 모델](./005-citation-trust-and-fallback.md) — chat_logs.excerpt audit truth source
 - [ADR-006: Hybrid Retrieval](./006-hybrid-retrieval.md) — collection 통합으로 모델 교체 단순화
-- [SPEC.md §6.2 chunk metadata, §7 데이터베이스, §8 API](../../SPEC.md) — 본 ADR로 갱신
+- SPEC.md §6.2 chunk metadata / §7 데이터베이스 / §8 API — 폐기 ([ADR-012](./012-lifecycle-v2.md) + [ADR-017](./017-api-specification.md)이 supersede)
 
 ---
 

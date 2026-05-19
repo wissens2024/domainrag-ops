@@ -4,7 +4,7 @@
 **Accepted** (2026-05-08)
 
 > **2026-05-08 보완 노트 (ADR-005에 의해 강화)**:
-> 본 ADR §Decision의 `should_generate` 조건 (`len(reranked_chunks) > 0`)은 단일 약한 게이트였으며, **ADR-005 Gate 1 정량 조건**으로 대체된다 — `rerank_score > 0.5인 chunk 수 < 2 OR top1 rerank_score < 0.6 → fallback (reason="low_retrieval")`. 또한 verify_citations 노드는 ADR-005에 의해 `parse_response → verify_tier1 → verify_tier2 → detect_unsupported → assemble_response → compute_confidence`로 분해되며, generate 후 Gate 2가 추가된다 (`verified=0 OR unsupported_ratio>0.5 OR confidence<0.5`). 본 ADR은 LangGraph 채택 결정 자체로서는 유효하므로 Status는 Accepted 유지. 노드/엣지 사양은 [SPEC.md §10.2](../../SPEC.md)를 단일 진실 소스로 참조.
+> 본 ADR §Decision의 `should_generate` 조건 (`len(reranked_chunks) > 0`)은 단일 약한 게이트였으며, **ADR-005 Gate 1 정량 조건**으로 대체된다 — `rerank_score > 0.5인 chunk 수 < 2 OR top1 rerank_score < 0.6 → fallback (reason="low_retrieval")`. 또한 verify_citations 노드는 ADR-005에 의해 `parse_response → verify_tier1 → verify_tier2 → detect_unsupported → assemble_response → compute_confidence`로 분해되며, generate 후 Gate 2가 추가된다 (`verified=0 OR unsupported_ratio>0.5 OR confidence<0.5`). 본 ADR은 LangGraph 채택 결정 자체로서는 유효하므로 Status는 Accepted 유지. 노드/엣지 사양의 단일 진실 소스는 [ADR-013 §9 LangGraph 흐름](./013-model-routing-and-slm-llm-strategy.md)이다 (SPEC.md §10.2는 폐기 후 ADR-013으로 흡수).
 
 > **2026-05-08 보완 노트 (ADR-008)**: 본 ADR의 `RAGState`에 `tenant_id: str` 필수 필드가 추가되며, LangGraph 진입점 직후에 신규 노드 **`tenant_resolver`**가 실행된다. 이 노드는 JWT claim에서 tenant_id 추출, URL path와 일치 검증(mismatch 시 403), PostgreSQL `SET LOCAL app.current_tenant`, Qdrant collection 이름(`chunks_<tenant_id>`) 결정을 책임진다. 모든 후속 노드는 `state.tenant_id`로 격리된 리소스에 접근. 그래프 구조 자체는 본 ADR 그대로.
 
@@ -295,7 +295,7 @@ def handle_error(state: RAGState, error: Exception) -> RAGState:
 
 - [ADR-002: Protocol/Adapter 패턴](./002-protocol-adapter-pattern.md) - Node가 Protocol 기반 컴포넌트 사용
 - [ADR-001: Citation 메타데이터](./001-citation-metadata-design.md) - 상태에 포함되는 데이터
-- [IMPLEMENTATION_SPEC.md](../../IMPLEMENTATION_SPEC.md#10-langgraph-workflow) - 전체 워크플로우
+- IMPLEMENTATION_SPEC.md §10 LangGraph workflow — 폐기 후 [ADR-013 §9](./013-model-routing-and-slm-llm-strategy.md)로 흡수
 
 ---
 

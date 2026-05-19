@@ -204,6 +204,23 @@ class TenantConfigOverrideService:
                 )
             ).first()
             changed_at = now_row[0] if now_row else datetime.utcnow()
+
+            # 4) NOTIFY (ADR-021 §2) — application path를 진실 소스로. DDL trigger는
+            #    보조 안전망. payload는 8KB 한계 고려해 짧은 dict만.
+            await session.execute(
+                text("SELECT pg_notify('tenant_config_changed', :payload)"),
+                {
+                    "payload": json.dumps(
+                        {
+                            "tenant_id": tenant_id,
+                            "category": category,
+                            "key": key,
+                        },
+                        ensure_ascii=False,
+                    )
+                },
+            )
+
             await session.commit()
 
         # 4) Ledger publish on breaking key

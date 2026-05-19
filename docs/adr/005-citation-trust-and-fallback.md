@@ -174,7 +174,7 @@ JSON 부분 파싱 복잡도와 verifier 의존을 피하기 위함. Phase 2에�
 - [ADR-001: Citation 메타데이터 설계](./001-citation-metadata-design.md) — 필드 스키마 (본 ADR이 산출 규칙 보완)
 - [ADR-003: LangGraph 오케스트레이션](./003-langraph-orchestration.md) — `should_generate` 강화
 - [ADR-004: 보안 & ACL 모델](./004-security-acl-model.md) — 직접 의존 없음
-- [SPEC.md §9 Citation 생성 및 검증 로직](../../SPEC.md) — 본 ADR로 대폭 개정
+- SPEC.md §9 Citation 생성 및 검증 로직 — 폐기 (본 ADR로 대폭 개정 후 [ADR-010](./010-citation-trust-v2.md)이 supersede)
 
 ---
 

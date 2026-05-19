@@ -82,6 +82,8 @@ chunks_archival:
 4. Audit log
 ```
 
+> **[ADR-021 §3](./021-operational-bootstrap.md) 정합**: cron 스케줄·advisory lock id·`OPS_CRON_MODE` (internal/external) 전이는 ADR-021 §3가 진실 소스. 본 절은 정책(90일)·잡 로직만 결정한다.
+
 ### 4. Old Collection 보관 기간 (임베딩 모델 교체 후)
 
 ```yaml
@@ -100,6 +102,8 @@ old_collection_retention:
 5. 30일 hold 기간 — `chunks_<tenant_id>__v1`은 보관, dual-read 비활성
 6. 30일 후 platform_admin이 `DELETE` API 호출 → old collection drop
 7. `tenant_collection_history` 테이블에 모든 swap 이력 기록
+
+> **[ADR-021 §3](./021-operational-bootstrap.md) 정합**: 30일 경과 collection의 *자동 drop 검토 cron*은 ADR-021 §3 "임베딩 마이그레이션 후 old collection drop" 잡으로 운영된다. 본 절은 hold_days·require_explicit_delete 정책 결정만 정의하고, drop 실제 실행은 platform_admin 명시 호출이 우선이며 cron은 알림·후보 추출만 책임.
 
 ### 5. Schema 진화 — Alembic 기반 hot migration
 
@@ -126,6 +130,10 @@ def downgrade():
 ```
 
 ### 6. Hard Delete Cross-System 일관성
+
+> **[ADR-021 §5](./021-operational-bootstrap.md) 정합**: 4개 시스템(PostgreSQL/Qdrant/MinIO/chat_logs) 단계별 atomic rollback·dead-letter 누적·Ledger publish 절차는 ADR-021 §5 `tenant_register_failures` / hard_delete 대칭 구조와 동일 패턴. 본 절은 책임·순서를 명시하고 부분 실패 처리·관제는 ADR-021을 참조한다.
+
+**Audit truth 보장 (원칙 10 + CLAUDE.md)**: hard_delete가 어느 step에서 실패하든 `chat_logs.excerpt` 컬럼은 **보존된다**. excerpt는 답변 시점의 인용 원문이며 chunk 비활성·archive·hard delete와 무관하게 audit replay의 단일 진실 소스다. `chat_logs_action='delete_logs'`를 운영자가 명시 선택해도 *해당 doc 참조 chat_log row 자체가 사라질 뿐* 다른 row의 excerpt에는 영향이 없다. 운영자는 right-to-erasure(ADR-020 §10) 외에는 excerpt를 임의로 지우지 않는다.
 
 PostgreSQL + Qdrant + MinIO + chat_logs 4개 시스템 일관성:
 
@@ -166,7 +174,16 @@ CREATE TABLE tenant_delete_failures (
 
 > 본 시스템은 tenant 간 데이터 이관을 지원하지 않는다. 필요 시 source tenant에서 export → target tenant에서 정상 import lifecycle (재업로드 + 재인덱싱)으로 처리한다. 직접 row migration 같은 기능은 ACL·격리 의미를 흐리므로 제공하지 않는다.
 
-### 8. Backup/Restore per Tenant
+### 8. Backup/Restore per Tenant + tenant_register vs tenant_restore (CLAUDE.md Y5)
+
+신규 tenant 등록과 archived/deleted tenant 복원은 **다른 스크립트**다. 둘을 하나로 합치면 status 분기 책임이 모호해진다.
+
+| Script | Precondition | Action |
+|---|---|---|
+| `infra/scripts/tenant_register.sh` | tenants 테이블에 해당 id가 *존재하지 않을 때만* (`SELECT … = 0`) | 새 row INSERT (status='active') + collection 생성 + configs/tenants/<id> seed (template 복사) + MinIO prefix 생성 + AuthFusion client 등록 (운영자 수동) |
+| `infra/scripts/tenant_restore.sh` | tenant row가 *archived/deleted 상태이거나 부재할 때만* (`SELECT status` ≠ 'active') | Manifest 검증 → PostgreSQL data 복원 (BYPASSRLS) → Qdrant snapshot 복원 → MinIO mirror → configs 복원 → status 'active'로 갱신 |
+
+두 스크립트 모두 시작 직후 status check를 통과하지 못하면 **early exit + non-zero return code**로 사람의 실수 차단. 운영자는 의도가 모호하면 platform_admin Console에서 status를 먼저 확인한다.
 
 **Backup**:
 ```bash
@@ -181,9 +198,10 @@ CREATE TABLE tenant_delete_failures (
 **Restore**:
 ```bash
 # tenant_restore.sh <backup_dir>
+0. tenants.status 검증 — 'active'이면 거부 (충돌 위험). 'archived'/'deleted'/'미존재'만 허용
 1. Manifest 검증 (무결성·테넌트 일치성)
-2. tenants 테이블에 row 등록 (status=active)
-3. PostgreSQL: psql -f schema.sql + 데이터 복원 (RLS bypass)
+2. tenants 테이블 갱신 (status=active, deleted_at=NULL)
+3. PostgreSQL: psql -f schema.sql + 데이터 복원 (BYPASSRLS, platform_admin role)
 4. Qdrant: client.recover_from_snapshot
 5. MinIO: mc mirror
 6. configs 복원
@@ -331,7 +349,8 @@ CREATE TABLE tenant_lifecycle_logs (
 - [ADR-011: Hybrid Retrieval v2](./011-hybrid-retrieval-v2.md) — collection 생성·alias swap 정합
 - ADR-013 (예정): Model Routing — 임베딩 모델 교체 절차 정합
 - ADR-015 (예정): Tenant Input Schema — sub-document 분리 정합
-- [SPEC.md §7, §8.4~8.8](../../SPEC.md) — 본 ADR로 갱신 예정
+- [ADR-021: Operational Bootstrap](./021-operational-bootstrap.md) — 본 ADR §3·§4·§6 cron·atomic rollback·dead-letter 운영 책임
+- SPEC.md §7, §8.4~8.8 — 폐기 (본 ADR + [ADR-017](./017-api-specification.md)이 흡수)
 
 ---
 

@@ -76,6 +76,7 @@ DomainRAG Ops는 **테넌트별 입력 스키마**로 도메인 지식을 구조
 | [ADR-018](docs/adr/018-sso-integration-authfusion.md) | SSO Integration with AuthFusion (OIDC, client_id≡tenant_id) | Accepted (ADR-008 §7 stub 완성) |
 | [ADR-019](docs/adr/019-infrastructure-sharing.md) | Infrastructure Sharing & Resource Allocation | Accepted (RLS·임베딩 마이그레이션 절차 흡수) |
 | [ADR-020](docs/adr/020-pii-and-audit-integration.md) | PII Detection & Audit Integration | Accepted (M1 PII 공백 해결) |
+| [ADR-021](docs/adr/021-operational-bootstrap.md) | Operational Bootstrap (lifespan·LISTEN/NOTIFY·cron·Docker) | Accepted |
 
 작업 시작 전에 **관련 ADR을 먼저 읽는다**. 다중 ADR이 관련되면 *최신·미-supersede ADR*을 단일 진실 소스로 따른다.
 
@@ -274,7 +275,7 @@ def retrieve_context_node(state):
 | # | 규칙 | 출처 |
 |---|---|---|
 | Y1 | 비활성 상태 명명: documents = `archived`, assessment_items = `retired`. 같은 의미. UI는 둘 다 "비활성"으로 표시 | ADR-012/014 |
-| Y2 | assessment 품질: 모두 `valid=true`이고 `0.5 ≤ score < 0.7`이면 `quality_status='reviewed'` (manual approval 대기) | ADR-014 §5 보강 |
+| Y2 | assessment 품질: 어느 하나 `valid=false` 또는 score<0.5 → `draft`. 모두 `valid=true`이고 모든 score≥0.5 → `reviewed` (운영자 명시 approve로만 `approved` 전이) | ADR-014 §5 |
 | Y3 | configs merge: dict deep merge, list는 override가 base 교체, primitive는 override 우선. null은 explicit (missing key와 다름) | ADR-009 §4 (TenantConfigService 구현) |
 | Y4 | timezone: `Asia/Seoul` 기본. 모든 date 비교는 KST 기준. timestamp는 PostgreSQL `TIMESTAMPTZ` 사용 | configs/platform/common_fields.yaml |
 | Y5 | tenant restore vs new: `tenant_register.sh`는 신규만, `tenant_restore.sh`는 archived/미존재 상태에서만 (script가 status 검증) | infra/scripts |

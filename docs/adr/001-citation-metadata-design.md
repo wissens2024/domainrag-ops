@@ -206,7 +206,7 @@ chunk = {
 - [ADR-002: Protocol/Adapter 패턴](./002-protocol-adapter-pattern.md) - 메타데이터 생성 방식
 - [ADR-003: LangGraph 오케스트레이션](./003-langraph-orchestration.md) - Citation 검증 로직
 - [ARCHITECTURE.md](../ARCHITECTURE.md#metadata-design) - 메타데이터 전체 설계
-- [IMPLEMENTATION_SPEC.md](../../IMPLEMENTATION_SPEC.md#6-메타데이터-설계) - 메타데이터 명세
+- IMPLEMENTATION_SPEC.md §6 메타데이터 설계 — 폐기 (본 ADR + [ADR-008](./008-multi-tenant-architecture.md) + [ADR-010](./010-citation-trust-v2.md)으로 흡수)
 
 ---
 

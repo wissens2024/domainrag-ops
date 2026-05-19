@@ -7,12 +7,18 @@ ADR-019 §2 partitioning + ADR-008 RLS + ADR-013 §10 컬럼 매핑.
   2. payload.conversation_id None이면 conversations row INSERT (auto-create)
   3. chat_logs row INSERT
   4. commit
+
+장애 인지 (ADR-021 후속):
+  실패가 누적되면 운영자가 ledger·dashboard에서 인지할 수 있도록 module-level
+  카운터·링버퍼를 노출한다. 관제 polling 또는 health endpoint가 메트릭을 가져간다.
 """
 
 from __future__ import annotations
 
 import json
 import uuid
+from collections import deque
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
@@ -24,6 +30,25 @@ from rag_core.services.chat_log_writer import ChatLogPayload
 from app.core.rls import set_tenant_context
 
 logger = structlog.get_logger(__name__)
+
+
+# 모듈 전역 — best-effort writer가 실패할 때 누적 (관제 화면 polling용).
+CHAT_LOG_WRITE_FAILURES_TOTAL = 0
+CHAT_LOG_WRITE_DEAD_LETTERS: deque[dict[str, Any]] = deque(maxlen=100)
+
+
+def get_chat_log_failure_metrics() -> dict[str, Any]:
+    return {
+        "write_failures_total": CHAT_LOG_WRITE_FAILURES_TOTAL,
+        "dead_letter_count": len(CHAT_LOG_WRITE_DEAD_LETTERS),
+        "recent_dead_letters": list(CHAT_LOG_WRITE_DEAD_LETTERS)[-10:],
+    }
+
+
+def reset_chat_log_failure_metrics() -> None:
+    global CHAT_LOG_WRITE_FAILURES_TOTAL
+    CHAT_LOG_WRITE_FAILURES_TOTAL = 0
+    CHAT_LOG_WRITE_DEAD_LETTERS.clear()
 
 
 def _json(value: Any) -> str:
@@ -172,6 +197,19 @@ class _BestEffortChatLogWriter:
         try:
             return await self._inner.write(payload)
         except Exception as e:  # noqa: BLE001
+            global CHAT_LOG_WRITE_FAILURES_TOTAL
+            CHAT_LOG_WRITE_FAILURES_TOTAL += 1
+            CHAT_LOG_WRITE_DEAD_LETTERS.append(
+                {
+                    "tenant_id": payload.tenant_id,
+                    "request_id": payload.request_id,
+                    "user_id": payload.user_id,
+                    "ui_mode": getattr(payload, "ui_mode", None),
+                    "exc_type": type(e).__name__,
+                    "exc_msg": str(e),
+                    "at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
             logger.error(
                 "chat_log_write_failed",
                 tenant_id=payload.tenant_id,

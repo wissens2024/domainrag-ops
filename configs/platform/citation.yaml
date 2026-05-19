@@ -55,7 +55,7 @@ citation_types:
     judge_max_attempts: 1              # judge 1회 호출, 실패 시 fallback
     require_caveat: true               # 응답에 caveat 명시 의무
   conflict:
-    detect_strategy: heuristic         # heuristic (룰 기반) — Phase 2에 LLM judge 추가 검토
+    detect_strategy: heuristic         # heuristic (룰 기반) — LLM-as-judge는 ADR-010 §7 primary로 별도
     min_groups: 2
 
 gates:

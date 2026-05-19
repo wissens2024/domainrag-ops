@@ -14,7 +14,7 @@
 - DomainRAG Ops는 단순 단일 도메인 RAG가 아니라 **테넌트별 도메인 지식 운영 플랫폼**으로 정의됨 (제품 비전 §1, §3).
 - SPEC.md v1, ADR-001~007, CLAUDE.md는 모두 **단일 테넌트 가정**으로 작성되어 `tenant_id`가 어디에도 없음.
 - 데이터 민감도 높음 (보안 정책, 법무, 시험 문제, 설비 정비) — cross-tenant leak이 사고 수준 위험.
-- 폐쇄망 환경, 외부 SSO 연동 (사양 추후 결정).
+- 폐쇄망 환경, 외부 SSO 연동(AuthFusion OIDC, [ADR-018](./018-sso-integration-authfusion.md)으로 결선 완료).
 - 예상 tenant 수: 수십~수백 (조직 단위 다국어 가능).
 - Per-tenant 임베딩 모델·프롬프트·라우팅·평가 정책이 다를 수 있음 (비전 §4·§11·§12).
 
@@ -48,9 +48,23 @@ ALTER TABLE chunks ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation ON chunks
   USING (tenant_id = current_setting('app.current_tenant')::text);
 ```
-- 세션 시작 시 `SET LOCAL app.current_tenant = '<tenant_id>'`로 컨텍스트 주입
+- 세션 시작 시 `SET LOCAL app.current_tenant = '<tenant_id>'`로 컨텍스트 주입 (운영 책임은 [ADR-019 §2](./019-infrastructure-sharing.md) — FastAPI dependency가 호출, RLS policy는 함수 호출 회피)
 - App-level filter 누락이 cross-tenant leak으로 이어지는 위험을 RLS로 강제 차단
 - Cross-tenant 통계가 필요한 admin 작업은 `BYPASSRLS` 권한 가진 별도 role이 명시 호출
+
+#### RLS 면제 테이블 (의도적 제외)
+
+다음 테이블은 *tenant 스코프가 아닌 plane*이므로 RLS를 의도적으로 적용하지 않는다. 모두 platform_admin/admin engine 전용 경로로만 접근.
+
+| 테이블 | 이유 |
+|---|---|
+| `tenants` | tenant 자체의 lifecycle을 다루는 메타 plane. platform_admin만 read/write. |
+| `user_tenant_membership` | user ↔ tenant 매핑 lookup — JWT 검증 직후 어느 tenant에 속한 user인지 결정하는 *cross-tenant lookup*이므로 RLS 적용 불가 ([ADR-018 §4](./018-sso-integration-authfusion.md)). admin engine + service code의 ACL로 제한. |
+| `pii_storage_approvals` | platform_admin이 tenant별 PII 저장 승인을 관리하는 plane ([ADR-020 §8](./020-pii-and-audit-integration.md)). |
+| `tenant_delete_failures` | hard_delete 실패 dead-letter 누적용 ([ADR-012 §6](./012-lifecycle-v2.md)) — platform_admin이 cross-tenant로 점검. |
+| `adapter_registry` (운영 결정 시) | LoRA 메타데이터. tenant_id 컬럼은 있으나 platform_admin이 cross-tenant 통계·승인을 수행하므로 RLS 미적용 옵션 유효. |
+
+이 면제 목록은 *허용*이 아니라 *의도적 결정*이다. 면제 테이블을 추가하려면 본 ADR을 보강하고 platform_admin engine 외 일반 app 경로에서 접근이 발생하지 않음을 코드 리뷰로 검증한다.
 
 ### 3. Object Storage (MinIO) — Prefix per Tenant
 
@@ -95,6 +109,10 @@ CREATE POLICY tenant_isolation ON chunks
 - **Soft archive 기본** (ADR-007 패턴): `tenants.status='archived'` + 검색 차단 (chat_logs 보존)
 - **Hard delete admin API**: collection drop + tenant scope 모든 row 삭제 + chat_logs 처리 옵션(`keep / mask / delete`)
 
+#### tenants.status 진실 소스 (ADR-012 §2)
+
+본 ADR 작성 시점에는 `active | archived` 2값만 명시했으나, **[ADR-012 §2](./012-lifecycle-v2.md)가 4값(`active | suspended | archived | deleted`)으로 확장**하여 진실 소스다. 본 §5는 사용 빈도 높은 두 값만 예시로 든다. 전이표·delete_status·hard_delete cross-system 일관성은 모두 ADR-012를 참조한다.
+
 ### 6. LangGraph state에 tenant_id 추가 + tenant_resolver 노드 신설
 
 - `RAGState.tenant_id: str` 필수 필드 (엔트리 직후 채워짐)
@@ -103,7 +121,7 @@ CREATE POLICY tenant_isolation ON chunks
 
 ### 7. AuthAdapter Protocol stub
 
-외부 SSO 사양은 추후 결정. 추상 인터페이스만 본 ADR에서 박음:
+외부 SSO 사양은 [ADR-018](./018-sso-integration-authfusion.md)이 결선했다. 본 ADR은 추상 인터페이스만 박음:
 
 ```python
 from typing import Protocol
@@ -156,18 +174,19 @@ CREATE TABLE tenants (
 - Qdrant collection 수 = tenant 수 → 운영 모니터링 부담 (collection별 metrics, alerting)
 - ADR-006 부분 supersede — 단일 collection 가정 폐기
 - 모든 기존 SQL/Qdrant 호출 코드에 tenant 컨텍스트 주입 필요 (마이그레이션 비용 ↑)
-- IdP/SSO 사양 미정 — token claim 형태 가정으로 시작, 구현 시 보완
+- IdP/SSO 사양은 [ADR-018](./018-sso-integration-authfusion.md)이 결정 — `client_id ≡ tenant_id` 매핑 + `user_tenant_membership` 보강. 본 ADR §7 AuthAdapter Protocol stub은 ADR-018에서 구체 구현됨.
 - Cross-tenant 통계는 `BYPASSRLS` role 별도 운영 → 권한 분리 거버넌스 필요
 
-### 후속 작업
+### 후속 작업 (완료 현황 2026-05-15)
 
-- ADR-006에 부분 supersede 노트
-- ADR-001/003/004/005/007에 tenant_id 보완 노트
-- SPEC.md §6/§7/§8/§10/§11에 `tenant_id` 일괄 추가 (대규모 차이 적용 — 마지막 단계)
-- `tenants` 테이블 + RLS policies 작성
-- LangGraph `tenant_resolver` 노드 명세 (별도 docstring/구현 가이드)
-- AuthAdapter Protocol 정의 (구체 구현은 SSO 사양 후 별도 ADR)
-- 관리자 콘솔에 Tenant Management 메뉴 신설 (ADR-009 범위)
+- ADR-006 부분 supersede 노트 ✓
+- ADR-001/003/004/005/007에 tenant_id 보완 노트 ✓
+- SPEC.md §6/§7/§8/§10/§11 — 폐기 후 ADR-009/012/017이 흡수 완료 ✓
+- `tenants` 테이블 + RLS policies — migration 001 + ADR-019 §2 ✓
+- LangGraph `tenant_resolver` 노드 명세 — ADR-013 §9 통합 ✓
+- AuthAdapter Protocol 구체 구현 — ADR-018 (AuthFusionAdapter) ✓
+- 관리자 콘솔 Tenant Management 메뉴 — ADR-016 §3 + ADR-017 §18 ✓
+- RLS 면제 테이블 명시 — 본 ADR §2 (user_tenant_membership/pii_storage_approvals/tenant_delete_failures/adapter_registry) ✓
 
 ---
 
@@ -209,7 +228,7 @@ CREATE TABLE tenants (
 - [ADR-006: Hybrid Retrieval](./006-hybrid-retrieval.md) — **부분 supersede** (단일 collection 가정 폐기, 내부 구조 유지)
 - [ADR-007: Document/Chunk Lifecycle](./007-document-chunk-lifecycle.md) — tenant 단위 lifecycle (보완 노트)
 - ADR-009 (예정): Tenant Control Plane — 본 ADR 위에 build
-- [SPEC.md §6/§7/§8/§10/§11](../../SPEC.md) — 본 ADR로 광범위 갱신 예정 (마지막 단계 일괄)
+- SPEC.md §6/§7/§8/§10/§11 — 폐기 (본 ADR + ADR-009/012/017로 흡수 완료)
 
 ---
 

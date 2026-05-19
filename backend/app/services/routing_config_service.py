@@ -21,6 +21,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from rag_core.enums import (
+    COMPLEXITY_LEVELS,
+    QUERY_TYPES,
+    SUPPORT_TYPES,
+)
 from rag_core.services.model_router import ModelRouter, RoutingDecision
 from rag_core.services.query_classifier import ClassificationResult
 
@@ -30,6 +35,13 @@ _ALLOWED_WHEN_KEYS = {
     "support_type",
     "complexity",
     "retrieval_confidence_below",
+}
+
+# ADR-013 §3 enum 표 — when 절 값 검증
+_ENUM_FOR_WHEN_KEY: dict[str, frozenset[str]] = {
+    "query_type": QUERY_TYPES,
+    "support_type": SUPPORT_TYPES,
+    "complexity": COMPLEXITY_LEVELS,
 }
 
 
@@ -93,6 +105,21 @@ def validate_routing_yaml(value: Any) -> None:
                     errors.append(
                         f"rules[{i}].when_unknown_keys={bad}"
                     )
+                # ADR-013 §3 enum 값 검증
+                for k, allowed in _ENUM_FOR_WHEN_KEY.items():
+                    if k not in when:
+                        continue
+                    v = when[k]
+                    if isinstance(v, list):
+                        invalid = [x for x in v if x not in allowed]
+                    elif v in allowed:
+                        invalid = []
+                    else:
+                        invalid = [v]
+                    if invalid:
+                        errors.append(
+                            f"rules[{i}].when.{k}_invalid_values={invalid}"
+                        )
             # use_model 또는 model 또는 action 중 하나는 있어야 한다
             if not (
                 rule.get("use_model")

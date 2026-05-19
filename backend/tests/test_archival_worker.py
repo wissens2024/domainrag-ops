@@ -84,6 +84,11 @@ class _Session:
 
     async def execute(self, stmt, params=None):
         sql = str(stmt)
+        if "pg_try_advisory_lock" in sql:
+            # ADR-021 §3 — multi-instance lock 시뮬레이션: 항상 획득 성공
+            return _RowsResult([(True,)])
+        if "pg_advisory_unlock" in sql:
+            return _RowsResult([(True,)])
         if "FROM tenants" in sql:
             return _RowsResult(
                 [(tid,) for tid in self._recorder._tenants]
@@ -105,6 +110,9 @@ class _RowsResult:
 
     def all(self):
         return list(self._rows)
+
+    def first(self):
+        return self._rows[0] if self._rows else None
 
 
 @pytest.fixture

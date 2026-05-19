@@ -225,11 +225,13 @@ generate 모드에서는 reference_item_ids도 함께 노출 ("이 문제는 Q-0
 }
 ```
 
-#### Aggregate
-- 모든 validator의 score 가중 평균 → `quality_score`
-- 모든 valid=true이고 score >= 0.7 → `quality_status='reviewed'`
-- 어느 하나 valid=false 또는 score < 0.5 → `quality_status='draft'` + 운영자 review 필요
-- validator_results JSONB에 4개 결과 저장
+#### Aggregate (quality_status 결정 규칙)
+- 활성 4 validator의 score 평균 → `quality_score`
+- 어느 하나 `valid=false` 또는 어느 하나 `score < 0.5` → `quality_status='draft'` (운영자 검토 후 보정 또는 폐기)
+- 그 외 (모두 `valid=true`이고 모든 score ≥ 0.5) → `quality_status='reviewed'` (운영자 명시 승인 대기)
+- 자동 `approved` 전이는 없다. `POST /admin/assessment/items/{id}/approve` 호출로만 reviewed→approved.
+- `validator_results` JSONB에 4개 결과(enabled/valid/score/reasoning/suggestions/parse_error) 저장.
+- CLAUDE.md **Y2** 규칙은 본 단락과 동일 의미다. 운영 진실 소스는 `AssessmentValidator.validate` 구현.
 
 #### 검증 비활성 옵션
 운영 비용 ↑ 우려 시 tenant configs로 일부 validator 비활성:
@@ -441,7 +443,7 @@ chat_logs와 분리 — assessment 사용 패턴이 chat과 본질적으로 다�
 - [ADR-012: Lifecycle v2](./012-lifecycle-v2.md) — assessment_items lifecycle 정합 (draft/reviewed/approved/retired/archive)
 - [ADR-013: Model Routing](./013-model-routing-and-slm-llm-strategy.md) — assessment_generation 라우팅 룰
 - ADR-015 (예정): Tenant Input Schema — assessment_item input type 정의
-- [SPEC.md §5, §13 (관리자 콘솔), 신규 §16](../../SPEC.md) — 본 ADR로 갱신 예정
+- SPEC.md §5, §13 (관리자 콘솔), 신규 §16 — 폐기 (본 ADR이 흡수)
 
 ---
 

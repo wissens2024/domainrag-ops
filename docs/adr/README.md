@@ -114,6 +114,10 @@
 **Status**: Accepted  
 **주제**: 4-layer PII 처리(input·storage·indexing·response), WiSentinel `dlp-core` 룰 포팅(직접 호출 X), AuthFusion Ledger 보안 이벤트 publish, chat_logs PII 마스킹 정책, 컴플라이언스 모드(standard·gdpr_strict·hipaa_strict), right-to-erasure. M1 PII 공백 해결
 
+### [ADR-021: Operational Bootstrap](./021-operational-bootstrap.md)
+**Status**: Accepted
+**주제**: lifespan startup hook(tenant_config·input_schema preload + LISTEN consumer + cron 등록), LISTEN/NOTIFY 채널·payload 결선(tenant_config_changed/tenant_schema_changed/tenant_lifecycle_changed), archival·partition·old-collection cron advisory lock, Docker 시동 의존 그래프 + alembic 실행 시점, tenant 등록 atomic rollback, /health/live·/health/ready 분리
+
 ---
 
 ## 진행 중인 ADR

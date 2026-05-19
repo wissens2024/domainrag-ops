@@ -3,12 +3,10 @@
 각 validator는 동일 pattern: prompt 렌더 → LLM JSON 호출 → {valid, score, reasoning,
 suggestions} 응답.
 
-aggregate (ADR-014 §5 + Y2):
-  - 모든 valid=true이고 score >= 0.7 → quality_status='approved'? (ADR 표현)
-  - 실제 Y2 (CLAUDE.md): 모두 valid=true이고 0.5 ≤ score < 0.7 → quality_status='reviewed'
-  - 어느 하나 valid=false 또는 score < 0.5 → quality_status='draft'
-  - 모두 valid=true이고 score >= 0.7 → quality_status='reviewed' (manual approval 대기)
-    ※ approved는 운영자 명시 승인 후 (POST /items/{id}/approve)
+aggregate (ADR-014 §5 + CLAUDE.md Y2):
+  - 어느 하나 valid=false 또는 어느 하나 score < 0.5 → quality_status='draft'
+  - 그 외(모두 valid=true이고 모든 score >= 0.5) → quality_status='reviewed' (운영자 승인 대기)
+  - 자동 approved 전이는 없다. POST /admin/assessment/items/{id}/approve 명시 호출로만 reviewed→approved.
 
 비활성 옵션: config의 validators.{name}.enable=false이면 해당 validator skip.
 """

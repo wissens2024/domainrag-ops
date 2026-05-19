@@ -163,7 +163,7 @@ embedding:
 - [ADR-004: 보안 & ACL 모델](./004-security-acl-model.md) — ACL filter는 prefetch 단계에 적용
 - [ADR-005: Citation 신뢰 모델](./005-citation-trust-and-fallback.md) — Gate 1 임계치는 rerank_score 기준 (fusion 방식과 독립)
 - [ADR-007: Document/Chunk Lifecycle](./007-document-chunk-lifecycle.md) — 임베딩 모델 교체 시 collection swap 정책
-- [SPEC.md §4, §10.2](../../SPEC.md) — 본 ADR로 갱신
+- SPEC.md §4, §10.2 — 폐기 (본 ADR로 갱신 후 [ADR-011](./011-hybrid-retrieval-v2.md)이 supersede)
 
 ---
 

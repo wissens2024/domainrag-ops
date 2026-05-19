@@ -209,6 +209,11 @@ async def test_acl_blocks_unauthorized_user(populated_corpus):
 
 
 async def test_invalid_llm_response_routes_to_parse_error(populated_corpus):
+    """ADR-013 §7 — chain 전체가 parse_error로 실패하면 low_generation_quality fallback.
+
+    InMemoryLLMClient가 같은 invalid 응답을 반복하면 chain 3단계 모두 실패 → model_failure_chain
+    누적 + fallback_reason='low_generation_quality'.
+    """
     llm = InMemoryLLMClient(responses=["totally not json"])
     deps = _build_deps(populated_corpus, llm)
     graph = build_chat_structured_slice(deps)
@@ -220,6 +225,12 @@ async def test_invalid_llm_response_routes_to_parse_error(populated_corpus):
         user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
-    assert result["fallback_reason"] == "generation_parse_error"
-    assert result["raw_response"] == "totally not json"
-    assert result["error"] is not None
+    # 새 동작: chain 전체 실패 → low_generation_quality
+    assert result["fallback_reason"] == "low_generation_quality"
+    assert result["error"] == "all_models_failed"
+    # model_failure_chain에 단계별 실패 누적
+    assert len(result["model_failure_chain"]) >= 1
+    assert all(
+        entry["reason"] in {"parse_error", "RuntimeError", "ValueError"}
+        for entry in result["model_failure_chain"]
+    )

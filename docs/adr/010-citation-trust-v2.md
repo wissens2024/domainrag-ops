@@ -280,7 +280,7 @@ CitationPanel (SPEC §5.3 갱신):
 
 - LLM-as-judge 호출 추가로 inference 응답 latency +1~3초
 - inference 빈도가 높은 도메인(법무·해석)에서 비용 부담
-- Conflict 자동 탐지가 LLM·휴리스틱 의존 → false negative 위험 (Phase 2에 NLI 도입)
+- Conflict 자동 탐지가 LLM·휴리스틱 의존 → false negative 위험. NLI(자연어 추론) 기반 탐지는 본 시스템에서 지원하지 않는다 — false negative가 운영에서 문제로 부각되면 별도 ADR 작성.
 - 4-type marker syntax 파싱 로직 복잡 (frontend·backend 양쪽)
 - CLAUDE.md 원칙 8 wording 변경 — 기존 코드 리뷰 가이드 갱신 필요
 - ADR-005 retire — 외부 참조(과거 PR·이슈)가 ADR-005 가리키면 본 ADR로 redirect 필요
@@ -329,7 +329,7 @@ CitationPanel (SPEC §5.3 갱신):
 - [ADR-008: Multi-Tenant Architecture](./008-multi-tenant-architecture.md) — per-tenant citation policy
 - [ADR-009: Tenant Control Plane](./009-tenant-control-plane.md) — citation.yaml configs 위치
 - ADR-013 (예정): Model Routing — inference_judge에 어느 모델 사용
-- [SPEC.md §5/§6.3/§9](../../SPEC.md) — 본 ADR로 갱신 예정
+- SPEC.md §5/§6.3/§9 — 폐기 (본 ADR이 흡수)
 - [CLAUDE.md 원칙 8](../../CLAUDE.md) — 본 ADR 후속 작업으로 wording 갱신
 
 ---

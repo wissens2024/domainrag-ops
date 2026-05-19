@@ -86,6 +86,15 @@ CREATE POLICY tenant_isolation ON chunks
 - BYPASSRLS는 **platform_admin role 한정** (cross-tenant 분석 한정), 일반 app 연결은 절대 BYPASSRLS 미사용.
 - 정기 EXPLAIN ANALYZE 점검 — slow query 발견 시 인덱스 보강 또는 partitioning 강화.
 
+#### 수치 정밀도 규칙 (CLAUDE.md Y10)
+
+similarity·confidence·score 종류의 부동소수 값은 다음을 의무화한다.
+
+- PostgreSQL 컬럼 type은 `DOUBLE PRECISION` (FLOAT의 별명, 8byte). `REAL`/`FLOAT4` 금지 — 4byte로는 cosine similarity 누적 오차가 임계치 비교에 영향.
+- pydantic 모델·dataclass의 Python type은 `float` (CPython은 double 동등).
+- API 응답 JSON은 **소수점 4자리 round** (`round(value, 4)`). 정렬·표시·테스트 비교 모두 4자리 기준.
+- 내부 비교/임계치 평가는 raw double 값으로 수행한 뒤 round는 출력 단계에서만 적용 — 임계치 경계(0.55/0.75 등) 정확도 보존.
+
 ### 3. GPU 매핑 (운영 확정 — 2026-05-12 WiSentinel 협의 반영)
 
 DomainRAG는 **174번 GPU 4장만 사용**한다. 115번 GPU 2장은 WiSentinel 전용(GS/CC 격리).
@@ -222,7 +231,25 @@ API Key 인증:
   - api_key 자체는 환경변수 또는 .env (gitignore)
 ```
 
-`KeyHubAdapter` Protocol 신설 (`packages/rag_core/interfaces/`)로 추상화. dev에서는 `LocalSecretStore` 구현체로 대체 가능.
+`KeyHubAdapter` Protocol 신설 (`packages/rag_core/interfaces/`)로 추상화. 운영 모드는 환경변수 `KEYHUB_MODE`로 분기.
+
+#### KeyHub 운영 모드·환경변수 명세
+
+| 환경변수 | 값 | 의미 |
+|---|---|---|
+| `KEYHUB_MODE` | `authfusion` (운영) / `local` (dev·CI·staging) | 구현체 선택 |
+| `KEYHUB_ENDPOINT` | URL | AuthFusion KeyHub 주소 (mode=authfusion 한정) |
+| `KEYHUB_API_KEY` | secret | KeyHub 인증 (mode=authfusion 한정) |
+| `KEYHUB_LOCAL_PATH` | 파일시스템 경로 | `LocalSecretStore`의 secret blob 디렉터리 (mode=local 한정) |
+| `KEYHUB_LOCAL_FERNET_KEY` | base64 url-safe 32-byte | `LocalSecretStore` 암호화 키 (None이면 평문 저장, **dev 한정**) |
+
+**운영 진실 소스**: 폐쇄망 운영(production)은 `KEYHUB_MODE=authfusion` 의무. `local` 모드는 dev compose·CI·staging·단독 데모용 — 운영 환경 배포 시 `AuthFusionKeyHub` 구현체로 교체. backend `get_keyhub_adapter` deps가 분기.
+
+**구현체 진행 현황 (2026-05-15)**:
+- `LocalSecretStore` (`rag_core/clients/local_secret_store.py`) — dev fallback 운영 가능
+- `AuthFusionKeyHub` — SSO 결선 ([ADR-018](./018-sso-integration-authfusion.md)) 완료 후 별도 작업으로 추가 (현재 deps는 `KEYHUB_MODE=authfusion` 시 `NotImplementedError`)
+
+**LoRA 결선** (ADR-013 §5): LoRA adapter weights는 backend `upload_lora_adapter` endpoint가 KeyHub에 저장 → `adapter_registry.keyhub_secret_ref` 컬럼에 ref URI 보관 → `LoRAOrchestrator.activate`가 fetch 후 `VLLM_SHARED_LORA_PATH` 경로에 파일로 write → `vLLM /v1/load_lora_adapter` 호출.
 
 ### 9. Ollama 공유 정책
 

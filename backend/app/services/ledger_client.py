@@ -3,6 +3,11 @@
 Protocol + httpx 운영 구현 + Noop 구현(enable=false 또는 endpoint 미설정 시).
 Ledger 장애는 DomainRAG 응답을 막지 않는다 — 실패 시 log + skip(swallow).
 
+장애 인지(ADR-021 후속):
+  - publish가 max_retries 시도 후에도 실패하면 module-level 카운터 증가 +
+    `LEDGER_DEAD_LETTERS` 링버퍼(최근 N건)에 보존. 관제 화면이 polling으로 표면화.
+  - retry는 exponential backoff (0.5, 1, 2 초).
+
 운영 의미:
   - hash chain 무결성 보장 (FAU_STG.1)
   - 사고 조사 시 단일 ledger로 cross-system 감사 가능
@@ -10,7 +15,9 @@ Ledger 장애는 DomainRAG 응답을 막지 않는다 — 실패 시 log + skip(
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
@@ -18,6 +25,29 @@ from typing import Any, Protocol
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+# 모듈 전역 — 단일 backend instance 안의 ledger publish 실패 표면화 (ADR-021 후속).
+# 단일 process 한정 — multi-instance에선 각 process별 counter. 운영 dashboard는
+# 합산하지 않고 instance별 노출 권장.
+LEDGER_PUBLISH_FAILURES_TOTAL = 0
+LEDGER_DEAD_LETTERS: deque[dict[str, Any]] = deque(maxlen=100)
+
+
+def get_ledger_failure_metrics() -> dict[str, Any]:
+    """관제 polling용 — 현재 process의 publish 실패 누적 지표 + 최근 dead-letter."""
+    return {
+        "publish_failures_total": LEDGER_PUBLISH_FAILURES_TOTAL,
+        "dead_letter_count": len(LEDGER_DEAD_LETTERS),
+        "recent_dead_letters": list(LEDGER_DEAD_LETTERS)[-10:],
+    }
+
+
+def reset_ledger_failure_metrics() -> None:
+    """테스트용."""
+    global LEDGER_PUBLISH_FAILURES_TOTAL
+    LEDGER_PUBLISH_FAILURES_TOTAL = 0
+    LEDGER_DEAD_LETTERS.clear()
 
 
 @dataclass
@@ -76,7 +106,8 @@ class HttpxLedgerClient:
         endpoint: str,
         api_key: str | None = None,
         timeout_seconds: float = 3.0,
-        max_retries: int = 1,
+        max_retries: int = 3,
+        backoff_base_seconds: float = 0.5,
     ) -> None:
         if not endpoint:
             raise ValueError("ledger endpoint required")
@@ -84,6 +115,7 @@ class HttpxLedgerClient:
         self._api_key = api_key
         self._timeout = timeout_seconds
         self._max_retries = max(0, max_retries)
+        self._backoff_base = backoff_base_seconds
 
     async def publish(self, event: LedgerEvent) -> bool:
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -103,9 +135,23 @@ class HttpxLedgerClient:
                 last_err = RuntimeError(f"ledger HTTP {resp.status_code}: {resp.text[:200]}")
             except Exception as exc:  # noqa: BLE001
                 last_err = exc
-            # 마지막 attempt 아니면 retry
+            # 마지막 attempt 아니면 exponential backoff
+            if attempt < attempts - 1:
+                await asyncio.sleep(self._backoff_base * (2 ** attempt))
+
+        global LEDGER_PUBLISH_FAILURES_TOTAL
+        LEDGER_PUBLISH_FAILURES_TOTAL += 1
+        LEDGER_DEAD_LETTERS.append(
+            {
+                "event_type": event.event_type,
+                "tenant_id": event.tenant_id,
+                "timestamp": event.timestamp,
+                "error": str(last_err),
+                "attempts": attempts,
+            }
+        )
         logger.warning(
-            "ledger publish failed: event_type=%s tenant=%s err=%s (swallow)",
+            "ledger publish failed (dead-letter): event_type=%s tenant=%s err=%s",
             event.event_type,
             event.tenant_id,
             last_err,

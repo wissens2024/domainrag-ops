@@ -16,7 +16,7 @@
 - ADR-008이 URL path mirror 강제 (`/api/{tenant_id}/...`).
 - ADR-013이 chat을 sync(`/chat`)와 streaming(`/chat/stream`) 두 endpoint로 분기.
 - ADR-014가 assessment endpoint 분리.
-- SSO/JWT 인증 (사양 추후 결정), AuthAdapter Protocol stub.
+- SSO/JWT 인증은 [ADR-018](./018-sso-integration-authfusion.md)이 결선 (AuthFusion OIDC + AuthFusionAdapter 구체 구현).
 - 본 프로젝트 정책: 완제품 단일 설계.
 
 ### 가정
@@ -483,7 +483,7 @@ FastAPI 자동 생성. `/docs` (Swagger UI), `/redoc`, `/openapi.json`. 모든 e
 - 각 endpoint의 pydantic 모델 + 검증 + 인증 미들웨어 + RLS context 주입이 일관 필요
 - OpenAPI 자동 생성이 한국어 docstring 다루기 — 클라이언트 SDK 자동 생성 시 영향
 - platform_admin과 tenant admin 권한 분리 거버넌스 운영 부담
-- SSO 사양 미정 → 인증 미들웨어 추후 보완 필요
+- ADR-018로 SSO 결선 완료 (AuthFusion OIDC + JWKS RS256, `client_id ≡ tenant_id` 매핑).
 
 ### 후속 작업
 
