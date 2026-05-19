@@ -566,16 +566,17 @@ export interface PlatformUsageRow {
 // ----------------------------------------------------------------------------
 
 export interface DashboardSnapshot {
+  tenant_id: string;
   total_documents: number;
   total_chunks: number;
-  documents_uploaded_today: number;
-  indexing_failed: number;
+  uploaded_today: number;
+  indexing_completed_today: number;
+  indexing_failed_today: number;
   questions_today: number;
   avg_latency_ms: number;
-  no_citation_count: number;
+  answers_without_citation: number;
   negative_feedback_rate: number;
   citation_type_distribution: Record<SupportType, number>;
-  fallback_reason_distribution: Record<string, number>;
+  fallback_distribution: Record<string, number>;
   routing_distribution: Record<string, number>;
-  model_call_counts: Record<string, number>;
 }

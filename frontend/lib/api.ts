@@ -728,13 +728,15 @@ export async function reloadConfig(tenantId: string): Promise<void> {
 
 export async function getConfigHistory(
   tenantId: string,
-  params: { category?: string; page?: number; page_size?: number } = {},
+  params: { category: string; page?: number; page_size?: number },
 ): Promise<{ items: ConfigChangeRow[]; total: number; page: number; page_size: number }> {
   const qs = new URLSearchParams();
-  if (params.category) qs.set('category', params.category);
   if (params.page) qs.set('page', String(params.page));
   if (params.page_size) qs.set('page_size', String(params.page_size));
-  return request(`/api/${tenantId}/admin/configs/history?${qs}`);
+  const suffix = qs.toString() ? `?${qs}` : '';
+  return request(
+    `/api/${tenantId}/admin/configs/${encodeURIComponent(params.category)}/history${suffix}`,
+  );
 }
 
 // ============================================================================
@@ -834,7 +836,22 @@ export async function generateAssessment(
 
 export async function hybridAssessment(
   tenantId: string,
-  body: { subject: string; count: number; extract_ratio?: number },
+  body: {
+    extract: {
+      subject?: string;
+      chapter?: string;
+      count: number;
+      difficulty_distribution?: Record<string, number>;
+      exclude_recent_days?: number;
+      tags_any?: string[];
+    };
+    generate: {
+      subject: string;
+      chapter?: string;
+      count: number;
+      difficulty?: string;
+    };
+  },
 ): Promise<AssessmentExtractResult> {
   return request(`/api/${tenantId}/assessment/hybrid`, {
     method: 'POST',

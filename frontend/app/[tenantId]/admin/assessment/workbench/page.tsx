@@ -51,10 +51,23 @@ export default function WorkbenchPage() {
           difficulty: form.difficulty,
         });
       } else {
+        // hybrid = extract 일부 + 부족분은 generate (ADR-014). extract_ratio
+        // 만큼 기존 item을 끌어오고 나머지를 LLM 생성. 0.5 기본.
+        const ratio = form.extract_ratio ?? 0.5;
+        const extractCount = Math.round(form.count * ratio);
+        const generateCount = form.count - extractCount;
         r = await hybridAssessment(tenantId, {
-          subject: form.subject,
-          count: form.count,
-          extract_ratio: form.extract_ratio,
+          extract: {
+            subject: form.subject || undefined,
+            chapter: form.chapter || undefined,
+            count: extractCount,
+          },
+          generate: {
+            subject: form.subject,
+            chapter: form.chapter || undefined,
+            count: generateCount,
+            difficulty: form.difficulty,
+          },
         });
       }
       setResult(r);

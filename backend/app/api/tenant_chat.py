@@ -219,7 +219,7 @@ async def delete_conversation(
 
 def _conversation_to_dict(record) -> dict:
     return {
-        "id": record.id,
+        "conversation_id": record.id,
         "tenant_id": record.tenant_id,
         "user_id": record.user_id,
         "title": record.title,

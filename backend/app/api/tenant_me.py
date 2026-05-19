@@ -21,6 +21,30 @@ from app.deps import get_chat_log_eraser, get_ledger_audit_service
 router = APIRouter()
 
 
+@router.get("")
+async def get_me(
+    tenant_id: str,
+    user: UserContext = Depends(get_user_context),
+):
+    """현재 로그인 사용자 정보 — frontend RBAC 결정용 (ADR-016 §3 Y9).
+
+    AdminSidebar/Layout이 user.roles로 메뉴 필터링. PLATFORM_ADMIN 토글, admin
+    링크 노출/숨김 등 frontend가 backend 403 받기 전에 메뉴 자체를 거른다.
+    """
+    return {
+        "user_id": user.user_id,
+        "tenant_id": user.tenant_id,
+        "roles": user.roles,
+        "is_admin": user.is_admin,
+        "is_platform_admin": user.is_platform_admin,
+        "clearance": user.clearance,
+        "department": user.department,
+        "domain_groups": user.domain_groups,
+        "preferred_username": user.preferred_username,
+        "email": user.email,
+    }
+
+
 class EraseChatLogsRequest(BaseModel):
     # 기본값 mask_only — 운영 통계 보존 + PII/발화 본문만 제거 (ADR-020 §10 결정)
     mode: Literal["mask_only", "hard_delete"] = "mask_only"

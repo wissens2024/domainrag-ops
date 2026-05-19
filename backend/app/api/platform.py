@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth_adapter import UserContext, get_user_context
+from app.core.auth_adapter import UserContext, get_user_context_no_tenant
 from app.core.db import get_admin_db_session
 from app.deps import (
     get_pii_approval_service,
@@ -36,7 +36,9 @@ from app.services.tenant_lifecycle_service import (
 router = APIRouter()
 
 
-def require_platform_admin(user: UserContext = Depends(get_user_context)) -> UserContext:
+def require_platform_admin(
+    user: UserContext = Depends(get_user_context_no_tenant),
+) -> UserContext:
     if not user.is_platform_admin:
         raise HTTPException(status_code=403, detail={"error": "insufficient_role"})
     return user

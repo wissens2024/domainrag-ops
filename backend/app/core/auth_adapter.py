@@ -264,9 +264,23 @@ class AuthFusionAdapter:
 
         # 일반 user: client_id → tenant_id 매핑 (single-client multi-tenant 시
         # expected_tenant_id가 map[client_id] list에 있으면 expected를 신뢰).
+        # expected_tenant_id == "__platform__" sentinel은 platform admin 경로 —
+        # tenant mismatch 검증 skip (role 검증은 require_platform_admin이 담당).
         token_tenant_id = self.auth_config.client_id_to_tenant_id(
             client_id, expected_tenant_id
         )
+        if expected_tenant_id == "__platform__":
+            return UserContext(
+                user_id=claims.get("sub", client_id),
+                tenant_id=token_tenant_id,
+                roles=roles,
+                clearance=claims.get("clearance", "internal"),
+                department=claims.get("department"),
+                domain_groups=list(claims.get("domain_groups") or []),
+                preferred_username=claims.get("preferred_username"),
+                email=claims.get("email"),
+                raw_claims=claims,
+            )
         if token_tenant_id != expected_tenant_id:
             await self._publish_tenant_mismatch(
                 expected_tenant_id=expected_tenant_id,
@@ -418,6 +432,26 @@ def reset_auth_adapter() -> None:
     global _authfusion_singleton
     _authfusion_singleton = None
     AuthConfigLoader.reset()
+
+
+async def get_user_context_no_tenant(
+    request: Request,
+    adapter: AuthAdapter = Depends(get_auth_adapter),
+) -> UserContext:
+    """platform 경로 (`/api/platform/admin/*`)용 — tenant path param 없음.
+
+    token 검증은 동일 (Authorization or domainrag_access cookie). tenant mismatch
+    검증은 skip. role 검증은 require_platform_admin가 담당.
+    """
+    token = ""
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.removeprefix("Bearer ").strip()
+    if not token:
+        token = (request.cookies.get("domainrag_access") or "").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail={"error": "missing_bearer_token"})
+    return await adapter.verify_and_extract(token, "__platform__")
 
 
 async def get_user_context(

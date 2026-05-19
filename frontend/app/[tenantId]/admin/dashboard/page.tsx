@@ -57,14 +57,14 @@ export default function DashboardPage() {
       <div className="grid grid-cols-4 gap-4 mb-8">
         <KpiCard label="총 문서" value={data.total_documents.toLocaleString()} />
         <KpiCard label="총 chunk" value={data.total_chunks.toLocaleString()} />
-        <KpiCard label="오늘 업로드" value={data.documents_uploaded_today.toLocaleString()} />
-        <KpiCard label="인덱싱 실패" value={data.indexing_failed.toLocaleString()} />
+        <KpiCard label="오늘 업로드" value={data.uploaded_today.toLocaleString()} />
+        <KpiCard label="오늘 인덱싱 실패" value={data.indexing_failed_today.toLocaleString()} />
         <KpiCard label="오늘 질문" value={data.questions_today.toLocaleString()} />
         <KpiCard
           label="평균 응답"
           value={`${(data.avg_latency_ms / 1000).toFixed(2)}s`}
         />
-        <KpiCard label="Citation 없음" value={data.no_citation_count.toLocaleString()} />
+        <KpiCard label="Citation 없음" value={data.answers_without_citation.toLocaleString()} />
         <KpiCard
           label="부정 피드백"
           value={`${(data.negative_feedback_rate * 100).toFixed(1)}%`}
@@ -94,10 +94,10 @@ export default function DashboardPage() {
         </Section>
 
         <Section title="Fallback Reason 분포">
-          {Object.keys(data.fallback_reason_distribution).length === 0 && (
+          {Object.keys(data.fallback_distribution).length === 0 && (
             <p className="text-sm text-gray-400">아직 fallback 없음.</p>
           )}
-          {Object.entries(data.fallback_reason_distribution)
+          {Object.entries(data.fallback_distribution)
             .sort(([, a], [, b]) => b - a)
             .map(([reason, count]) => (
               <BarRow
@@ -127,19 +127,6 @@ export default function DashboardPage() {
             ))}
         </Section>
 
-        <Section title="모델 사용량">
-          {Object.entries(data.model_call_counts)
-            .sort(([, a], [, b]) => b - a)
-            .map(([model, count]) => (
-              <BarRow
-                key={model}
-                label={model}
-                value={count}
-                percent={0}
-                colorClass="bg-purple-500"
-              />
-            ))}
-        </Section>
       </div>
     </div>
   );
