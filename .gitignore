@@ -54,7 +54,8 @@ backend/.pytest_cache/
 backend/htmlcov/
 
 # Models & weights (대용량, KeyHub로 보관)
-models/
+# leading slash로 repo root만 한정 — backend/app/models/ ORM 디렉토리 보호
+/models/
 *.bin
 *.safetensors
 *.gguf
