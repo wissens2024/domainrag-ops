@@ -21,9 +21,9 @@ def test_loader_reads_platform_yaml():
 
 def test_loader_resolves_client_tenant_map_with_tenant_overrides():
     cfg = AuthConfigLoader.load(get_settings())
-    # platform 파일의 매핑
-    assert cfg.client_tenant_map.get("client-security") == "security"
-    assert cfg.client_tenant_map.get("client-legal") == "legal"
+    # platform 파일의 매핑 — 내부 표현은 항상 list (single-client multi-tenant 지원)
+    assert "security" in (cfg.client_tenant_map.get("client-security") or [])
+    assert "legal" in (cfg.client_tenant_map.get("client-legal") or [])
     # tenant overrides에 security가 잡혔는지
     assert "security" in cfg.tenant_overrides
     assert cfg.tenant_overrides["security"]["client_id"] == "client-security"

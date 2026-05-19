@@ -93,9 +93,9 @@ def _resolve_client_id(auth_cfg: AuthConfig, tenant_id: str) -> str:
     ov = auth_cfg.tenant_overrides.get(tenant_id) or {}
     cid = ov.get("client_id")
     if not cid:
-        # client_tenant_map 역방향 탐색
+        # client_tenant_map 역방향 탐색 (mapped는 list[str])
         for client_id, mapped in auth_cfg.client_tenant_map.items():
-            if mapped == tenant_id:
+            if tenant_id in mapped:
                 return client_id
         raise HTTPException(
             status_code=404,

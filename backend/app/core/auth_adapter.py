@@ -228,7 +228,9 @@ class AuthFusionAdapter:
                 clearance = sa.clearance
             else:
                 # SERVICE role인데 service_accounts 매핑 미등록 — 보수적으로 fallback
-                token_tenant_id = self.auth_config.client_id_to_tenant_id(client_id)
+                token_tenant_id = self.auth_config.client_id_to_tenant_id(
+                    client_id, expected_tenant_id
+                )
                 merged_roles = roles
                 clearance = "internal"
 
@@ -260,8 +262,11 @@ class AuthFusionAdapter:
                 raw_claims=claims,
             )
 
-        # 일반 user: client_id → tenant_id 매핑
-        token_tenant_id = self.auth_config.client_id_to_tenant_id(client_id)
+        # 일반 user: client_id → tenant_id 매핑 (single-client multi-tenant 시
+        # expected_tenant_id가 map[client_id] list에 있으면 expected를 신뢰).
+        token_tenant_id = self.auth_config.client_id_to_tenant_id(
+            client_id, expected_tenant_id
+        )
         if token_tenant_id != expected_tenant_id:
             await self._publish_tenant_mismatch(
                 expected_tenant_id=expected_tenant_id,

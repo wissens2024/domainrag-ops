@@ -135,7 +135,7 @@ def _authfusion_auth_config(**overrides) -> AuthConfig:
         client_secret=None,
         require_verified_email=False,
         rp_slug="domainrag-ops",
-        client_tenant_map={"client-security": "security"},
+        client_tenant_map={"client-security": ["security"]},
         service_accounts={},
         tenant_overrides={"security": {"client_id": "client-security"}},
     )

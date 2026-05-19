@@ -60,7 +60,9 @@ class AuthConfig:
     # <rp-slug>-admin / <rp-slug>-auditor / <rp-slug>-user 로만 매칭, 전역 ADMIN 금지.
     rp_slug: str  # e.g. "domainrag-ops"
 
-    client_tenant_map: dict[str, str]
+    # 1:N 매핑 — 한 client_id가 여러 tenant를 서비스하는 single-client multi-tenant
+    # 운영 패턴 지원. 로딩 시 단일 string value도 [string]으로 normalize.
+    client_tenant_map: dict[str, list[str]]
     service_accounts: dict[str, ServiceAccountConfig]
 
     # Tenant overlays (tenant_id → tenant 자체의 auth.yaml 내용)
@@ -70,14 +72,22 @@ class AuthConfig:
     # 운영(authfusion 모드 + 다중 RP)에선 false로 강제 권장 — 다른 RP의 admin이 들어와도 차단.
     accept_legacy_global_roles: bool = True
 
-    def client_id_to_tenant_id(self, client_id: str) -> str:
-        """ADR-018 §1 — mapping table 우선, fallback prefix 제거.
+    def client_id_to_tenant_id(
+        self, client_id: str, expected_tenant_id: str | None = None
+    ) -> str:
+        """ADR-018 §1 + single-client multi-tenant 보강.
 
-        AuthFusion에서는 client_id가 UUID로 발급되므로 mapping table에서 매번 lookup 필수.
-        legacy `client-<tenant>` 형태도 fallback으로 받는다 (dev/test).
+        - client_id가 map에 있고 expected_tenant_id가 list에 포함되면 expected 반환
+          (single-client 공유 시 path의 tenant 의도를 신뢰).
+        - expected_tenant_id가 None이거나 list에 없으면 list[0] 반환 — caller가 비교해
+          mismatch를 판단.
+        - map에 없으면 legacy `client-<tenant>` prefix 제거 fallback (dev/test).
         """
-        if client_id in self.client_tenant_map:
-            return self.client_tenant_map[client_id]
+        mapped = self.client_tenant_map.get(client_id)
+        if mapped:
+            if expected_tenant_id and expected_tenant_id in mapped:
+                return expected_tenant_id
+            return mapped[0]
         return client_id.removeprefix("client-")
 
     def extra_admin_roles(self, tenant_id: str) -> list[str]:
@@ -202,7 +212,15 @@ class AuthConfigLoader:
             callback_cfg.get("app_base_url"), settings
         ) or _settings_attr(settings, "APP_BASE_URL") or "http://localhost:3010"
 
-        client_tenant_map: dict[str, str] = dict(af.get("client_tenant_map") or {})
+        # client_tenant_map normalize — yaml은 string도 list도 받아들이지만
+        # 내부 표현은 항상 list (single-client multi-tenant 지원).
+        client_tenant_map: dict[str, list[str]] = {}
+        for cid, mapped in (af.get("client_tenant_map") or {}).items():
+            if isinstance(mapped, list):
+                client_tenant_map[cid] = [str(t) for t in mapped if t]
+            elif mapped:
+                client_tenant_map[cid] = [str(mapped)]
+
         service_accounts: dict[str, ServiceAccountConfig] = {}
         for cid, body in (af.get("service_accounts") or {}).items():
             service_accounts[cid] = ServiceAccountConfig(
@@ -212,7 +230,8 @@ class AuthConfigLoader:
                 clearance=body.get("clearance", "internal"),
             )
 
-        # tenant overrides — 모든 tenants/<id>/auth.yaml을 미리 읽어 둠
+        # tenant overrides — 모든 tenants/<id>/auth.yaml을 미리 읽어 둠.
+        # 같은 client_id를 여러 tenant가 공유하면 list에 append (1:N).
         tenant_overrides: dict[str, dict] = {}
         tenants_dir = config_dir / "tenants"
         if tenants_dir.exists():
@@ -220,10 +239,11 @@ class AuthConfigLoader:
                 tyaml = tdir / "auth.yaml"
                 if tyaml.is_file():
                     tenant_overrides[tdir.name] = _read_yaml(tyaml)
-                    # tenant auth.yaml의 client_id가 platform map에 없으면 자동 등록
                     cid = tenant_overrides[tdir.name].get("client_id")
-                    if cid and cid not in client_tenant_map:
-                        client_tenant_map[cid] = tdir.name
+                    if cid:
+                        bucket = client_tenant_map.setdefault(cid, [])
+                        if tdir.name not in bucket:
+                            bucket.append(tdir.name)
 
         cfg = AuthConfig(
             auth_mode=auth_mode,
