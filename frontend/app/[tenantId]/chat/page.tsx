@@ -236,21 +236,11 @@ export default function ChatPage() {
         </div>
 
         {(me?.is_admin || me?.is_platform_admin) && (
-          <div className="px-3 py-2 border-b border-gray-200 space-y-1">
-            <Link
-              href={`/${tenantId}/admin/dashboard`}
-              className="flex items-center gap-2 px-2 py-1.5 rounded text-xs text-gray-700 hover:bg-gray-100"
-            >
-              <span>🏢</span> 관리자 콘솔
-            </Link>
-            {me?.is_platform_admin && (
-              <Link
-                href="/platform/admin/tenants"
-                className="flex items-center gap-2 px-2 py-1.5 rounded text-xs text-gray-700 hover:bg-gray-100"
-              >
-                <span>🌐</span> Platform Admin
-              </Link>
-            )}
+          <div className="px-3 py-2 border-b border-gray-200">
+            <p className="text-[11px] text-gray-400 leading-tight">
+              관리자 콘솔은 <code className="text-gray-600">/console</code> 로
+              접속하세요 (별도 브라우저 권장).
+            </p>
           </div>
         )}
 
