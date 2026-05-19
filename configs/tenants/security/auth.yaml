@@ -1,8 +1,14 @@
-# Security tenant — AuthFusion OAuth2 client 매핑 (ADR-018)
+# ============================================================================
+# security tenant — AuthFusion OAuth2 client 매핑 (ADR-018)
+# ----------------------------------------------------------------------------
+# AuthFusion에 등록된 단일 RP(`DomainRAG Ops`) client UUID를 공유 사용.
+# 2026-05-19 운영 등록 확인.
+# ============================================================================
 schema_version: 1
 
-client_id: client-security
-authfusion_client_id: client-security
+# AuthFusion 등록 UUID (DomainRAG Ops single-client). exam-engineer와 동일.
+client_id: "6cb9d56c-6b60-47cc-9317-d1b3f64eaf23"
+authfusion_client_id: "6cb9d56c-6b60-47cc-9317-d1b3f64eaf23"
 
-# 이 tenant 한정 추가 platform_admin (있으면 nominal admin role 외 추가 권한)
+# 이 tenant 한정 추가 admin role (없으면 빈 list).
 extra_admin_roles: []
