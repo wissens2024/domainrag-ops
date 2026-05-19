@@ -47,7 +47,7 @@ export default function ChatPage() {
   const refreshConversations = async () => {
     try {
       const list = await listConversations(tenantId, { page_size: 50 });
-      setConversations(list.items);
+      setConversations(list?.items ?? []);
     } catch {
       // ignore — 권한 없거나 빈 응답
     }

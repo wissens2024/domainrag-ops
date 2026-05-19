@@ -62,17 +62,19 @@ export default function AnswerCard({ response, tenantId, onCitationClick }: Prop
   };
 
   if (response.status === 'fallback') {
+    const nearMisses = response.fallback?.near_misses ?? [];
+    const suggestedActions = response.fallback?.suggested_actions ?? [];
     return (
       <div className="bg-gray-100 border border-gray-300 rounded p-4 my-4">
         <p className="text-gray-700">{response.answer}</p>
         <p className="text-xs text-gray-500 mt-2">
-          fallback_reason: {response.fallback.reason}
+          fallback_reason: {response.fallback?.reason ?? 'unknown'}
         </p>
-        {response.fallback.near_misses.length > 0 && (
+        {nearMisses.length > 0 && (
           <div className="mt-3">
             <p className="text-sm font-bold">근접한 후보 (참고용, 직접 인용 아님):</p>
             <ul className="text-sm">
-              {response.fallback.near_misses.map((m, i) => (
+              {nearMisses.map((m, i) => (
                 <li key={i}>
                   - {m.title} {m.page_number ? `p.${m.page_number}` : ''}{' '}
                   {m.section_title ? `§${m.section_title}` : ''} (관련도{' '}
@@ -82,11 +84,11 @@ export default function AnswerCard({ response, tenantId, onCitationClick }: Prop
             </ul>
           </div>
         )}
-        {response.fallback.suggested_actions.length > 0 && (
+        {suggestedActions.length > 0 && (
           <div className="mt-3">
             <p className="text-sm font-bold">다음 시도해 보세요:</p>
             <ul className="text-sm list-disc pl-5">
-              {response.fallback.suggested_actions.map((a, i) => (
+              {suggestedActions.map((a, i) => (
                 <li key={i}>{a}</li>
               ))}
             </ul>
@@ -96,17 +98,19 @@ export default function AnswerCard({ response, tenantId, onCitationClick }: Prop
     );
   }
 
-  const conflictCitations = response.citations.filter((c) => c.support_type === 'conflict');
+  const citations = response.citations ?? [];
+  const answerSegments = response.answer_segments ?? [{ text: response.answer ?? '', citations: [] }];
+  const conflictCitations = citations.filter((c) => c.support_type === 'conflict');
 
   return (
     <div className="bg-white border border-gray-200 rounded p-4 my-4 shadow-sm">
       <div className="prose prose-sm max-w-none">
-        {response.answer_segments.map((seg, i) => (
+        {answerSegments.map((seg, i) => (
           <span key={i}>
             {seg.text}
-            {seg.citations.length > 0 &&
-              seg.citations.map((cIdx) => {
-                const cit = response.citations.find((c) => c.marker === `[${cIdx}]`);
+            {(seg.citations ?? []).length > 0 &&
+              (seg.citations ?? []).map((cIdx) => {
+                const cit = citations.find((c) => c.marker === `[${cIdx}]`);
                 if (!cit) return null;
                 const colorClass = citationColorClass(cit.support_type);
                 const button = (
