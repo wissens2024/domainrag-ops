@@ -28,11 +28,21 @@ async def ensure_tenant_match(
     platform_admin role은 모든 tenant 호출 허용 (cross-tenant 운영 메뉴).
     mismatch 발생 시 ledger가 주입되어 있으면 publish_tenant_mismatch.
     """
+    print(
+        f"[DIAG] ensure_tenant_match called — path_tenant={tenant_id!r} "
+        f"user_tenant={user.tenant_id!r} user_id={user.user_id!r} roles={user.roles!r} "
+        f"is_platform_admin={user.is_platform_admin}",
+        flush=True,
+    )
     if user.is_platform_admin:
         return
     if user.tenant_id == tenant_id:
         return
 
+    print(
+        f"[DIAG] ensure_tenant_match 403 — path={tenant_id!r} != user={user.tenant_id!r}",
+        flush=True,
+    )
     logger.warning(
         "ensure_tenant_match 403 — path_tenant=%s user_tenant=%s user_id=%s roles=%s",
         tenant_id,

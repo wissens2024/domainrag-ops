@@ -195,6 +195,13 @@ class AuthFusionAdapter:
             ) from exc
 
         client_id = claims.get("client_id") or claims.get("azp")
+        print(
+            f"[DIAG] verify_and_extract — expected={expected_tenant_id!r} "
+            f"client_id={client_id!r} sub={claims.get('sub')!r} "
+            f"roles={claims.get('roles')!r} "
+            f"map={self.auth_config.client_tenant_map.get(client_id) if client_id else None}",
+            flush=True,
+        )
         if not client_id:
             await self._publish_auth_failure(
                 expected_tenant_id=expected_tenant_id,
