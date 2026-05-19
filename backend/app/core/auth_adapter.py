@@ -314,6 +314,12 @@ class AuthFusionAdapter:
         # 5) email_verified 검증 (AuthFusion OIDC_REQUIRE_VERIFIED_EMAIL 표준).
         # claim 부재도 실패로 간주 (fail-fast). require_verified_email=True인데
         # IdP가 claim 발급 안 하면 운영 설정 오류로 보고 차단해야 한다.
+        print(
+            f"[DIAG] email check — require={self.auth_config.require_verified_email} "
+            f"claim_email_verified={claims.get('email_verified')!r} "
+            f"email={claims.get('email')!r}",
+            flush=True,
+        )
         if (
             self.auth_config.require_verified_email
             and claims.get("email_verified") is not True
@@ -336,7 +342,16 @@ class AuthFusionAdapter:
             )
             raise HTTPException(status_code=401, detail={"error": "missing_sub_claim"})
 
-        membership = await self._load_membership(sub, expected_tenant_id)
+        try:
+            membership = await self._load_membership(sub, expected_tenant_id)
+        except Exception as exc:
+            print(f"[DIAG] _load_membership EXCEPTION: {exc!r}", flush=True)
+            raise
+        print(
+            f"[DIAG] membership lookup sub={sub!r} tenant={expected_tenant_id!r} "
+            f"result={membership!r}",
+            flush=True,
+        )
         if membership is None:
             await self._publish_auth_failure(
                 expected_tenant_id=expected_tenant_id,
