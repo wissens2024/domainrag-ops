@@ -31,7 +31,13 @@ export default function ChatPage() {
   const tenantId = params.tenantId;
 
   const [question, setQuestion] = useState('');
-  const [response, setResponse] = useState<ChatResponse | null>(null);
+  // thread: 사용자 메시지 + assistant 응답 누적 (ChatGPT 스타일)
+  type ThreadItem =
+    | { role: 'user'; content: string }
+    | { role: 'assistant'; response: ChatResponse };
+  const [thread, setThread] = useState<ThreadItem[]>([]);
+  // 진행 중 streaming 응답 (token 누적용 — onComplete 시 thread에 commit)
+  const [streamingResponse, setStreamingResponse] = useState<ChatResponse | null>(null);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -60,15 +66,20 @@ export default function ChatPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!question.trim()) return;
+    const q = question.trim();
+    if (!q) return;
     setLoading(true);
     setError(null);
+    // user 메시지 즉시 thread에 push
+    setThread((prev) => [...prev, { role: 'user', content: q }]);
+    setQuestion('');
     try {
       if (mode === 'streaming') {
-        // chat_streaming: SSE, citation 없음 (ADR-013 §6)
+        // chat_streaming: SSE, citation 없음 (ADR-013 §6). token을 누적해 진행 응답 표시,
+        // onComplete 시 thread에 commit.
         let acc = '';
         let convId = currentConversationId;
-        setResponse({
+        const initial: ChatResponse = {
           status: 'success',
           conversation_id: convId ?? '',
           message_id: '',
@@ -81,20 +92,17 @@ export default function ChatPage() {
             latency_ms: 0,
             confidence: 0,
           },
-        });
+        };
+        setStreamingResponse(initial);
         await chatStream(
           tenantId,
-          { question, conversation_id: currentConversationId ?? undefined },
+          { question: q, conversation_id: currentConversationId ?? undefined },
           {
             onToken: (t) => {
               acc += t;
-              setResponse((prev) =>
+              setStreamingResponse((prev) =>
                 prev && prev.status === 'success'
-                  ? {
-                      ...prev,
-                      answer: acc,
-                      answer_segments: [{ text: acc, citations: [] }],
-                    }
+                  ? { ...prev, answer: acc, answer_segments: [{ text: acc, citations: [] }] }
                   : prev,
               );
             },
@@ -102,37 +110,36 @@ export default function ChatPage() {
               const meta = (payload.metadata ?? {}) as Record<string, unknown>;
               convId = (meta.conversation_id as string) ?? convId;
               if (convId) setCurrentConversationId(convId);
-              setResponse((prev) =>
-                prev && prev.status === 'success'
-                  ? {
-                      ...prev,
-                      message_id: String(payload.message_id ?? ''),
-                      conversation_id: convId ?? '',
-                      metadata: { ...prev.metadata, ...meta },
-                    }
-                  : prev,
-              );
+              const finalRes: ChatResponse = {
+                ...initial,
+                answer: acc,
+                answer_segments: [{ text: acc, citations: [] }],
+                message_id: String(payload.message_id ?? ''),
+                conversation_id: convId ?? '',
+                metadata: { ...initial.metadata, ...meta } as ChatResponse['metadata'],
+              };
+              setThread((prev) => [...prev, { role: 'assistant', response: finalRes }]);
+              setStreamingResponse(null);
             },
             onFallback: (payload) => {
               setError(`fallback: ${JSON.stringify(payload)}`);
+              setStreamingResponse(null);
             },
             onError: (payload) => {
               setError(`stream error: ${JSON.stringify(payload)}`);
+              setStreamingResponse(null);
             },
           },
         );
-        setQuestion('');
         void refreshConversations();
       } else {
         const res = await chat(tenantId, {
-          question,
+          question: q,
           conversation_id: currentConversationId ?? undefined,
           ui_mode_request: mode,
         });
-        setResponse(res);
+        setThread((prev) => [...prev, { role: 'assistant', response: res }]);
         setCurrentConversationId(res.conversation_id);
-        setSelectedCitation(null);
-        setQuestion('');
         void refreshConversations();
       }
     } catch (err) {
@@ -144,7 +151,8 @@ export default function ChatPage() {
 
   const handleNewConversation = () => {
     setCurrentConversationId(null);
-    setResponse(null);
+    setThread([]);
+    setStreamingResponse(null);
     setSelectedCitation(null);
     setQuestion('');
     setError(null);
@@ -154,29 +162,32 @@ export default function ChatPage() {
     setCurrentConversationId(cid);
     setLoading(true);
     setError(null);
+    setStreamingResponse(null);
     try {
       const detail = await getConversation(tenantId, cid);
-      // 마지막 assistant 메시지를 노출 (전체 messages history는 별도 panel 추가 후보)
-      const lastAssistant = [...detail.messages]
-        .reverse()
-        .find((m) => m.role === 'assistant');
-      if (lastAssistant) {
-        // 메시지 본문만 단순 응답 형태로 흉내 (citations는 chat_log에서 별도 hydrate 필요)
-        setResponse({
-          status: 'success',
-          conversation_id: cid,
-          message_id: lastAssistant.request_id ?? '',
-          answer: lastAssistant.content,
-          answer_segments: [{ text: lastAssistant.content, citations: [] }],
-          citations: [],
-          metadata: {
-            ui_mode: 'chat_structured',
-            llm_model: '(history)',
-            latency_ms: 0,
-            confidence: 0,
-          },
-        });
-      }
+      // 전체 messages를 thread로 복원 (user → assistant 순서, ADR-017 §4)
+      const restored: ThreadItem[] = (detail.messages ?? []).map((m) =>
+        m.role === 'user'
+          ? { role: 'user' as const, content: m.content }
+          : {
+              role: 'assistant' as const,
+              response: {
+                status: 'success',
+                conversation_id: cid,
+                message_id: m.request_id ?? '',
+                answer: m.content,
+                answer_segments: [{ text: m.content, citations: [] }],
+                citations: [],
+                metadata: {
+                  ui_mode: 'chat_structured',
+                  llm_model: '(history)',
+                  latency_ms: 0,
+                  confidence: 0,
+                },
+              } as ChatResponse,
+            },
+      );
+      setThread(restored);
     } catch (err) {
       setError(err instanceof Error ? err.message : '대화 로드 실패');
     } finally {
@@ -278,19 +289,52 @@ export default function ChatPage() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4">
-          {loading && <div className="text-gray-500">답변 생성 중...</div>}
-          {error && <div className="text-red-600">오류: {error}</div>}
-          {response && (
-            <AnswerCard
-              response={response}
-              tenantId={tenantId}
-              onCitationClick={setSelectedCitation}
-            />
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {thread.length === 0 && !loading && !streamingResponse && (
+            <div className="text-center text-gray-400 mt-12 text-sm">
+              질문을 입력해 대화를 시작하세요.
+            </div>
           )}
+          {thread.map((item, i) =>
+            item.role === 'user' ? (
+              <div key={i} className="flex justify-end">
+                <div className="max-w-[75%] bg-blue-600 text-white rounded-2xl px-4 py-2 whitespace-pre-wrap">
+                  {item.content}
+                </div>
+              </div>
+            ) : (
+              <div key={i} className="flex justify-start">
+                <div className="max-w-[85%]">
+                  <AnswerCard
+                    response={item.response}
+                    tenantId={tenantId}
+                    onCitationClick={setSelectedCitation}
+                  />
+                </div>
+              </div>
+            ),
+          )}
+          {streamingResponse && (
+            <div className="flex justify-start">
+              <div className="max-w-[85%]">
+                <AnswerCard
+                  response={streamingResponse}
+                  tenantId={tenantId}
+                  onCitationClick={setSelectedCitation}
+                />
+              </div>
+            </div>
+          )}
+          {loading && !streamingResponse && (
+            <div className="text-gray-500 text-sm">답변 생성 중…</div>
+          )}
+          {error && <div className="text-red-600 text-sm">오류: {error}</div>}
         </div>
 
-        <form onSubmit={handleSubmit} className="p-4 border-t border-gray-200">
+        <form
+          onSubmit={handleSubmit}
+          className="p-4 border-t border-gray-200 bg-white sticky bottom-0"
+        >
           <div className="flex gap-2">
             <input
               type="text"
@@ -311,10 +355,19 @@ export default function ChatPage() {
         </form>
       </main>
 
-      {/* 우측 — Citation Panel */}
-      <aside className="w-96 border-l border-gray-200 p-4 overflow-y-auto">
-        <CitationPanel citation={selectedCitation} />
-      </aside>
+      {/* 우측 — Citation Panel (citation 클릭 시만 노출) */}
+      {selectedCitation && (
+        <aside className="w-96 border-l border-gray-200 p-4 overflow-y-auto relative">
+          <button
+            onClick={() => setSelectedCitation(null)}
+            className="absolute top-2 right-2 text-gray-500 hover:text-gray-800 text-xl"
+            aria-label="닫기"
+          >
+            ✕
+          </button>
+          <CitationPanel citation={selectedCitation} />
+        </aside>
+      )}
     </div>
   );
 }
