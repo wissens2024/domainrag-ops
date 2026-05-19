@@ -521,8 +521,21 @@ def _build_production_service(
     vector_store = QdrantVectorStore(client=qdrant)
     embedder = TEIBgeM3Embedder(base_url=settings.embedding_server_url)
     reranker = TEIReranker(base_url=settings.reranker_server_url)
-    tenant_llm = VllmLLMClient(base_url=settings.tenant_slm_base_url)
-    shared_llm = VllmLLMClient(base_url=settings.shared_llm_base_url)
+    # routing config의 logical model 이름 → 실 vLLM model id 매핑.
+    # settings.rag_default_model 하나로 모든 logical name을 흡수 (단일 vLLM 운영).
+    # 향후 tenant_slm/shared_llm을 별도 instance로 분리할 땐 별도 env로.
+    _model_aliases = {
+        "tenant_slm": settings.rag_default_model,
+        "shared_llm": settings.rag_default_model,
+        "qwen3-14b": settings.rag_default_model,
+        "qwen3-7b-instruct": settings.rag_default_model,
+    }
+    tenant_llm = VllmLLMClient(
+        base_url=settings.tenant_slm_base_url, model_aliases=_model_aliases,
+    )
+    shared_llm = VllmLLMClient(
+        base_url=settings.shared_llm_base_url, model_aliases=_model_aliases,
+    )
     retrieval = RetrievalService(
         embedder=embedder, vector_store=vector_store, reranker=reranker
     )

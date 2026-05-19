@@ -35,12 +35,20 @@ class VllmLLMClient:
         timeout_seconds: float = 30.0,
         api_key: str | None = None,
         client: httpx.AsyncClient | None = None,
+        model_aliases: dict[str, str] | None = None,
     ) -> None:
+        """
+        Args:
+            model_aliases: routing config의 logical model name(`tenant_slm`,
+                `shared_llm` 등)을 vLLM이 serve하는 실 model id로 매핑. 운영자가
+                env로 주입. None이면 model 이름이 그대로 vLLM에 전달.
+        """
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
         self._api_key = api_key
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=timeout_seconds)
+        self._aliases = dict(model_aliases or {})
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -52,11 +60,15 @@ class VllmLLMClient:
             h["Authorization"] = f"Bearer {self._api_key}"
         return h
 
-    @staticmethod
-    def _resolve_model(model: str, lora_adapter: str | None) -> str:
+    def _resolve_model(self, model: str, lora_adapter: str | None) -> str:
         """vLLM 관행: LoRA 어댑터 이름을 `model` 필드로 전달하면 vLLM이
-        해당 어댑터를 활성화한 base model로 추론. None이면 base model을 그대로."""
-        return lora_adapter if lora_adapter else model
+        해당 어댑터를 활성화한 base model로 추론. None이면 base model을 그대로.
+
+        추가로 model_aliases dict로 logical name(`tenant_slm` 등)을 실 model id로
+        매핑 — routing config 추상화 유지."""
+        if lora_adapter:
+            return lora_adapter
+        return self._aliases.get(model, model)
 
     async def generate(
         self,
