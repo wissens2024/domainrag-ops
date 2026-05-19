@@ -422,12 +422,20 @@ async def get_user_context(
 ) -> UserContext:
     """모든 `/api/{tenant_id}/...` endpoint의 dependency.
 
-    Authorization 헤더에서 Bearer token 추출 → AuthAdapter로 검증·UserContext 빌드.
-    URL path tenant_id와 token tenant_id mismatch면 403 (ADR-008 격리 3중 방어).
+    Token source 우선순위 (ADR-018 §6):
+      1. Authorization: Bearer ... 헤더 (service-to-service / 명시적 SDK)
+      2. httpOnly cookie `domainrag_access` (브라우저 + frontend SPA)
+
+    둘 다 없으면 401. 검증된 token의 tenant_id가 URL path tenant_id와
+    mismatch면 403 (ADR-008 격리 3중 방어).
     """
+    token = ""
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    if auth_header.startswith("Bearer "):
+        token = auth_header.removeprefix("Bearer ").strip()
+    if not token:
+        token = (request.cookies.get("domainrag_access") or "").strip()
+    if not token:
         raise HTTPException(status_code=401, detail={"error": "missing_bearer_token"})
 
-    token = auth_header.removeprefix("Bearer ").strip()
     return await adapter.verify_and_extract(token, tenant_id)
