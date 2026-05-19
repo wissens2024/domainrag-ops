@@ -64,7 +64,6 @@ export default function Home() {
   }
 
   // 미인증 — 랜딩. role 모름이라 admin/platform 링크는 노출 안 함.
-  void error;
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-8">
       <h1 className="text-3xl font-bold mb-2">DomainRAG Ops</h1>
