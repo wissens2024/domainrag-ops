@@ -41,7 +41,8 @@ export default function ChatPage() {
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
-  const [mode, setMode] = useState<'structured' | 'streaming'>('structured');
+  // 일반 사용자 default는 '일반 대화' (자유 대화). 문서 검색은 명시 선택 시.
+  const [mode, setMode] = useState<'structured' | 'streaming'>('streaming');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
