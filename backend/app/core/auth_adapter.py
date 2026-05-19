@@ -297,10 +297,10 @@ class AuthFusionAdapter:
             )
 
         # 5) email_verified 검증 (AuthFusion OIDC_REQUIRE_VERIFIED_EMAIL 표준).
-        # claim에 email_verified가 없으면 통과 — IdP가 email scope 미발급한 client만.
+        # claim 부재도 실패로 간주 (fail-fast). require_verified_email=True인데
+        # IdP가 claim 발급 안 하면 운영 설정 오류로 보고 차단해야 한다.
         if (
             self.auth_config.require_verified_email
-            and "email_verified" in claims
             and claims.get("email_verified") is not True
         ):
             await self._publish_auth_failure(

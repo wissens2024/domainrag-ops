@@ -67,18 +67,12 @@ export class ApiError extends Error {
   }
 }
 
-// ADR-018 §6 — Token refresh interceptor.
+// ADR-018 §6 — Token refresh interceptor (httpOnly cookie only).
 // 401 응답 시 단일 mutex로 refresh 1회 시도 + 원 요청 재시도. refresh 실패는
-// /api/auth/authorize/{tenantId} redirect (frontend 결정 — 호출 측이 catch).
+// /api/auth/authorize/{tenantId} redirect.
+// XSS 노출면 최소화 — access_token을 localStorage에 두지 않는다. 모든 인증은
+// httpOnly cookie(`domainrag_access`/`domainrag_refresh`)로만 이루어진다.
 let _refreshInflight: Promise<boolean> | null = null;
-
-function _authHeader(): string | null {
-  // SSR / 미인증 모두 빈 값. backend는 missing_bearer_token로 401 응답하고,
-  // 그걸 _fetchWithRefresh가 받아 refresh → 실패 시 _redirectToLogin로 IdP 이동.
-  if (typeof window === 'undefined') return null;
-  const token = window.localStorage.getItem('domainrag.auth_token');
-  return token ? `Bearer ${token}` : null;
-}
 
 async function _attemptRefresh(): Promise<boolean> {
   if (_refreshInflight) return _refreshInflight;
@@ -95,19 +89,7 @@ async function _attemptRefresh(): Promise<boolean> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenant_id: tenantId }),
       });
-      if (!res.ok) return false;
-      const body = await res.json().catch(() => null);
-      if (body && typeof body === 'object' && 'access_token' in body) {
-        try {
-          window.localStorage.setItem(
-            'domainrag.auth_token',
-            String((body as Record<string, unknown>).access_token),
-          );
-        } catch {
-          // localStorage 접근 실패는 무시 (httpOnly cookie path)
-        }
-      }
-      return true;
+      return res.ok;
     } catch {
       return false;
     } finally {
@@ -139,17 +121,14 @@ async function _fetchWithRefresh(
   if (res.status !== 401) return res;
 
   // 401 — token_expired 가정. refresh 시도 후 원 요청 재시도 1회만.
+  // refresh 성공 시 새 httpOnly cookie가 set되어 있으므로 같은 init 그대로
+  // 재요청. Authorization header는 사용 안 함.
   const refreshed = await _attemptRefresh();
   if (!refreshed) {
     _redirectToLogin();
     return res;
   }
-  // 새 Authorization 헤더로 재시도
-  const retryHeaders = new Headers(init.headers as HeadersInit);
-  const auth = _authHeader();
-  if (auth) retryHeaders.set('Authorization', auth);
-  else retryHeaders.delete('Authorization');
-  return fetch(url, { ...init, headers: retryHeaders });
+  return fetch(url, init);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -157,8 +136,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     'Content-Type': 'application/json',
     ...(init?.headers as Record<string, string> | undefined),
   };
-  const auth = _authHeader();
-  if (auth) headers.Authorization = auth;
+  // 인증은 httpOnly cookie로만 — Authorization header는 service-to-service
+  // 호출이 명시적으로 init.headers에 넣을 때만 사용.
   const res = await _fetchWithRefresh(`${API_BASE}${path}`, {
     credentials: 'include',
     ...init,

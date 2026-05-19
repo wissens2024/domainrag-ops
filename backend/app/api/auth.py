@@ -130,6 +130,18 @@ async def build_authorize_url(
             status_code=500, detail={"error": "authorize_endpoint_not_configured"}
         )
 
+    # tenant_id 화이트리스트 — auth configs (configs/tenants/<tid>/auth.yaml) 또는
+    # platform map에 등록된 경우만 허용. 임의 문자열로 SSO 흐름 트리거 방지.
+    is_known_tenant = (
+        tenant_id in auth_cfg.tenant_overrides
+        or any(tenant_id in mapped for mapped in auth_cfg.client_tenant_map.values())
+    )
+    if not is_known_tenant:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "tenant_not_registered", "tenant_id": tenant_id},
+        )
+
     client_id = _resolve_client_id(auth_cfg, tenant_id)
     verifier, challenge = generate_pkce_pair()
     state = generate_state()
