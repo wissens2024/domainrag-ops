@@ -5,7 +5,9 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 # --legacy-peer-deps: eslint-config-next@14.x의 peer가 eslint ^7||^8인데
 # frontend는 eslint 9.x 사용. peer 검사 우회 (dev dep만 영향, runtime 무관).
-RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+# npm install (npm ci 미사용) — lock이 outdated여도 새 deps 인식.
+# lock 정합성은 dev에서 별도 npm install로 갱신.
+RUN npm install --legacy-peer-deps
 
 COPY . .
 
