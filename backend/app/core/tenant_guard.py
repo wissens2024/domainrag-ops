@@ -33,6 +33,14 @@ async def ensure_tenant_match(
     if user.tenant_id == tenant_id:
         return
 
+    logger.warning(
+        "ensure_tenant_match 403 — path_tenant=%s user_tenant=%s user_id=%s roles=%s",
+        tenant_id,
+        user.tenant_id,
+        user.user_id,
+        user.roles,
+    )
+
     # ledger publish (실패는 swallow)
     if ledger is not None:
         try:

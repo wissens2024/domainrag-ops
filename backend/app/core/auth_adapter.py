@@ -282,6 +282,14 @@ class AuthFusionAdapter:
                 raw_claims=claims,
             )
         if token_tenant_id != expected_tenant_id:
+            logger.warning(
+                "verify_and_extract tenant_mismatch — client_id=%s expected=%s "
+                "token_tenant=%s map=%s",
+                client_id,
+                expected_tenant_id,
+                token_tenant_id,
+                self.auth_config.client_tenant_map.get(client_id),
+            )
             await self._publish_tenant_mismatch(
                 expected_tenant_id=expected_tenant_id,
                 token_tenant=token_tenant_id,
