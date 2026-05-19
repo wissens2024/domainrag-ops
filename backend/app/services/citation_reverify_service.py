@@ -266,4 +266,4 @@ class CitationReverifyService:
                 )
                 await audit_session.commit()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("citation_reverify_audit_failed", error=str(exc))
+            logger.warning("citation_reverify_audit_failed: %s", str(exc))

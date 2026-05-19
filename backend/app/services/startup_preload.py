@@ -14,7 +14,7 @@ admin engine(BYPASSRLS) 사용 — cross-tenant 일괄 SELECT.
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Any
 
 from sqlalchemy import text
@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.core.input_schema import InputSchemaLoader
 from app.core.tenant_config_service import TenantConfigService
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _set_nested(target: dict, dotted_path: str, value: Any) -> None:
