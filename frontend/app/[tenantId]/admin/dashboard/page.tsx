@@ -51,14 +51,17 @@ export default function DashboardPage() {
   );
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">대시보드 — {tenantId}</h1>
+    <div className="p-8 max-w-7xl mx-auto">
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold text-gray-900">대시보드</h1>
+        <p className="text-sm text-gray-500 mt-1">{tenantId} tenant 요약 지표</p>
+      </div>
 
-      <div className="grid grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
         <KpiCard label="총 문서" value={data.total_documents.toLocaleString()} />
         <KpiCard label="총 chunk" value={data.total_chunks.toLocaleString()} />
         <KpiCard label="오늘 업로드" value={data.uploaded_today.toLocaleString()} />
-        <KpiCard label="오늘 인덱싱 실패" value={data.indexing_failed_today.toLocaleString()} />
+        <KpiCard label="오늘 인덱싱 실패" value={data.indexing_failed_today.toLocaleString()} accent={data.indexing_failed_today > 0 ? 'warn' : undefined} />
         <KpiCard label="오늘 질문" value={data.questions_today.toLocaleString()} />
         <KpiCard
           label="평균 응답"
@@ -68,6 +71,7 @@ export default function DashboardPage() {
         <KpiCard
           label="부정 피드백"
           value={`${(data.negative_feedback_rate * 100).toFixed(1)}%`}
+          accent={data.negative_feedback_rate > 0.1 ? 'warn' : undefined}
         />
       </div>
 
@@ -132,11 +136,25 @@ export default function DashboardPage() {
   );
 }
 
-function KpiCard({ label, value }: { label: string; value: string }) {
+function KpiCard({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: 'warn';
+}) {
   return (
-    <div className="border border-gray-200 rounded p-4">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="text-2xl font-bold">{value}</p>
+    <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 hover:shadow-sm transition-shadow">
+      <p className="text-xs text-gray-500 font-medium">{label}</p>
+      <p
+        className={`text-2xl font-semibold mt-1 ${
+          accent === 'warn' ? 'text-amber-600' : 'text-gray-900'
+        }`}
+      >
+        {value}
+      </p>
     </div>
   );
 }
@@ -149,9 +167,9 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border border-gray-200 rounded p-4">
-      <h2 className="font-bold mb-3">{title}</h2>
-      <div className="space-y-2">{children}</div>
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <h2 className="text-sm font-semibold text-gray-900 mb-4">{title}</h2>
+      <div className="space-y-3">{children}</div>
     </div>
   );
 }

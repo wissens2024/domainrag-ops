@@ -108,34 +108,34 @@ export default function AdminSidebar({ tenantId }: Props) {
     : tenantMenuGroups(tenantId);
 
   return (
-    <aside className="w-64 border-r border-gray-200 bg-gray-50 flex flex-col">
-      <div className="p-4 border-b border-gray-200">
+    <aside className="w-64 border-r border-gray-200 bg-white flex flex-col">
+      <div className="px-4 py-3 border-b border-gray-200">
         <div className="flex items-center justify-between">
-          <p className="font-bold text-sm">
+          <p className="font-semibold text-sm text-gray-900">
             {showPlatform ? '🌐 Platform' : `🏢 ${tenantId}`}
           </p>
           {isPlatformAdmin && (
             <button
               onClick={() => setShowPlatform(!showPlatform)}
-              className="text-xs text-blue-600 hover:underline"
+              className="text-[11px] text-gray-500 hover:text-gray-900 hover:underline"
             >
               {showPlatform ? `← ${tenantId}` : 'Platform ▾'}
             </button>
           )}
         </div>
         {user && (
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-[11px] text-gray-500 mt-1 truncate">
             {user.preferred_username || user.user_id} ·{' '}
-            {user.roles.join(',')}
+            <span className="text-gray-400">{user.roles.join(',')}</span>
           </p>
         )}
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">
         {groups.map((g) => (
-          <div key={g.label} className="mb-2">
+          <div key={g.label} className="mb-3">
             {g.label && (
-              <p className="px-3 py-1 text-xs font-bold text-gray-500 uppercase">
+              <p className="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
                 {g.label}
               </p>
             )}
@@ -147,9 +147,9 @@ export default function AdminSidebar({ tenantId }: Props) {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`block px-4 py-1.5 text-sm ${
+                  className={`flex items-center px-3 py-1.5 mx-1.5 my-0.5 rounded-md text-sm transition-colors ${
                     active
-                      ? 'bg-blue-100 text-blue-900 border-l-4 border-blue-600'
+                      ? 'bg-gray-900 text-white font-medium'
                       : 'text-gray-700 hover:bg-gray-100'
                   }`}
                 >
