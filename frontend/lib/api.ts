@@ -251,6 +251,19 @@ export async function getCurrentUser(): Promise<UserContext> {
   return request<UserContext>(`/api/auth/me`);
 }
 
+/**
+ * Logout — backend가 access/refresh 쿠키의 token을 revoke + 쿠키 삭제 (ADR-018 §6).
+ * 호출자가 navigation은 직접. tenant_id는 backend가 client_id resolve에 필요.
+ */
+export async function logout(tenantId: string): Promise<void> {
+  await fetch(`${API_BASE}/api/auth/logout`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tenant_id: tenantId }),
+  });
+}
+
 // ============================================================================
 // Chat Streaming (ADR-013 §6, ADR-017 §3.2) — SSE
 // ============================================================================

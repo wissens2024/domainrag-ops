@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import useSWR from 'swr';
-import { swrFetcher } from '@/lib/api';
+import { logout, swrFetcher } from '@/lib/api';
 import type { UserContext } from '@/lib/types';
 
 const MENU = [
@@ -74,10 +74,22 @@ export default function PlatformAdminLayout({
             );
           })}
         </nav>
-        <div className="p-3 border-t">
-          <Link href="/" className="text-xs text-blue-600 hover:underline">
+        <div className="p-3 border-t space-y-2">
+          <Link href="/" className="block text-xs text-blue-600 hover:underline">
             ← 홈
           </Link>
+          {user && (
+            <button
+              onClick={async () => {
+                // platform admin은 자기 tenant_id로 logout (backend가 client_id resolve)
+                await logout(user.tenant_id);
+                window.location.href = '/';
+              }}
+              className="w-full px-2 py-1 text-[11px] text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
+            >
+              ↩ 로그아웃 ({user.preferred_username ?? user.email ?? user.user_id})
+            </button>
+          )}
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto bg-white">{children}</main>

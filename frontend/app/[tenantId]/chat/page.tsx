@@ -22,6 +22,7 @@ import {
   deleteConversation,
   getConversation,
   listConversations,
+  logout,
   swrFetcher,
 } from '@/lib/api';
 import type { ChatResponse, Citation, Conversation, UserContext } from '@/lib/types';
@@ -281,13 +282,25 @@ export default function ChatPage() {
           ))}
         </div>
 
-        {/* 사이드바 하단: user */}
+        {/* 사이드바 하단: user + logout */}
         {me && (
-          <div className="p-3 border-t border-gray-200 text-xs text-gray-500">
-            <div className="truncate font-medium text-gray-700">
-              {me.preferred_username ?? me.email ?? me.user_id}
+          <div className="p-3 border-t border-gray-200 text-xs text-gray-500 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate font-medium text-gray-700">
+                {me.preferred_username ?? me.email ?? me.user_id}
+              </div>
+              <div className="truncate">{me.tenant_id}</div>
             </div>
-            <div className="truncate">{me.tenant_id}</div>
+            <button
+              onClick={async () => {
+                await logout(tenantId);
+                window.location.href = '/';
+              }}
+              className="px-2 py-1 text-[11px] text-gray-500 border border-gray-300 rounded hover:bg-gray-100 hover:text-gray-700"
+              title="로그아웃"
+            >
+              ↩ 로그아웃
+            </button>
           </div>
         )}
       </aside>

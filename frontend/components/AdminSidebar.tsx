@@ -11,7 +11,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
-import { getCurrentUser, swrFetcher } from '@/lib/api';
+import { getCurrentUser, logout, swrFetcher } from '@/lib/api';
 import type { UserContext } from '@/lib/types';
 
 interface MenuItem {
@@ -161,13 +161,24 @@ export default function AdminSidebar({ tenantId }: Props) {
         ))}
       </nav>
 
-      <div className="p-3 border-t border-gray-200">
+      <div className="p-3 border-t border-gray-200 space-y-2">
         <Link
           href={`/${tenantId}/chat`}
           className="block text-xs text-blue-600 hover:underline"
         >
           ← 채팅으로 돌아가기
         </Link>
+        {user && (
+          <button
+            onClick={async () => {
+              await logout(tenantId);
+              window.location.href = '/';
+            }}
+            className="w-full px-2 py-1 text-[11px] text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
+          >
+            ↩ 로그아웃 ({user.preferred_username ?? user.email ?? user.user_id})
+          </button>
+        )}
       </div>
     </aside>
   );
