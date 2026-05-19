@@ -17,7 +17,8 @@ from __future__ import annotations
 import time
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from app.core.auth_config import AuthConfig, AuthConfigLoader
@@ -111,12 +112,15 @@ def _resolve_client_id(auth_cfg: AuthConfig, tenant_id: str) -> str:
 @router.get("/authorize/{tenant_id}")
 async def build_authorize_url(
     tenant_id: str,
+    redirect: bool = Query(default=False),
     settings: Settings = Depends(get_settings),
     state_store: InMemoryOAuthStateStore = Depends(get_oauth_state_store),
 ):
     """ADR-018 §2 — PKCE pair 생성 + state 저장 + authorize URL 반환.
 
-    Frontend는 응답의 `authorize_url`로 window.location 이동.
+    기본은 JSON({authorize_url, state, tenant_id}) — frontend SPA가 직접
+    navigation을 다룰 때. `?redirect=1`이면 그 URL로 302 redirect — Next.js
+    middleware나 일반 브라우저 navigation이 그대로 사용 가능.
     """
     auth_cfg = AuthConfigLoader.load(settings)
 
@@ -150,8 +154,11 @@ async def build_authorize_url(
         "code_challenge": challenge,
         "code_challenge_method": "S256",
     }
+    authorize_url = f"{auth_cfg.authorize_endpoint}?{urlencode(params)}"
+    if redirect:
+        return RedirectResponse(url=authorize_url, status_code=302)
     return {
-        "authorize_url": f"{auth_cfg.authorize_endpoint}?{urlencode(params)}",
+        "authorize_url": authorize_url,
         "state": state,
         "tenant_id": tenant_id,
     }

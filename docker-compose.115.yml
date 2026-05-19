@@ -73,6 +73,18 @@ services:
       - domainrag-network
       - ai-aware-sse_default  # WiSentinel network에 attach (실제 이름 확인 필요)
 
+  # ──────────────────────────────────────────────────────────────────────
+  # Frontend — 운영 same-origin API base
+  # ──────────────────────────────────────────────────────────────────────
+  # base compose는 NEXT_PUBLIC_API_URL=http://localhost:8001로 박혀 있어
+  # 운영 브라우저가 backend를 찾지 못한다. nginx rag.aines.kr.conf가
+  # /api/*를 backend로 proxy하므로 same-origin URL로 override.
+  # Dockerfile.frontend는 `npm run dev` 기동이라 runtime env가 그대로 읽힌다.
+  frontend:
+    environment:
+      - NEXT_PUBLIC_API_URL=${APP_BASE_URL:-https://rag.aines.kr}
+      - NEXT_PUBLIC_ENVIRONMENT=production
+
 networks:
   ai-aware-sse_default:
     external: true   # 이미 존재하는 외부 network — 이름은 운영자가 확인 후 정정
