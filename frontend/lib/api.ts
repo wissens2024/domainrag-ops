@@ -263,8 +263,73 @@ export async function deleteConversation(
 // User (me)
 // ============================================================================
 
-export async function getCurrentUser(tenantId: string): Promise<UserContext> {
-  return request<UserContext>(`/api/${tenantId}/me`);
+export async function getCurrentUser(): Promise<UserContext> {
+  // ADR-016 §3 Y9 — cross-tenant /api/auth/me 단일 진입점. tenant path mirror
+  // 검증 없이 token만으로 roles 추출.
+  return request<UserContext>(`/api/auth/me`);
+}
+
+// ============================================================================
+// Chat Streaming (ADR-013 §6, ADR-017 §3.2) — SSE
+// ============================================================================
+
+export interface StreamingChatHandlers {
+  onToken: (text: string) => void;
+  onComplete: (payload: { message_id: string; metadata: Record<string, unknown> }) => void;
+  onFallback?: (payload: Record<string, unknown>) => void;
+  onError?: (payload: Record<string, unknown>) => void;
+}
+
+/**
+ * `/api/{tid}/chat/stream` SSE. fetch + ReadableStream으로 cookie/credentials
+ * 정상 전송. EventSource는 credentials 미지원이라 사용 안 함.
+ */
+export async function chatStream(
+  tenantId: string,
+  body: { question: string; conversation_id?: string },
+  handlers: StreamingChatHandlers,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/${tenantId}/chat/stream`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...body, ui_mode_request: 'streaming' }),
+  });
+  if (!res.ok || !res.body) {
+    const detail = await res.json().catch(() => ({ error: 'stream_failed' }));
+    throw new ApiError(res.status, detail);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // SSE 메시지는 빈 줄("\n\n")으로 구분
+    let sep: number;
+    while ((sep = buffer.indexOf('\n\n')) >= 0) {
+      const raw = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      let event = 'message';
+      const dataLines: string[] = [];
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+      }
+      const data = dataLines.join('\n');
+      if (!data) continue;
+      try {
+        const parsed = JSON.parse(data);
+        if (event === 'token') handlers.onToken(String(parsed.text ?? ''));
+        else if (event === 'complete') handlers.onComplete(parsed);
+        else if (event === 'fallback') handlers.onFallback?.(parsed);
+        else if (event === 'error') handlers.onError?.(parsed);
+      } catch {
+        // ignore malformed SSE chunk
+      }
+    }
+  }
 }
 
 export async function eraseMyChatLogs(

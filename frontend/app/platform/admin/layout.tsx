@@ -1,10 +1,17 @@
 /**
  * Platform Admin Layout — /platform/admin/* (ADR-008 + ADR-017 §18).
+ *
+ * RBAC: client-side에서 user.is_platform_admin 확인 후 미달이면 홈으로 redirect.
+ * backend는 require_platform_admin가 다시 403으로 막는다 (이중 방어).
  */
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect } from 'react';
+import useSWR from 'swr';
+import { swrFetcher } from '@/lib/api';
+import type { UserContext } from '@/lib/types';
 
 const MENU = [
   { label: 'Tenants', href: '/platform/admin/tenants' },
@@ -20,6 +27,26 @@ export default function PlatformAdminLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const { data: user, isLoading } = useSWR<UserContext>(
+    '/api/auth/me',
+    swrFetcher,
+  );
+
+  useEffect(() => {
+    if (!isLoading && user && !user.is_platform_admin) {
+      router.replace('/');
+    }
+  }, [user, isLoading, router]);
+
+  if (isLoading || !user) {
+    return <div className="p-6 text-sm text-gray-500">권한 확인 중…</div>;
+  }
+  if (!user.is_platform_admin) {
+    return <div className="p-6 text-sm text-gray-500">권한 없음 — 이동 중…</div>;
+  }
+
   return (
     <div className="flex h-screen">
       <aside className="w-64 border-r border-gray-200 bg-gray-50 flex flex-col">

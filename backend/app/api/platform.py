@@ -64,6 +64,7 @@ class RegisterTenantRequest(BaseModel):
     tenant_id: str = Field(..., min_length=1, max_length=64)
     display_name: str = Field(..., min_length=1, max_length=200)
     domain_type: str | None = None
+    embedding_model: str | None = None  # None이면 DB default 사용
     modules: list[str] = Field(default_factory=lambda: ["rag"])
 
 
@@ -109,6 +110,7 @@ async def register_tenant(
             tenant_id=req.tenant_id,
             display_name=req.display_name,
             domain_type=req.domain_type,
+            embedding_model=req.embedding_model,
             modules=req.modules,
             actor=user.user_id,
         )

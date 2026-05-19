@@ -34,6 +34,7 @@ from app.core.oauth_state_store import (
     generate_pkce_pair,
     generate_state,
 )
+from app.core.auth_adapter import UserContext, get_user_context_no_tenant
 from app.deps import (
     get_authfusion_token_client,
     get_oauth_state_store,
@@ -220,6 +221,33 @@ async def oauth_callback(
         token_type=token.token_type,
         scope=token.scope,
     )
+
+
+# ----------------------------------------------------------------------------
+# /me — 현재 로그인 사용자 (cross-tenant, RBAC 메뉴 결정용)
+# ----------------------------------------------------------------------------
+
+
+@router.get("/me")
+async def auth_me(user: UserContext = Depends(get_user_context_no_tenant)):
+    """현재 로그인 사용자 (ADR-016 §3 Y9 — frontend RBAC 결정 단일 진입점).
+
+    path tenant 무관. PLATFORM_ADMIN/ADMIN/USER role을 frontend가 알아야 메뉴
+    필터링 가능. /api/{tid}/me는 동일 정보를 tenant scope에서 제공하지만
+    frontend는 본 endpoint 하나로 단일화.
+    """
+    return {
+        "user_id": user.user_id,
+        "tenant_id": user.tenant_id,
+        "roles": user.roles,
+        "is_admin": user.is_admin,
+        "is_platform_admin": user.is_platform_admin,
+        "clearance": user.clearance,
+        "department": user.department,
+        "domain_groups": user.domain_groups,
+        "preferred_username": user.preferred_username,
+        "email": user.email,
+    }
 
 
 # ----------------------------------------------------------------------------

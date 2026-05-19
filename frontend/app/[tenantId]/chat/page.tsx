@@ -16,6 +16,7 @@ import CitationPanel from '@/components/CitationPanel';
 import ModeSelector from '@/components/ModeSelector';
 import {
   chat,
+  chatStream,
   deleteConversation,
   getConversation,
   listConversations,
@@ -55,16 +56,77 @@ export default function ChatPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await chat(tenantId, {
-        question,
-        conversation_id: currentConversationId ?? undefined,
-        ui_mode_request: mode,
-      });
-      setResponse(res);
-      setCurrentConversationId(res.conversation_id);
-      setSelectedCitation(null);
-      setQuestion('');
-      void refreshConversations();
+      if (mode === 'streaming') {
+        // chat_streaming: SSE, citation 없음 (ADR-013 §6)
+        let acc = '';
+        let convId = currentConversationId;
+        setResponse({
+          status: 'success',
+          conversation_id: convId ?? '',
+          message_id: '',
+          answer: '',
+          answer_segments: [{ text: '', citations: [] }],
+          citations: [],
+          metadata: {
+            ui_mode: 'chat_streaming',
+            llm_model: '(streaming)',
+            latency_ms: 0,
+            confidence: 0,
+          },
+        });
+        await chatStream(
+          tenantId,
+          { question, conversation_id: currentConversationId ?? undefined },
+          {
+            onToken: (t) => {
+              acc += t;
+              setResponse((prev) =>
+                prev && prev.status === 'success'
+                  ? {
+                      ...prev,
+                      answer: acc,
+                      answer_segments: [{ text: acc, citations: [] }],
+                    }
+                  : prev,
+              );
+            },
+            onComplete: (payload) => {
+              const meta = (payload.metadata ?? {}) as Record<string, unknown>;
+              convId = (meta.conversation_id as string) ?? convId;
+              if (convId) setCurrentConversationId(convId);
+              setResponse((prev) =>
+                prev && prev.status === 'success'
+                  ? {
+                      ...prev,
+                      message_id: String(payload.message_id ?? ''),
+                      conversation_id: convId ?? '',
+                      metadata: { ...prev.metadata, ...meta },
+                    }
+                  : prev,
+              );
+            },
+            onFallback: (payload) => {
+              setError(`fallback: ${JSON.stringify(payload)}`);
+            },
+            onError: (payload) => {
+              setError(`stream error: ${JSON.stringify(payload)}`);
+            },
+          },
+        );
+        setQuestion('');
+        void refreshConversations();
+      } else {
+        const res = await chat(tenantId, {
+          question,
+          conversation_id: currentConversationId ?? undefined,
+          ui_mode_request: mode,
+        });
+        setResponse(res);
+        setCurrentConversationId(res.conversation_id);
+        setSelectedCitation(null);
+        setQuestion('');
+        void refreshConversations();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류');
     } finally {

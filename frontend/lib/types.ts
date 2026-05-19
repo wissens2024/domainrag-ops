@@ -142,7 +142,7 @@ export interface Conversation {
 
 export interface ConversationListResult {
   items: Conversation[];
-  total: number;
+  total?: number;
   page: number;
   page_size: number;
 }
@@ -196,7 +196,7 @@ export interface DocumentDetail extends DocumentSummary {
 
 export interface DocumentListResult {
   items: DocumentSummary[];
-  total: number;
+  total?: number;
   page: number;
   page_size: number;
 }
@@ -235,7 +235,7 @@ export interface IndexingJob {
 
 export interface IndexingJobListResult {
   items: IndexingJob[];
-  total: number;
+  total?: number;
   page: number;
   page_size: number;
 }
@@ -263,7 +263,7 @@ export interface InputSchemaRecord {
 
 export interface InputSchemaHistory {
   items: InputSchemaRecord[];
-  total: number;
+  total?: number;
   page: number;
   page_size: number;
 }
@@ -303,7 +303,7 @@ export interface ChatLogRow {
 
 export interface ChatLogListResult {
   items: ChatLogRow[];
-  total: number;
+  total?: number;
   page: number;
   page_size: number;
 }
@@ -314,12 +314,12 @@ export interface ChatLogListResult {
 
 export interface CitationDistributionBucket {
   bucket: string;
-  total_messages: number;
-  citation_types: Record<SupportType, number>;
+  counts: Record<SupportType, number>;
 }
 
 export interface CitationDistributionResult {
-  group_by: 'day' | 'hour' | 'all';
+  granularity: 'day' | 'hour' | 'all';
+  total_messages: number;
   buckets: CitationDistributionBucket[];
 }
 
@@ -449,7 +449,7 @@ export interface EvalJob {
 
 export interface EvalJobListResult {
   items: EvalJob[];
-  total: number;
+  total?: number;
   page: number;
   page_size: number;
 }
@@ -499,7 +499,7 @@ export interface AssessmentItem {
 
 export interface AssessmentListResult {
   items: AssessmentItem[];
-  total: number;
+  total?: number;
   page: number;
   page_size: number;
 }
@@ -540,7 +540,7 @@ export interface TenantRow {
 
 export interface TenantListResult {
   items: TenantRow[];
-  total: number;
+  total?: number;
 }
 
 // ----------------------------------------------------------------------------

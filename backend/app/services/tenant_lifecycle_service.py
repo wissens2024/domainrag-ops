@@ -135,6 +135,7 @@ class PostgresTenantLifecycleService:
         tenant_id: str,
         display_name: str,
         domain_type: str | None = None,
+        embedding_model: str | None = None,
         modules: list[str] | None = None,
         actor: str,
     ) -> TenantRecord:
@@ -144,26 +145,51 @@ class PostgresTenantLifecycleService:
 
         async with self._sf() as session:
             try:
-                row = (
-                    await session.execute(
-                        text(
-                            """
-                            INSERT INTO tenants (tenant_id, display_name, domain_type,
-                                                 modules, status)
-                            VALUES (:tenant_id, :display_name, :domain_type,
-                                    CAST(:modules AS JSONB), 'active')
-                            RETURNING embedding_model, embedding_migration_state,
-                                      created_at, updated_at
-                            """
-                        ),
-                        {
-                            "tenant_id": tenant_id,
-                            "display_name": display_name,
-                            "domain_type": domain_type,
-                            "modules": _json.dumps(list(modules or ["rag"])),
-                        },
-                    )
-                ).first()
+                # embedding_model이 None이면 DB default("bge-m3" 표준)를 그대로 사용.
+                # 제공 시 명시적으로 INSERT 컬럼에 추가.
+                if embedding_model:
+                    row = (
+                        await session.execute(
+                            text(
+                                """
+                                INSERT INTO tenants (tenant_id, display_name, domain_type,
+                                                     embedding_model, modules, status)
+                                VALUES (:tenant_id, :display_name, :domain_type,
+                                        :embedding_model, CAST(:modules AS JSONB), 'active')
+                                RETURNING embedding_model, embedding_migration_state,
+                                          created_at, updated_at
+                                """
+                            ),
+                            {
+                                "tenant_id": tenant_id,
+                                "display_name": display_name,
+                                "domain_type": domain_type,
+                                "embedding_model": embedding_model,
+                                "modules": _json.dumps(list(modules or ["rag"])),
+                            },
+                        )
+                    ).first()
+                else:
+                    row = (
+                        await session.execute(
+                            text(
+                                """
+                                INSERT INTO tenants (tenant_id, display_name, domain_type,
+                                                     modules, status)
+                                VALUES (:tenant_id, :display_name, :domain_type,
+                                        CAST(:modules AS JSONB), 'active')
+                                RETURNING embedding_model, embedding_migration_state,
+                                          created_at, updated_at
+                                """
+                            ),
+                            {
+                                "tenant_id": tenant_id,
+                                "display_name": display_name,
+                                "domain_type": domain_type,
+                                "modules": _json.dumps(list(modules or ["rag"])),
+                            },
+                        )
+                    ).first()
             except IntegrityError as exc:
                 await session.rollback()
                 raise TenantConflictError(tenant_id) from exc
@@ -469,11 +495,14 @@ class InMemoryTenantLifecycleService:
         tenant_id: str,
         display_name: str,
         domain_type: str | None = None,
+        embedding_model: str | None = None,
         modules: list[str] | None = None,
         actor: str,
     ) -> TenantRecord:
         if tenant_id in self._tenants:
             raise TenantConflictError(tenant_id)
+        # InMemory도 embedding_model 받지만 무시 — dim_provider만 사용 (테스트용)
+        _ = embedding_model
         record = TenantRecord(
             tenant_id=tenant_id,
             display_name=display_name,

@@ -90,6 +90,7 @@ class ExtractRequest(BaseModel):
     quality_status: list[str] = Field(default_factory=lambda: ["approved"])
     exclude_recent_days: int | None = None
     tags_any: list[str] = Field(default_factory=list)
+    count: int | None = None  # 추출 개수 상한 (None이면 service default)
 
 
 @router.post("/extract")
@@ -119,6 +120,14 @@ async def extract_items(
             tags_any=req.tags_any,
         ),
     )
+    # count 상한 — service가 difficulty_distribution sum 외 기본 N에 의존하므로
+    # 명시 count는 후처리로 cap (ExtractCriteria signature 변경 회피).
+    if req.count is not None and req.count >= 0:
+        items_out = list(result.items)[: req.count]
+        extracted_count = min(result.extracted_count, req.count)
+    else:
+        items_out = list(result.items)
+        extracted_count = result.extracted_count
     latency_ms = int((time.perf_counter() - start) * 1000)
     await logger.write(
         AssessmentLogPayload(
@@ -128,7 +137,7 @@ async def extract_items(
             actor=user.user_id,
             criteria=req.model_dump(exclude_none=True),
             result_summary={
-                "extracted_count": result.extracted_count,
+                "extracted_count": extracted_count,
                 "insufficient_pool": result.insufficient_pool,
             },
             latency_ms=latency_ms,
@@ -138,8 +147,8 @@ async def extract_items(
         "request_id": request_id,
         "tenant_id": tenant_id,
         "mode": "extract",
-        "items": [_item_to_dict(r) for r in result.items],
-        "extracted_count": result.extracted_count,
+        "items": [_item_to_dict(r) for r in items_out],
+        "extracted_count": extracted_count,
         "citations": result.citations,
         "insufficient_pool": result.insufficient_pool,
         "latency_ms": latency_ms,

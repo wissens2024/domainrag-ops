@@ -129,8 +129,7 @@ export default function CitationInspectorPage() {
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="border-b bg-gray-50 text-left">
-                <th className="p-2">시각 (group=${groupBy})</th>
-                <th className="p-2">총 messages</th>
+                <th className="p-2">시각 (granularity={data.granularity})</th>
                 {SUPPORT_TYPES.map((t) => (
                   <th key={t} className="p-2 capitalize">
                     {t}
@@ -142,9 +141,8 @@ export default function CitationInspectorPage() {
               {data.buckets.map((b) => (
                 <tr key={b.bucket} className="border-b">
                   <td className="p-2 text-xs">{b.bucket}</td>
-                  <td className="p-2 text-xs">{b.total_messages}</td>
                   {SUPPORT_TYPES.map((t) => {
-                    const v = b.citation_types[t] || 0;
+                    const v = b.counts[t] || 0;
                     return (
                       <td key={t} className="p-2 text-xs">
                         <div className="flex items-center gap-1">

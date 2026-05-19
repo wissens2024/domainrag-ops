@@ -1722,6 +1722,8 @@ def _parse_metadata_json(raw: str | None) -> dict[str, Any]:
 
 
 def _document_to_dict(doc) -> dict[str, Any]:
+    def _iso(v):
+        return v.isoformat() if v else None
     return {
         "doc_id": doc.doc_id,
         "title": doc.title,
@@ -1741,6 +1743,9 @@ def _document_to_dict(doc) -> dict[str, Any]:
         "file_hash": doc.file_hash,
         "parser_version": doc.parser_version,
         "metadata": dict(doc.metadata or {}),
+        "chunk_count": getattr(doc, "chunk_count", None),
+        "last_indexed_at": _iso(getattr(doc, "last_indexed_at", None)),
+        "created_at": _iso(getattr(doc, "created_at", None)),
     }
 
 
@@ -1752,12 +1757,15 @@ def _distribution(values: list[str]) -> dict[str, int]:
 
 
 def _job_to_dict(job) -> dict[str, Any]:
+    def _iso(v):
+        return v.isoformat() if v else None
     return {
         "job_id": job.job_id,
         "tenant_id": job.tenant_id,
         "doc_id": job.doc_id,
         "doc_version": job.doc_version,
         "filename": job.filename,
+        "mode": getattr(job, "mode", None),
         "status": job.status,
         "step": job.step,
         "progress": job.progress,
@@ -1767,4 +1775,7 @@ def _job_to_dict(job) -> dict[str, Any]:
         "error_message": job.error_message,
         "failure_rate": job.failure_rate,
         "retry_count": job.retry_count,
+        "started_at": _iso(getattr(job, "started_at", None)),
+        "finished_at": _iso(getattr(job, "finished_at", None)),
+        "created_at": _iso(getattr(job, "created_at", None)),
     }

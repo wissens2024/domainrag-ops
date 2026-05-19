@@ -98,13 +98,10 @@ export default function AdminSidebar({ tenantId }: Props) {
   const pathname = usePathname();
   const [showPlatform, setShowPlatform] = useState(false);
 
-  // 현재 user 정보 (RBAC menu visibility용)
-  const { data: user } = useSWR<UserContext>(
-    tenantId ? `/api/${tenantId}/me` : null,
-    swrFetcher,
-  );
+  // 현재 user 정보 (RBAC menu visibility용) — cross-tenant /api/auth/me
+  const { data: user } = useSWR<UserContext>('/api/auth/me', swrFetcher);
 
-  const isPlatformAdmin = user?.roles.includes('PLATFORM_ADMIN');
+  const isPlatformAdmin = user?.is_platform_admin ?? false;
 
   const groups = showPlatform && isPlatformAdmin
     ? platformMenuGroups()
