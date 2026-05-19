@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 type Status = 'exchanging' | 'success' | 'error';
@@ -10,6 +10,10 @@ export default function AuthCallbackPage() {
   const params = useSearchParams();
   const [status, setStatus] = useState<Status>('exchanging');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // OAuth state/code는 1회용 — React StrictMode dev 더블 실행으로
+  // 같은 code/state가 두 번 fetch되면 두 번째는 무조건 400 (state 이미 소비).
+  // 같은 code를 두 번 처리하지 않도록 module/세션 단위로 guard.
+  const exchangedRef = useRef<string | null>(null);
 
   useEffect(() => {
     const code = params.get('code');
@@ -27,6 +31,17 @@ export default function AuthCallbackPage() {
       return;
     }
 
+    const key = `${code}:${state}`;
+    if (exchangedRef.current === key) return;
+    // sessionStorage도 같이 확인 — StrictMode unmount→remount 사이에 ref가 reset되어도
+    // 같은 code 재제출 막음.
+    if (typeof window !== 'undefined') {
+      const sessionKey = `auth_cb_${key}`;
+      if (window.sessionStorage.getItem(sessionKey)) return;
+      window.sessionStorage.setItem(sessionKey, '1');
+    }
+    exchangedRef.current = key;
+
     const url = `/api/auth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
     fetch(url, { credentials: 'include' })
       .then(async (res) => {
@@ -36,7 +51,8 @@ export default function AuthCallbackPage() {
         }
         const body = (await res.json()) as { tenant_id: string };
         setStatus('success');
-        router.replace(`/${body.tenant_id}/chat`);
+        // hard navigation으로 가야 middleware가 새 쿠키를 본다.
+        window.location.replace(`/${body.tenant_id}/chat`);
       })
       .catch((err) => {
         setStatus('error');
