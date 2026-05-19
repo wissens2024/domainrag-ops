@@ -104,13 +104,16 @@ async function _attemptRefresh(): Promise<boolean> {
 
 function _redirectToLogin(): void {
   if (typeof window === 'undefined') return;
-  const tenantId = window.location.pathname.split('/')[1] || '';
+  const pathname = window.location.pathname;
+  // root('/'), /auth/* 는 redirect 트리거 skip — 무한 루프 방지.
+  // 미인증 root 사용자는 페이지가 직접 로그인 링크를 노출하므로 자동 redirect 불필요.
+  if (pathname === '/' || pathname.startsWith('/auth/')) return;
+  const tenantId = pathname.split('/')[1] || '';
   // `?redirect=1`이면 backend가 IdP authorize URL로 302를 이어 준다 (ADR-018 §2).
   if (tenantId && tenantId !== 'platform') {
     window.location.href = `${API_BASE}/api/auth/authorize/${tenantId}?redirect=1`;
-  } else {
-    window.location.href = '/';
   }
+  // tenantId가 빈 경우 또는 platform — 자동 redirect 안 함 (사용자가 명시적 navigation).
 }
 
 async function _fetchWithRefresh(
