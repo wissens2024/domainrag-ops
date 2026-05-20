@@ -30,6 +30,9 @@ services:
       - ENV=production
       - LOG_LEVEL=INFO
       - CONFIG_DIR=/workspace/configs
+      # CLAUDE.md Y4 — logs/uvicorn timestamp KST 표기. DB는 UTC TIMESTAMPTZ 유지
+      # (instant는 동일, application 코드의 명시적 KST 변환과 무관).
+      - TZ=Asia/Seoul
       - POSTGRES_HOST=ai_aware_sse_postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=domainrag
