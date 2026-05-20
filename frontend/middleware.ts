@@ -45,13 +45,17 @@ export function middleware(req: NextRequest) {
   const hasAccess = req.cookies.get(ACCESS_COOKIE)?.value;
   if (hasAccess) return NextResponse.next();
 
-  // 미인증 — backend authorize endpoint로 302. backend가 다시 IdP로 302.
-  // /platform/admin/*은 tenant=platform → backend 측 client_id 매핑이 필요.
-  // 단일 platform_admin client_id가 등록되어 있다고 가정 (ADR-018 §7).
-  //
-  // NEXT_PUBLIC_API_URL이 설정되어 있으면 그 절대 URL을 사용 (dev에서 frontend
-  // 포트 3010 ≠ backend 8001). 운영(115)은 same-origin이라 NEXT_PUBLIC_API_URL을
-  // 빈 문자열로 두면 host 그대로.
+  // 미인증 — /platform/admin/* 은 backend가 'platform' tenant를 인식 안 함 (special).
+  // /console 페이지가 자체 SSO 흐름(default tenant authorize)을 가지므로 그쪽으로 보낸다.
+  if (tenant === 'platform') {
+    const url = req.nextUrl.clone();
+    url.pathname = '/console';
+    url.search = '';
+    return NextResponse.redirect(url, 302);
+  }
+
+  // tenant scope (/security/chat, /security/admin/*) — backend authorize로.
+  // NEXT_PUBLIC_API_URL이 설정되어 있으면 절대 URL (dev). 운영은 same-origin.
   const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
   if (apiBase) {
     return NextResponse.redirect(
