@@ -317,11 +317,6 @@ async def authfusion_self_service_proxy(
     import httpx
 
     suffix = path.strip("/")
-    print(
-        f"[DIAG-account] method={request.method!r} path={path!r} suffix={suffix!r} "
-        f"allowed={_account_path_allowed(request.method, suffix)}",
-        flush=True,
-    )
     if not _account_path_allowed(request.method, suffix):
         raise HTTPException(
             status_code=404,
@@ -360,12 +355,6 @@ async def authfusion_self_service_proxy(
                 status_code=502,
                 detail={"error": "idp_unreachable", "reason": str(exc)},
             ) from exc
-
-    print(
-        f"[DIAG-account] upstream={upstream!r} status={res.status_code} "
-        f"body={res.content[:1500]!r}",
-        flush=True,
-    )
 
     from fastapi.responses import Response as _Resp
 

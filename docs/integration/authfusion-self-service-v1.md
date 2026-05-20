@@ -167,3 +167,53 @@ sse.aines.kr/account/sessions          → 세션 목록 + 종료
 5. 사용자 안내 (FAQ) — recovery codes 보관 권장
 
 질문: AuthFusion 운영팀
+
+---
+
+## 부록 — 실제 운영 응답 shape (2026-05-20 E2E 검증 ground truth)
+
+spec 본문과 일부 field 이름이 다름. 운영 진실은 아래 (DomainRAG frontend는 이 shape로 type 정의).
+
+### MfaStatusResponse (실)
+```json
+{
+  "userId": "0d0a8e87-...",
+  "totpEnabled": true,
+  "totpVerified": true,
+  "recoveryCodesRemaining": 10,
+  "totpEnabledAt": "2026-05-19T12:08:54.958861"
+}
+```
+spec 대비: `enabled`→`totpEnabled`/`totpVerified` 분리. `algorithm`/`digits`/`period` 없음. `verifiedAt`→`totpEnabledAt`.
+
+### UserApplicationSummary (실)
+```json
+{
+  "clientUuid": "f38981be-...",
+  "clientId": "6cb9d56c-...",
+  "clientName": "DomainRAG Ops",
+  "enabled": true,
+  "mfaRequired": true,
+  "roles": ["domainrag-ops-user"],
+  "grantedAt": "2026-05-18T22:07:14.458895"
+}
+```
+spec 대비: `applicationId`→`clientUuid`(또는 `clientId`). `displayName`→`clientName`. `enabled`/`mfaRequired`/`grantedAt` 추가.
+
+### SessionInfo (실)
+```json
+{
+  "sessionId": "b051e0e0-...",
+  "userId": "0d0a8e87-...",
+  "username": "juchul",
+  "ipAddress": "192.168.0.1",
+  "userAgent": "Mozilla/5.0 ...",
+  "status": "ACTIVE",
+  "createdAt": "2026-05-20T12:31:11.224612854Z",
+  "lastAccessedAt": "2026-05-20T12:31:11.224612854Z",
+  "expiresAt": "2026-05-20T13:31:11.224612854Z"
+}
+```
+spec 대비: `lastActivityAt`→`lastAccessedAt`. `userId`/`username`/`status` 추가.
+
+AuthFusion 운영팀에 spec 본문 갱신 요청 권장.

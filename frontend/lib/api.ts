@@ -273,28 +273,35 @@ export interface AccountSummary {
   userSource: string;
 }
 
+// 실제 AuthFusion 운영 응답 shape (spec docs와 일부 field 다름 — 운영 ground truth).
 export interface UserApplicationSummary {
-  applicationId: string;
-  displayName: string;
+  clientUuid: string;
+  clientId: string;
+  clientName: string;
+  enabled: boolean;
+  mfaRequired: boolean;
   roles: string[];
+  grantedAt?: string;
 }
 
 export interface SessionInfo {
   sessionId: string;
+  userId?: string;
+  username?: string;
   ipAddress: string;
   userAgent: string;
+  status?: string;
   createdAt: string;
-  lastActivityAt: string;
+  lastAccessedAt: string;
   expiresAt: string;
 }
 
 export interface MfaStatusResponse {
-  enabled: boolean;
-  algorithm?: string;
-  digits?: number;
-  period?: number;
-  verifiedAt?: string;
-  recoveryCodesRemaining?: number;
+  userId?: string;
+  totpEnabled: boolean;
+  totpVerified: boolean;
+  recoveryCodesRemaining: number;
+  totpEnabledAt?: string;
 }
 
 export interface TotpSetupResponse {

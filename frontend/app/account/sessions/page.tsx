@@ -114,7 +114,7 @@ export default function SessionsPage() {
                   </div>
                   <div className="text-[11px] text-gray-500 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
                     <span>최초 로그인: {formatTime(s.createdAt)}</span>
-                    <span>최근 활동: {formatTime(s.lastActivityAt)}</span>
+                    <span>최근 활동: {formatTime(s.lastAccessedAt)}</span>
                     <span>만료: {formatTime(s.expiresAt)}</span>
                   </div>
                   <div className="text-[10px] text-gray-400 font-mono mt-1 truncate">

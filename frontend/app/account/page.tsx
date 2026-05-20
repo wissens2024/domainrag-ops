@@ -86,18 +86,20 @@ export default function ProfilePage() {
           <ul className="divide-y divide-gray-100">
             {apps.map((a) => (
               <li
-                key={a.applicationId}
-                className="py-3 flex items-center justify-between"
+                key={a.clientUuid}
+                className="py-3 flex items-center justify-between gap-3"
               >
-                <div>
-                  <div className="text-sm font-medium text-gray-900">
-                    {a.displayName}
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-gray-900 flex items-center gap-2">
+                    {a.clientName}
+                    {!a.enabled && <Badge tone="neutral">비활성</Badge>}
+                    {a.mfaRequired && <Badge tone="warn">MFA 필수</Badge>}
                   </div>
-                  <div className="text-[11px] text-gray-500 font-mono mt-0.5">
-                    {a.applicationId}
+                  <div className="text-[11px] text-gray-500 font-mono mt-0.5 truncate">
+                    {a.clientId}
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1 flex-shrink-0">
                   {a.roles.map((r) => (
                     <Badge key={r} tone="neutral">
                       {r}

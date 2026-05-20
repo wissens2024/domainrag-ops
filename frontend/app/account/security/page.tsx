@@ -27,7 +27,10 @@ export default function SecurityPage() {
   return (
     <div className="space-y-6">
       <PasswordCard />
-      <MfaCard mfaEnabled={mfa?.enabled ?? false} mfaRemaining={mfa?.recoveryCodesRemaining} />
+      <MfaCard
+        mfaEnabled={(mfa?.totpEnabled && mfa?.totpVerified) ?? false}
+        mfaRemaining={mfa?.recoveryCodesRemaining}
+      />
     </div>
   );
 }
