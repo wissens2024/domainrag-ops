@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react';
 import { API_BASE } from '@/lib/api';
 import type { UserContext } from '@/lib/types';
 
+const DEFAULT_TENANT = process.env.NEXT_PUBLIC_DEFAULT_TENANT || 'security';
+
 /**
  * 관리자 콘솔 entry — /console.
  *
@@ -25,7 +27,6 @@ export default function ConsoleEntry() {
   const router = useRouter();
   const [user, setUser] = useState<UserContext | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [unauthenticated, setUnauthenticated] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,7 +34,12 @@ export default function ConsoleEntry() {
       .then(async (res) => {
         if (cancelled) return;
         if (res.status === 401) {
-          setUnauthenticated(true);
+          // 미인증 — AWS console 패턴: 즉시 SSO redirect. tenant 미지정이므로
+          // default tenant로 진행. 로그인 후 callback이 /security/chat 으로 데려가지만
+          // 거기서 사용자가 다시 /console 입력 또는 다른 경로 필요. 산업 표준은
+          // returnUrl을 IdP에 넘기지만 우리 SSO는 그걸 안 받으므로 일단 default tenant
+          // SSO 시작만.
+          window.location.href = `${API_BASE}/api/auth/authorize/${DEFAULT_TENANT}?redirect=1`;
           return;
         }
         if (!res.ok) return;
@@ -59,24 +65,6 @@ export default function ConsoleEntry() {
     return (
       <main className="min-h-screen flex items-center justify-center bg-gray-50 text-sm text-gray-500">
         권한 확인 중…
-      </main>
-    );
-  }
-
-  if (unauthenticated) {
-    // 미인증 — SSO 시작 안내. tenant 정보가 없어 직접 authorize 호출 불가.
-    return (
-      <main className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-8">
-        <h1 className="text-xl font-semibold mb-2">관리자 콘솔</h1>
-        <p className="text-sm text-gray-600 mb-6">
-          관리자 권한이 필요합니다. 먼저 로그인 후 다시 접속하세요.
-        </p>
-        <Link
-          href="/"
-          className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800"
-        >
-          로그인 화면으로
-        </Link>
       </main>
     );
   }
