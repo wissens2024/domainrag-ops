@@ -282,24 +282,36 @@ export default function ChatPage() {
           ))}
         </div>
 
-        {/* 사이드바 하단: user + logout */}
+        {/* 사이드바 하단: user dropdown */}
         {me && (
-          <div className="p-3 border-t border-gray-200 text-xs text-gray-500 flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="truncate font-medium text-gray-700">
-                {me.preferred_username ?? me.email ?? me.user_id}
+          <div className="p-3 border-t border-gray-200">
+            <Link
+              href="/me"
+              className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition-colors group"
+            >
+              <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-semibold flex-shrink-0">
+                {(me.preferred_username ?? me.email ?? me.user_id)
+                  .charAt(0)
+                  .toUpperCase()}
               </div>
-              <div className="truncate">{me.tenant_id}</div>
-            </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs font-medium text-gray-900">
+                  {me.preferred_username ?? me.email ?? me.user_id}
+                </div>
+                <div className="truncate text-[10px] text-gray-500">
+                  {me.tenant_id}
+                </div>
+              </div>
+              <span className="text-gray-400 text-xs group-hover:text-gray-700">›</span>
+            </Link>
             <button
               onClick={async () => {
                 await logout(tenantId);
                 window.location.href = '/';
               }}
-              className="px-2 py-1 text-[11px] text-gray-500 border border-gray-300 rounded hover:bg-gray-100 hover:text-gray-700"
-              title="로그아웃"
+              className="w-full mt-1 px-2 py-1.5 text-[11px] text-gray-500 hover:bg-gray-100 hover:text-gray-700 rounded-lg text-left"
             >
-              ↩ 로그아웃
+              로그아웃
             </button>
           </div>
         )}

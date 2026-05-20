@@ -263,6 +263,64 @@ async def auth_me(user: UserContext = Depends(get_user_context_no_tenant)):
 
 
 # ----------------------------------------------------------------------------
+# /me/change-password — RP self-service proxy → AuthFusion REST API
+# ----------------------------------------------------------------------------
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/me/change-password")
+async def change_password(
+    req: ChangePasswordRequest,
+    request: Request,
+    user: UserContext = Depends(get_user_context_no_tenant),
+    settings: Settings = Depends(get_settings),
+):
+    """AuthFusion `POST /api/v1/users/{id}/change-password` proxy.
+
+    httponly cookie의 access_token을 그대로 Authorization header에 forward.
+    AuthFusion 응답을 그대로 client에 노출 (성공/실패 메시지 일관).
+    """
+    import httpx
+
+    access = request.cookies.get(_ACCESS_COOKIE)
+    if not access:
+        raise HTTPException(status_code=401, detail={"error": "missing_token"})
+
+    base = (settings.authfusion_issuer or "").rstrip("/")
+    if not base:
+        raise HTTPException(
+            status_code=500, detail={"error": "authfusion_issuer_not_configured"}
+        )
+
+    url = f"{base}/api/v1/users/{user.user_id}/change-password"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            res = await client.post(
+                url,
+                json={
+                    "current_password": req.current_password,
+                    "new_password": req.new_password,
+                },
+                headers={"Authorization": f"Bearer {access}"},
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={"error": "idp_unreachable", "reason": str(exc)},
+            ) from exc
+
+    if res.status_code >= 400:
+        body = res.json() if res.headers.get("content-type", "").startswith("application/json") else {"error": res.text[:200]}
+        raise HTTPException(status_code=res.status_code, detail=body)
+
+    return {"ok": True}
+
+
+# ----------------------------------------------------------------------------
 # /refresh
 # ----------------------------------------------------------------------------
 

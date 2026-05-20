@@ -23,7 +23,8 @@
     "tailwind-merge": "^2.5.2",
     "clsx": "^2.1.1",
     "react-markdown": "^9.0.1",
-    "remark-gfm": "^4.0.0"
+    "remark-gfm": "^4.0.0",
+    "@tailwindcss/typography": "^0.5.15"
   },
   "devDependencies": {
     "@types/node": "^22.5.5",
