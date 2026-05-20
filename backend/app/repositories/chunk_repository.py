@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from rag_core.interfaces.chunk_repository import ChunkRecord
 
+from app.core.timezone import iso_kst
 from app.core.rls import set_tenant_context
 
 
@@ -303,8 +304,8 @@ class PostgresChunkRepository:
                     acl=list(r[16] or []),
                     approval_status=r[17] or "draft",
                     tags=list(r[18] or []),
-                    valid_from=r[19].isoformat() if r[19] else None,
-                    valid_until=r[20].isoformat() if r[20] else None,
+                    valid_from=iso_kst(r[19]),
+                    valid_until=iso_kst(r[20]),
                     embedding_model=r[21],
                     embedding_version=r[22],
                     vector_id=r[23],

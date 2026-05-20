@@ -24,6 +24,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.core.timezone import iso_kst
 from app.core.auth_adapter import UserContext, get_user_context
 from app.core.config import get_settings
 from app.core.tenant_guard import ensure_tenant_match
@@ -69,11 +70,11 @@ def _item_to_dict(rec) -> dict[str, Any]:
         "quality_score": rec.quality_score,
         "validator_results": rec.validator_results,
         "used_count": rec.used_count,
-        "last_used_at": rec.last_used_at.isoformat() if rec.last_used_at else None,
+        "last_used_at": iso_kst(rec.last_used_at),
         "source": rec.source,
         "reference_item_ids": rec.reference_item_ids,
-        "created_at": rec.created_at.isoformat() if rec.created_at else None,
-        "updated_at": rec.updated_at.isoformat() if rec.updated_at else None,
+        "created_at": iso_kst(rec.created_at),
+        "updated_at": iso_kst(rec.updated_at),
     }
 
 

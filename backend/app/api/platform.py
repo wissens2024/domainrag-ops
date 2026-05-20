@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.timezone import iso_kst
 from app.core.auth_adapter import UserContext, get_user_context_no_tenant
 from app.core.db import get_admin_db_session
 from app.deps import (
@@ -51,10 +52,10 @@ def _approval_to_dict(record: PiiApprovalRecord) -> dict[str, Any]:
         "policy": record.policy,
         "reason": record.reason,
         "approved_by": record.approved_by,
-        "valid_from": record.valid_from.isoformat() if record.valid_from else None,
-        "valid_until": record.valid_until.isoformat() if record.valid_until else None,
+        "valid_from": iso_kst(record.valid_from),
+        "valid_until": iso_kst(record.valid_until),
         "status": record.status,
-        "revoked_at": record.revoked_at.isoformat() if record.revoked_at else None,
+        "revoked_at": iso_kst(record.revoked_at),
         "revoked_by": record.revoked_by,
         "revoke_reason": record.revoke_reason,
     }

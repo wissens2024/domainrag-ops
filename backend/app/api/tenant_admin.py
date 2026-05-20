@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from rag_core.interfaces.chunk_repository import IndexingConflictError
 from rag_core.services.indexing_service import ReindexMode
 
+from app.core.timezone import iso_kst
 from app.core.auth_adapter import UserContext, get_user_context
 from app.core.db import get_tenant_session
 from app.core.input_schema import InputSchemaService, InputSchemaValidationError
@@ -397,9 +398,9 @@ def _schema_record_to_dict(record) -> dict[str, Any]:
         "status": record.status,
         "schema_yaml": record.schema_yaml,
         "ui_schema_yaml": record.ui_schema_yaml,
-        "created_at": record.created_at.isoformat() if record.created_at else None,
+        "created_at": iso_kst(record.created_at),
         "deprecated_at": (
-            record.deprecated_at.isoformat() if record.deprecated_at else None
+            iso_kst(record.deprecated_at)
         ),
     }
 
@@ -791,9 +792,9 @@ def _evaluation_to_dict(job) -> dict[str, Any]:
         "summary": dict(job.summary or {}),
         "gate_result": dict(job.gate_result or {}),
         "error_message": job.error_message,
-        "started_at": job.started_at.isoformat() if job.started_at else None,
-        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
-        "promoted_at": job.promoted_at.isoformat() if job.promoted_at else None,
+        "started_at": iso_kst(job.started_at),
+        "finished_at": iso_kst(job.finished_at),
+        "promoted_at": iso_kst(job.promoted_at),
         "promoted_by": job.promoted_by,
         "promotion_target": job.promotion_target,
         "promotion_version": job.promotion_version,
@@ -896,7 +897,7 @@ async def patch_config_category(
         "old_value": record.old_value,
         "new_value": record.new_value,
         "changed_by": record.changed_by,
-        "changed_at": record.changed_at.isoformat() if record.changed_at else None,
+        "changed_at": iso_kst(record.changed_at),
         "reason": record.reason,
     }
 
@@ -1047,7 +1048,7 @@ def _chat_log_to_dict(record) -> dict[str, Any]:
         "confidence": record.confidence,
         "fallback_reason": record.fallback_reason,
         "unsupported_ratio": record.unsupported_ratio,
-        "created_at": record.created_at.isoformat() if record.created_at else None,
+        "created_at": iso_kst(record.created_at),
     }
 
 
@@ -1065,9 +1066,9 @@ def _adapter_to_dict(rec) -> dict[str, Any]:
         "keyhub_secret_ref": rec.keyhub_secret_ref,
         "status": rec.status,
         "training_metadata": rec.training_metadata,
-        "registered_at": rec.registered_at.isoformat() if rec.registered_at else None,
-        "activated_at": rec.activated_at.isoformat() if rec.activated_at else None,
-        "retired_at": rec.retired_at.isoformat() if rec.retired_at else None,
+        "registered_at": iso_kst(rec.registered_at),
+        "activated_at": iso_kst(rec.activated_at),
+        "retired_at": iso_kst(rec.retired_at),
     }
 
 
@@ -1292,7 +1293,7 @@ def _prompt_to_dict(record) -> dict[str, Any]:
         "schema_version": record.schema_version,
         "response_schema_path": record.response_schema_path,
         "source": record.source,
-        "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+        "updated_at": iso_kst(record.updated_at),
         "updated_by": record.updated_by,
         "reason": record.reason,
     }
@@ -1376,7 +1377,7 @@ async def patch_prompt(
         "version": change.version,
         "ab_slot": change.ab_slot,
         "new": _prompt_to_dict(change.new),
-        "changed_at": change.changed_at.isoformat(),
+        "changed_at": iso_kst(change.changed_at),
         "changed_by": change.changed_by,
         "reason": change.reason,
     }
@@ -1558,8 +1559,8 @@ async def citation_distribution(
         "tenant_id": tenant_id,
         "granularity": result.granularity,
         "total_messages": result.total_messages,
-        "from_date": result.from_date.isoformat() if result.from_date else None,
-        "to_date": result.to_date.isoformat() if result.to_date else None,
+        "from_date": iso_kst(result.from_date),
+        "to_date": iso_kst(result.to_date),
         "buckets": [
             {"bucket": b.bucket, "counts": b.counts} for b in result.buckets
         ],
@@ -1605,7 +1606,7 @@ async def citation_segments(
         "confidence": record.confidence,
         "fallback_reason": record.fallback_reason,
         "ui_mode": record.ui_mode,
-        "created_at": record.created_at.isoformat() if record.created_at else None,
+        "created_at": iso_kst(record.created_at),
     }
 
 
@@ -1648,8 +1649,8 @@ async def citation_reverify(
     )
     return {
         "tenant_id": summary.tenant_id,
-        "from_date": summary.from_date.isoformat() if summary.from_date else None,
-        "to_date": summary.to_date.isoformat() if summary.to_date else None,
+        "from_date": iso_kst(summary.from_date),
+        "to_date": iso_kst(summary.to_date),
         "scanned": summary.scanned,
         "updated": summary.updated,
         "skipped": summary.skipped,
@@ -1723,7 +1724,7 @@ def _parse_metadata_json(raw: str | None) -> dict[str, Any]:
 
 def _document_to_dict(doc) -> dict[str, Any]:
     def _iso(v):
-        return v.isoformat() if v else None
+        return iso_kst(v)
     return {
         "doc_id": doc.doc_id,
         "title": doc.title,
@@ -1758,7 +1759,7 @@ def _distribution(values: list[str]) -> dict[str, int]:
 
 def _job_to_dict(job) -> dict[str, Any]:
     def _iso(v):
-        return v.isoformat() if v else None
+        return iso_kst(v)
     return {
         "job_id": job.job_id,
         "tenant_id": job.tenant_id,

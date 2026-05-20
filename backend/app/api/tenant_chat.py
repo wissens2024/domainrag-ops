@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.timezone import iso_kst
 from app.core.auth_adapter import UserContext, get_user_context
 from app.core.config import get_settings
 from app.core.db import get_tenant_session
@@ -224,8 +225,8 @@ def _conversation_to_dict(record) -> dict:
         "user_id": record.user_id,
         "title": record.title,
         "message_count": record.message_count,
-        "created_at": record.created_at.isoformat() if record.created_at else None,
-        "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+        "created_at": iso_kst(record.created_at),
+        "updated_at": iso_kst(record.updated_at),
     }
 
 
@@ -249,7 +250,7 @@ async def _list_messages(
                 "role": "user",
                 "content": record.question,
                 "message_id": record.request_id,
-                "created_at": record.created_at.isoformat() if record.created_at else None,
+                "created_at": iso_kst(record.created_at),
             })
         if record.answer is not None:
             messages.append({
@@ -259,7 +260,7 @@ async def _list_messages(
                 "citations": record.citations,
                 "citation_types": record.citation_types,
                 "fallback_reason": record.fallback_reason,
-                "created_at": record.created_at.isoformat() if record.created_at else None,
+                "created_at": iso_kst(record.created_at),
             })
     return messages
 

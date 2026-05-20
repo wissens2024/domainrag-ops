@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from rag_core.interfaces.chunk_repository import DocumentRecord
 
+from app.core.timezone import iso_kst
 from app.core.rls import set_tenant_context
 
 
@@ -192,8 +193,8 @@ class PostgresDocumentRepository:
                 owner=row[8],
                 tags=list(row[9] or []),
                 language=row[10] or "ko",
-                valid_from=row[11].isoformat() if row[11] else None,
-                valid_until=row[12].isoformat() if row[12] else None,
+                valid_from=iso_kst(row[11]),
+                valid_until=iso_kst(row[12]),
                 approval_status=row[13] or "draft",
                 file_hash=row[14],
                 parser_version=row[15] or "p1",
@@ -280,8 +281,8 @@ class PostgresDocumentRepository:
                 owner=row[8],
                 tags=list(row[9] or []),
                 language=row[10] or "ko",
-                valid_from=row[11].isoformat() if row[11] else None,
-                valid_until=row[12].isoformat() if row[12] else None,
+                valid_from=iso_kst(row[11]),
+                valid_until=iso_kst(row[12]),
                 approval_status=row[13] or "draft",
                 file_hash=row[14],
                 parser_version=row[15] or "p1",
@@ -364,8 +365,8 @@ class PostgresDocumentRepository:
                 owner=row[8],
                 tags=list(row[9] or []),
                 language=row[10] or "ko",
-                valid_from=row[11].isoformat() if row[11] else None,
-                valid_until=row[12].isoformat() if row[12] else None,
+                valid_from=iso_kst(row[11]),
+                valid_until=iso_kst(row[12]),
                 approval_status=row[13] or "draft",
                 file_hash=row[14],
                 parser_version=row[15] or "p1",
@@ -396,8 +397,8 @@ def _row_to_doc(tenant_id: str, r) -> DocumentRecord:
         owner=r[10],
         tags=list(r[11] or []),
         language=r[12] or "ko",
-        valid_from=r[13].isoformat() if r[13] else None,
-        valid_until=r[14].isoformat() if r[14] else None,
+        valid_from=iso_kst(r[13]),
+        valid_until=iso_kst(r[14]),
         approval_status=r[15] or "draft",
         file_hash=r[16],
         parser_version=r[17] or "p1",

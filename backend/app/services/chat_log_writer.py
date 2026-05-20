@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from rag_core.services.chat_log_writer import ChatLogPayload
 
 from app.core.rls import set_tenant_context
+from app.core.timezone import now_kst_iso
 
 logger = structlog.get_logger(__name__)
 
@@ -207,7 +208,7 @@ class _BestEffortChatLogWriter:
                     "ui_mode": getattr(payload, "ui_mode", None),
                     "exc_type": type(e).__name__,
                     "exc_msg": str(e),
-                    "at": datetime.now(timezone.utc).isoformat(),
+                    "at": now_kst_iso(),
                 }
             )
             logger.error(
