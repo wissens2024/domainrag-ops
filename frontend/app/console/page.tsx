@@ -3,30 +3,26 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, logout } from '@/lib/api';
 import type { UserContext } from '@/lib/types';
 
 const DEFAULT_TENANT = process.env.NEXT_PUBLIC_DEFAULT_TENANT || 'security';
 
 /**
- * 관리자 콘솔 entry — /console.
- *
- * 산업 표준 (AWS console.aws.amazon.com, Azure portal 등) 패턴:
- *   - chat(user)과 admin(operator)은 별도 entry path. cookie는 same-origin이라
- *     공유되지만 진입 흐름·UI를 명확히 분리.
- *   - 다른 사람이 admin이면 incognito/다른 browser profile 권장.
+ * 관리자 콘솔 entry — /console (산업 표준: AWS console / Azure portal 패턴).
  *
  * 동작:
- *   - 미인증: /security/chat 진입과 동일하게 SSO 시작 (path 자체가 protected
- *     하지 않으므로 본 페이지가 직접 처리)
- *   - PLATFORM_ADMIN: /platform/admin/tenants 로 자동 이동
- *   - ADMIN: 자기 tenant_id/admin/dashboard 로 자동 이동
- *   - USER: 권한 없음 화면 (chat으로 돌아가는 링크)
+ *   - 미인증: 즉시 SSO redirect (default tenant)
+ *   - PLATFORM_ADMIN: /platform/admin/tenants
+ *   - ADMIN: /{tenant}/admin/dashboard
+ *   - USER role(권한 없음): "다른 계정으로 로그인" + "채팅으로 돌아가기" UI
+ *     → 다른 계정 로그인은 logout 후 SSO 재시작 (같은 브라우저에서 계정 전환)
  */
 export default function ConsoleEntry() {
   const router = useRouter();
   const [user, setUser] = useState<UserContext | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,11 +30,6 @@ export default function ConsoleEntry() {
       .then(async (res) => {
         if (cancelled) return;
         if (res.status === 401) {
-          // 미인증 — AWS console 패턴: 즉시 SSO redirect. tenant 미지정이므로
-          // default tenant로 진행. 로그인 후 callback이 /security/chat 으로 데려가지만
-          // 거기서 사용자가 다시 /console 입력 또는 다른 경로 필요. 산업 표준은
-          // returnUrl을 IdP에 넘기지만 우리 SSO는 그걸 안 받으므로 일단 default tenant
-          // SSO 시작만.
           window.location.href = `${API_BASE}/api/auth/authorize/${DEFAULT_TENANT}?redirect=1`;
           return;
         }
@@ -50,7 +41,6 @@ export default function ConsoleEntry() {
         } else if (body.is_admin) {
           router.replace(`/${body.tenant_id}/admin/dashboard`);
         }
-        // USER role은 아래 UI에서 안내
       })
       .catch(() => {})
       .finally(() => {
@@ -60,6 +50,17 @@ export default function ConsoleEntry() {
       cancelled = true;
     };
   }, [router]);
+
+  const switchAccount = async () => {
+    if (!user) return;
+    setSwitching(true);
+    try {
+      await logout(user.tenant_id);
+    } catch {
+      // 실패해도 SSO 재시작은 진행
+    }
+    window.location.href = `${API_BASE}/api/auth/authorize/${user.tenant_id}?redirect=1`;
+  };
 
   if (isLoading) {
     return (
@@ -71,28 +72,50 @@ export default function ConsoleEntry() {
 
   if (user && !user.is_admin && !user.is_platform_admin) {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-8">
-        <h1 className="text-xl font-semibold mb-2">관리자 권한 없음</h1>
-        <p className="text-sm text-gray-600 mb-1">
-          현재 계정: {user.preferred_username ?? user.email ?? user.user_id}
-        </p>
-        <p className="text-xs text-gray-500 mb-6">
-          관리자 작업이 필요하면 다른 계정으로 별도 브라우저(시크릿 창 또는
-          다른 프로필)에서 접속하세요.
-        </p>
-        <div className="flex gap-2">
-          <Link
-            href={`/${user.tenant_id}/chat`}
-            className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800"
-          >
-            채팅으로 돌아가기
-          </Link>
-          <Link
-            href="/"
-            className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-100"
-          >
-            홈
-          </Link>
+      <main className="min-h-screen flex items-center justify-center bg-gray-50 p-8">
+        <div className="w-full max-w-md bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
+          <h1 className="text-xl font-semibold text-gray-900 mb-1">
+            관리자 콘솔
+          </h1>
+          <p className="text-sm text-gray-500 mb-6">
+            이 계정에는 관리자 권한이 없습니다.
+          </p>
+
+          <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 mb-6 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-gray-500">현재 로그인</span>
+              <span className="font-medium text-gray-900 truncate ml-2">
+                {user.preferred_username ?? user.email ?? user.user_id}
+              </span>
+            </div>
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-gray-500">권한</span>
+              <span className="text-gray-700">
+                {user.roles.join(', ') || 'USER'}
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <button
+              onClick={switchAccount}
+              disabled={switching}
+              className="w-full px-4 py-2.5 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:bg-gray-400 transition-colors"
+            >
+              {switching ? '로그아웃 중…' : '다른 계정으로 로그인'}
+            </button>
+            <Link
+              href={`/${user.tenant_id}/chat`}
+              className="block w-full text-center px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              채팅으로 돌아가기
+            </Link>
+          </div>
+
+          <p className="text-[11px] text-gray-400 mt-6 leading-relaxed">
+            관리자 권한이 있는 계정으로 다시 로그인하면 자동으로 콘솔에
+            진입합니다.
+          </p>
         </div>
       </main>
     );
