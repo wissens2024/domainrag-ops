@@ -363,7 +363,7 @@ async def authfusion_self_service_proxy(
 
     print(
         f"[DIAG-account] upstream={upstream!r} status={res.status_code} "
-        f"body_first={res.content[:200]!r}",
+        f"body={res.content[:1500]!r}",
         flush=True,
     )
 
