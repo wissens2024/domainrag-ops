@@ -102,18 +102,28 @@ async function _attemptRefresh(): Promise<boolean> {
   return _refreshInflight;
 }
 
+// special path는 tenant가 아니라서 SSO authorize 시작에 첫 segment를 쓰면 안 됨.
+// 이들은 페이지 자체가 미인증 처리 (랜딩 + 자동 SSO 또는 안내 UI).
+const _NON_TENANT_SEGMENTS = new Set(['', 'platform', 'auth', 'account', 'console', '_next']);
+
 function _redirectToLogin(): void {
   if (typeof window === 'undefined') return;
   const pathname = window.location.pathname;
-  // root('/'), /auth/* 는 redirect 트리거 skip — 무한 루프 방지.
-  // 미인증 root 사용자는 페이지가 직접 로그인 링크를 노출하므로 자동 redirect 불필요.
-  if (pathname === '/' || pathname.startsWith('/auth/')) return;
+  // root('/'), /auth/*, /account/*, /console 는 redirect 트리거 skip
+  // (페이지 자체가 미인증 분기를 가짐 — 무한 루프 방지 + 잘못된 tenant authorize 방지).
+  if (
+    pathname === '/' ||
+    pathname.startsWith('/auth/') ||
+    pathname.startsWith('/account') ||
+    pathname === '/console'
+  ) {
+    return;
+  }
   const tenantId = pathname.split('/')[1] || '';
-  // `?redirect=1`이면 backend가 IdP authorize URL로 302를 이어 준다 (ADR-018 §2).
-  if (tenantId && tenantId !== 'platform') {
+  if (tenantId && !_NON_TENANT_SEGMENTS.has(tenantId)) {
+    // `?redirect=1`이면 backend가 IdP authorize URL로 302를 이어 준다 (ADR-018 §2).
     window.location.href = `${API_BASE}/api/auth/authorize/${tenantId}?redirect=1`;
   }
-  // tenantId가 빈 경우 또는 platform — 자동 redirect 안 함 (사용자가 명시적 navigation).
 }
 
 async function _fetchWithRefresh(
