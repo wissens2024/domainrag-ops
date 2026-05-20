@@ -109,8 +109,8 @@ export default function AnswerCard({ response, tenantId, onCitationClick }: Prop
   const hasCitations = citations.length > 0;
 
   return (
-    <div className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 my-1 text-sm">
-      <div className="prose prose-sm max-w-none prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-code:before:hidden prose-code:after:hidden prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
+    <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-bl-md px-5 py-4 my-1 text-sm shadow-sm">
+      <div className="prose prose-sm max-w-none prose-headings:font-semibold prose-headings:text-gray-900 prose-p:my-2 prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:text-xs prose-code:before:hidden prose-code:after:hidden prose-code:bg-gray-100 prose-code:text-gray-800 prose-code:font-normal prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px] prose-a:text-brand-600 prose-a:no-underline hover:prose-a:underline prose-strong:text-gray-900">
         {!hasCitations ? (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {response.answer || ''}

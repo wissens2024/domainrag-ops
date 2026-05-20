@@ -108,25 +108,33 @@ export default function AdminSidebar({ tenantId }: Props) {
     : tenantMenuGroups(tenantId);
 
   return (
-    <aside className="w-64 border-r border-gray-200 bg-white flex flex-col">
-      <div className="px-4 py-3 border-b border-gray-200">
-        <div className="flex items-center justify-between">
-          <p className="font-semibold text-sm text-gray-900">
-            {showPlatform ? '🌐 Platform' : `🏢 ${tenantId}`}
-          </p>
+    <aside className="w-64 border-r border-gray-200 bg-white flex flex-col font-sans">
+      <div className="px-4 py-3.5 border-b border-gray-200">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${showPlatform ? 'bg-brand-600 text-white' : 'bg-gray-900 text-white'}`}>
+              {showPlatform ? '🌐' : tenantId.charAt(0).toUpperCase()}
+            </div>
+            <p className="font-semibold text-sm text-gray-900 truncate">
+              {showPlatform ? 'Platform' : tenantId}
+            </p>
+          </div>
           {isPlatformAdmin && (
             <button
               onClick={() => setShowPlatform(!showPlatform)}
-              className="text-[11px] text-gray-500 hover:text-gray-900 hover:underline"
+              className="text-[10px] text-gray-500 hover:text-gray-900 px-1.5 py-0.5 hover:bg-gray-100 rounded"
             >
-              {showPlatform ? `← ${tenantId}` : 'Platform ▾'}
+              {showPlatform ? '← tenant' : 'Platform ▾'}
             </button>
           )}
         </div>
         {user && (
-          <p className="text-[11px] text-gray-500 mt-1 truncate">
-            {user.preferred_username || user.user_id} ·{' '}
-            <span className="text-gray-400">{user.roles.join(',')}</span>
+          <p className="text-[10px] text-gray-500 mt-2 truncate flex items-center gap-1">
+            <span className="text-gray-700 font-medium truncate">
+              {user.preferred_username || user.user_id}
+            </span>
+            <span className="text-gray-300">·</span>
+            <span className="truncate">{user.roles.join(',')}</span>
           </p>
         )}
       </div>
@@ -161,12 +169,18 @@ export default function AdminSidebar({ tenantId }: Props) {
         ))}
       </nav>
 
-      <div className="p-3 border-t border-gray-200 space-y-2">
+      <div className="p-2 border-t border-gray-200 space-y-0.5">
         <Link
           href={`/${tenantId}/chat`}
-          className="block text-xs text-blue-600 hover:underline"
+          className="block w-full px-3 py-1.5 rounded-md text-xs text-gray-700 hover:bg-gray-100 transition-colors"
         >
           ← 채팅으로 돌아가기
+        </Link>
+        <Link
+          href="/me"
+          className="block w-full px-3 py-1.5 rounded-md text-xs text-gray-700 hover:bg-gray-100 transition-colors"
+        >
+          내 계정
         </Link>
         {user && (
           <button
@@ -174,9 +188,9 @@ export default function AdminSidebar({ tenantId }: Props) {
               await logout(tenantId);
               window.location.href = '/';
             }}
-            className="w-full px-2 py-1 text-[11px] text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
+            className="block w-full text-left px-3 py-1.5 rounded-md text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700"
           >
-            ↩ 로그아웃 ({user.preferred_username ?? user.email ?? user.user_id})
+            로그아웃
           </button>
         )}
       </div>

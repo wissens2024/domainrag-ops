@@ -9,7 +9,7 @@
  */
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
@@ -215,6 +215,22 @@ export default function ChatPage() {
     conversations.find((c) => c.conversation_id === currentConversationId)
       ?.title ?? null;
 
+  // 대화 검색
+  const [searchQuery, setSearchQuery] = useState('');
+  const filteredConversations = useMemo(() => {
+    if (!searchQuery.trim()) return conversations;
+    const q = searchQuery.toLowerCase();
+    return conversations.filter((c) =>
+      (c.title ?? c.conversation_id).toLowerCase().includes(q),
+    );
+  }, [conversations, searchQuery]);
+
+  // 새 메시지 도착 시 thread 하단으로 자동 scroll
+  const threadEndRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [thread, streamingResponse, loading]);
+
   // textarea 자동 높이 + Enter 전송 (Shift+Enter 줄바꿈)
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -224,62 +240,83 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50 text-gray-900">
+    <div className="flex h-screen bg-gray-50 text-gray-900 font-sans antialiased">
       {/* 좌측 — 대화 목록 */}
       <aside className="w-72 border-r border-gray-200 bg-white flex flex-col">
-        <div className="p-3 border-b border-gray-200">
+        <div className="p-3 border-b border-gray-200 space-y-2">
           <button
             onClick={handleNewConversation}
-            className="w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+            className="w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 active:bg-gray-700 transition-colors flex items-center justify-center gap-1.5"
           >
-            + 새 대화
+            <span className="text-base leading-none">+</span> 새 대화
           </button>
+          {conversations.length > 3 && (
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="대화 검색…"
+              className="w-full px-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg placeholder:text-gray-400 focus:outline-none focus:border-gray-400 focus:bg-white"
+            />
+          )}
         </div>
 
         {(me?.is_admin || me?.is_platform_admin) && (
           <div className="px-3 py-2 border-b border-gray-200">
-            <p className="text-[11px] text-gray-400 leading-tight">
-              관리자 콘솔은 <code className="text-gray-600">/console</code> 로
-              접속하세요 (별도 브라우저 권장).
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              관리자는{' '}
+              <Link href="/console" className="text-brand-600 hover:underline font-medium">
+                /console
+              </Link>
+              {' '}로 접속
             </p>
           </div>
         )}
 
         <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-          {conversations.length === 0 && (
-            <p className="text-xs text-gray-400 px-3 py-4 text-center">
-              아직 대화 없음
+          {filteredConversations.length === 0 && (
+            <p className="text-xs text-gray-400 px-3 py-6 text-center">
+              {searchQuery ? '일치하는 대화 없음' : '아직 대화 없음'}
             </p>
           )}
-          {conversations.map((c) => (
-            <div
-              key={c.conversation_id}
-              className={`group relative px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${
-                currentConversationId === c.conversation_id
-                  ? 'bg-gray-200'
-                  : 'hover:bg-gray-100'
-              }`}
-              onClick={() => handleSelectConversation(c.conversation_id)}
-            >
-              <div className="truncate font-medium pr-5">
-                {c.title || '새 대화'}
-              </div>
-              <div className="text-xs text-gray-500 mt-0.5">
-                {new Date(c.updated_at).toLocaleDateString('ko-KR')} ·{' '}
-                {c.message_count}건
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleDeleteConversation(c.conversation_id);
-                }}
-                className="absolute right-1.5 top-2 hidden group-hover:block text-gray-400 hover:text-red-500 text-xs px-1"
-                title="삭제"
+          {filteredConversations.map((c) => {
+            const active = currentConversationId === c.conversation_id;
+            return (
+              <div
+                key={c.conversation_id}
+                className={`group relative px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${
+                  active
+                    ? 'bg-gray-100 ring-1 ring-gray-200'
+                    : 'hover:bg-gray-50'
+                }`}
+                onClick={() => handleSelectConversation(c.conversation_id)}
               >
-                ✕
-              </button>
-            </div>
-          ))}
+                <div className="truncate font-medium pr-6 text-gray-900">
+                  {c.title || '새 대화'}
+                </div>
+                <div className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1.5">
+                  <span>
+                    {new Date(c.updated_at).toLocaleDateString('ko-KR', {
+                      month: 'numeric',
+                      day: 'numeric',
+                    })}
+                  </span>
+                  <span className="text-gray-300">·</span>
+                  <span>{c.message_count}건</span>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleDeleteConversation(c.conversation_id);
+                  }}
+                  className="absolute right-1.5 top-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-600 text-xs w-5 h-5 rounded flex items-center justify-center hover:bg-white transition-all"
+                  title="삭제"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         {/* 사이드바 하단: user dropdown */}
@@ -318,13 +355,13 @@ export default function ChatPage() {
       </aside>
 
       {/* 중앙 — 채팅 영역 */}
-      <main className="flex-1 flex flex-col bg-white">
-        <header className="px-6 py-3 border-b border-gray-200 flex justify-between items-center bg-white">
-          <div className="flex items-center gap-3 min-w-0">
+      <main className="flex-1 flex flex-col bg-white min-w-0">
+        <header className="px-6 py-3 border-b border-gray-200 flex justify-between items-center bg-white/95 backdrop-blur-sm sticky top-0 z-10">
+          <div className="flex items-center gap-2 min-w-0">
             <h1 className="font-semibold text-sm text-gray-900 truncate">
               {currentTitle ?? '새 대화'}
             </h1>
-            <span className="text-xs text-gray-400 hidden sm:inline">
+            <span className="text-[11px] text-gray-400 hidden sm:inline">
               · {tenantId}
             </span>
           </div>
@@ -334,25 +371,30 @@ export default function ChatPage() {
         </header>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+          <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
             {thread.length === 0 && !loading && !streamingResponse && (
-              <div className="text-center text-gray-400 mt-24">
-                <p className="text-lg">무엇을 도와드릴까요?</p>
-                <p className="text-xs mt-2 text-gray-300">
+              <div className="text-center mt-24 animate-fade-in">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white text-2xl mb-4">
+                  ✦
+                </div>
+                <p className="text-xl font-semibold text-gray-900">
+                  무엇을 도와드릴까요?
+                </p>
+                <p className="text-sm mt-2 text-gray-500">
                   질문을 입력해 대화를 시작하세요
                 </p>
               </div>
             )}
             {thread.map((item, i) =>
               item.role === 'user' ? (
-                <div key={i} className="flex justify-end">
-                  <div className="max-w-[75%] bg-gray-900 text-white rounded-2xl px-4 py-2.5 whitespace-pre-wrap break-words text-sm leading-relaxed">
+                <div key={i} className="flex justify-end animate-slide-up">
+                  <div className="max-w-[75%] bg-gray-900 text-white rounded-2xl rounded-br-md px-4 py-2.5 whitespace-pre-wrap break-words text-sm leading-relaxed shadow-sm">
                     {item.content}
                   </div>
                 </div>
               ) : (
-                <div key={i} className="flex justify-start">
-                  <div className="max-w-[85%] w-full">
+                <div key={i} className="flex justify-start animate-slide-up">
+                  <div className="max-w-full w-full">
                     <AnswerCard
                       response={item.response}
                       tenantId={tenantId}
@@ -363,8 +405,8 @@ export default function ChatPage() {
               ),
             )}
             {streamingResponse && (
-              <div className="flex justify-start">
-                <div className="max-w-[85%] w-full">
+              <div className="flex justify-start animate-fade-in">
+                <div className="max-w-full w-full">
                   <AnswerCard
                     response={streamingResponse}
                     tenantId={tenantId}
@@ -374,48 +416,63 @@ export default function ChatPage() {
               </div>
             )}
             {loading && !streamingResponse && (
-              <div className="flex justify-start">
-                <div className="text-gray-400 text-sm flex items-center gap-2">
-                  <span className="inline-block w-2 h-2 bg-gray-400 rounded-full animate-pulse" />
-                  답변 생성 중…
+              <div className="flex justify-start animate-fade-in">
+                <div className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-1">
+                  <span className="inline-block w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                  <span className="inline-block w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                  <span className="inline-block w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" />
                 </div>
               </div>
             )}
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">
-                오류: {error}
+              <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 animate-slide-up">
+                <span className="font-medium">오류</span> · {error}
               </div>
             )}
+            <div ref={threadEndRef} />
           </div>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="border-t border-gray-200 bg-white px-4 py-3 sticky bottom-0"
+          className="border-t border-gray-200 bg-white px-4 py-4 sticky bottom-0"
         >
-          <div className="max-w-3xl mx-auto flex gap-2 items-end">
-            <textarea
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder="질문을 입력하세요. Shift+Enter 로 줄바꿈."
-              rows={1}
-              className="flex-1 px-4 py-2.5 border border-gray-300 rounded-2xl resize-none focus:outline-none focus:ring-2 focus:ring-gray-900 text-sm leading-relaxed max-h-40"
-              style={{ minHeight: '44px' }}
-              disabled={loading}
-              onInput={(e) => {
-                const el = e.currentTarget;
-                el.style.height = 'auto';
-                el.style.height = Math.min(el.scrollHeight, 160) + 'px';
-              }}
-            />
-            <button
-              type="submit"
-              disabled={loading || !question.trim()}
-              className="px-5 py-2.5 bg-gray-900 text-white rounded-2xl text-sm font-medium disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-gray-800 transition-colors"
-            >
-              전송
-            </button>
+          <div className="max-w-3xl mx-auto">
+            <div className="relative flex items-end gap-2 rounded-2xl border border-gray-300 bg-white px-3 py-2 focus-within:border-gray-900 focus-within:ring-1 focus-within:ring-gray-900 transition-all">
+              <textarea
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder="질문을 입력하세요"
+                rows={1}
+                className="flex-1 bg-transparent resize-none focus:outline-none text-sm leading-relaxed py-1.5 max-h-40 placeholder:text-gray-400"
+                style={{ minHeight: '24px' }}
+                disabled={loading}
+                onInput={(e) => {
+                  const el = e.currentTarget;
+                  el.style.height = 'auto';
+                  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+                }}
+              />
+              <button
+                type="submit"
+                disabled={loading || !question.trim()}
+                className="flex-shrink-0 w-8 h-8 bg-gray-900 text-white rounded-lg disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed hover:bg-gray-800 transition-colors flex items-center justify-center"
+                title="전송 (Enter)"
+              >
+                ↑
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-2 px-1 text-center">
+              <kbd className="px-1 py-0.5 bg-gray-100 border border-gray-200 rounded text-[10px]">
+                Enter
+              </kbd>{' '}
+              전송 ·{' '}
+              <kbd className="px-1 py-0.5 bg-gray-100 border border-gray-200 rounded text-[10px]">
+                Shift+Enter
+              </kbd>{' '}
+              줄바꿈
+            </p>
           </div>
         </form>
       </main>

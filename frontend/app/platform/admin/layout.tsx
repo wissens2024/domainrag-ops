@@ -48,24 +48,29 @@ export default function PlatformAdminLayout({
   }
 
   return (
-    <div className="flex h-screen">
-      <aside className="w-64 border-r border-gray-200 bg-gray-50 flex flex-col">
-        <div className="p-4 border-b border-gray-200">
-          <p className="font-bold">🌐 Platform Admin</p>
-          <p className="text-xs text-gray-500 mt-1">
-            PLATFORM_ADMIN role 한정
+    <div className="flex h-screen bg-gray-50 font-sans">
+      <aside className="w-64 border-r border-gray-200 bg-white flex flex-col">
+        <div className="px-4 py-3.5 border-b border-gray-200">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-brand-600 text-white flex items-center justify-center text-xs font-bold">
+              🌐
+            </div>
+            <p className="font-semibold text-sm text-gray-900">Platform</p>
+          </div>
+          <p className="text-[10px] text-gray-500 mt-2">
+            PLATFORM_ADMIN 한정 · cross-tenant
           </p>
         </div>
-        <nav className="flex-1 py-2">
+        <nav className="flex-1 overflow-y-auto py-2 px-1.5">
           {MENU.map((m) => {
             const active = pathname?.startsWith(m.href);
             return (
               <Link
                 key={m.href}
                 href={m.href}
-                className={`block px-4 py-2 text-sm ${
+                className={`flex items-center px-3 py-1.5 my-0.5 rounded-md text-sm transition-colors ${
                   active
-                    ? 'bg-blue-100 text-blue-900 border-l-4 border-blue-600'
+                    ? 'bg-gray-900 text-white font-medium'
                     : 'text-gray-700 hover:bg-gray-100'
                 }`}
               >
@@ -74,25 +79,33 @@ export default function PlatformAdminLayout({
             );
           })}
         </nav>
-        <div className="p-3 border-t space-y-2">
-          <Link href="/" className="block text-xs text-blue-600 hover:underline">
+        <div className="p-2 border-t border-gray-200 space-y-0.5">
+          <Link
+            href="/"
+            className="block w-full px-3 py-1.5 rounded-md text-xs text-gray-700 hover:bg-gray-100"
+          >
             ← 홈
+          </Link>
+          <Link
+            href="/me"
+            className="block w-full px-3 py-1.5 rounded-md text-xs text-gray-700 hover:bg-gray-100"
+          >
+            내 계정
           </Link>
           {user && (
             <button
               onClick={async () => {
-                // platform admin은 자기 tenant_id로 logout (backend가 client_id resolve)
                 await logout(user.tenant_id);
                 window.location.href = '/';
               }}
-              className="w-full px-2 py-1 text-[11px] text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
+              className="block w-full text-left px-3 py-1.5 rounded-md text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700"
             >
-              ↩ 로그아웃 ({user.preferred_username ?? user.email ?? user.user_id})
+              로그아웃
             </button>
           )}
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto bg-white">{children}</main>
+      <main className="flex-1 overflow-y-auto">{children}</main>
     </div>
   );
 }

@@ -51,10 +51,17 @@ export default function DashboardPage() {
   );
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-gray-900">대시보드</h1>
-        <p className="text-sm text-gray-500 mt-1">{tenantId} tenant 요약 지표</p>
+    <div className="p-8 max-w-7xl mx-auto font-sans">
+      <div className="mb-8 flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">대시보드</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            <span className="font-medium text-gray-700">{tenantId}</span> tenant · 오늘 KST 기준
+          </p>
+        </div>
+        <span className="text-[11px] text-gray-400">
+          30초마다 자동 갱신
+        </span>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
