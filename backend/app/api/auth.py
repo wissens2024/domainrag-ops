@@ -263,28 +263,65 @@ async def auth_me(user: UserContext = Depends(get_user_context_no_tenant)):
 
 
 # ----------------------------------------------------------------------------
-# /me/change-password — RP self-service proxy → AuthFusion REST API
+# /account/* — AuthFusion self-service API proxy (spec: docs/integration/
+# authfusion-self-service-v1.md, 11 endpoints under /api/v1/me/*)
 # ----------------------------------------------------------------------------
 
+_ACCOUNT_ALLOWED_PATHS = {
+    ("GET", ""),
+    ("GET", "summary"),
+    ("GET", "applications"),
+    ("GET", "sessions"),
+    ("GET", "mfa/status"),
+    ("POST", "mfa/setup"),
+    ("POST", "mfa/verify-setup"),
+    ("POST", "mfa/disable"),
+    ("POST", "mfa/recovery-codes/regenerate"),
+    ("POST", "change-password"),
+}
+# DELETE /sessions/{sessionId} — UUID 패턴이라 별도 매칭
+import re as _re
 
-class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
+_SESSION_DELETE_RE = _re.compile(r"^sessions/[0-9a-fA-F-]{8,}$")
 
 
-@router.post("/me/change-password")
-async def change_password(
-    req: ChangePasswordRequest,
+def _account_path_allowed(method: str, suffix: str) -> bool:
+    if (method, suffix) in _ACCOUNT_ALLOWED_PATHS:
+        return True
+    if method == "DELETE" and _SESSION_DELETE_RE.match(suffix):
+        return True
+    return False
+
+
+@router.api_route(
+    "/account",
+    methods=["GET"],
+    include_in_schema=False,
+)
+@router.api_route(
+    "/account/{path:path}",
+    methods=["GET", "POST", "DELETE"],
+    include_in_schema=False,
+)
+async def authfusion_self_service_proxy(
     request: Request,
-    user: UserContext = Depends(get_user_context_no_tenant),
+    path: str = "",
     settings: Settings = Depends(get_settings),
 ):
-    """AuthFusion `POST /api/v1/users/{id}/change-password` proxy.
+    """AuthFusion `/api/v1/me/*` 11 endpoints의 thin proxy.
 
-    httponly cookie의 access_token을 그대로 Authorization header에 forward.
-    AuthFusion 응답을 그대로 client에 노출 (성공/실패 메시지 일관).
+    cookie의 access_token을 Bearer header로 forward + AuthFusion 응답을 그대로
+    client에 전달 (status·body·content-type 보존). spec drift 시 docs/integration/
+    authfusion-self-service-v1.md 비교.
     """
     import httpx
+
+    suffix = path.strip("/")
+    if not _account_path_allowed(request.method, suffix):
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "endpoint_not_allowed", "path": path, "method": request.method},
+        )
 
     access = request.cookies.get(_ACCESS_COOKIE)
     if not access:
@@ -296,16 +333,22 @@ async def change_password(
             status_code=500, detail={"error": "authfusion_issuer_not_configured"}
         )
 
-    url = f"{base}/api/v1/users/{user.user_id}/change-password"
+    upstream = f"{base}/api/v1/me/{suffix}" if suffix else f"{base}/api/v1/me"
+    body = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
-            res = await client.post(
-                url,
-                json={
-                    "current_password": req.current_password,
-                    "new_password": req.new_password,
+            res = await client.request(
+                request.method,
+                upstream,
+                content=body,
+                headers={
+                    "Authorization": f"Bearer {access}",
+                    "Content-Type": request.headers.get(
+                        "Content-Type", "application/json"
+                    ),
+                    "Accept": "application/json",
                 },
-                headers={"Authorization": f"Bearer {access}"},
             )
         except httpx.HTTPError as exc:
             raise HTTPException(
@@ -313,11 +356,13 @@ async def change_password(
                 detail={"error": "idp_unreachable", "reason": str(exc)},
             ) from exc
 
-    if res.status_code >= 400:
-        body = res.json() if res.headers.get("content-type", "").startswith("application/json") else {"error": res.text[:200]}
-        raise HTTPException(status_code=res.status_code, detail=body)
+    from fastapi.responses import Response as _Resp
 
-    return {"ok": True}
+    return _Resp(
+        content=res.content,
+        status_code=res.status_code,
+        media_type=res.headers.get("content-type", "application/json"),
+    )
 
 
 # ----------------------------------------------------------------------------

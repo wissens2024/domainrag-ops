@@ -323,7 +323,7 @@ export default function ChatPage() {
         {me && (
           <div className="p-3 border-t border-gray-200">
             <Link
-              href="/me"
+              href="/account"
               className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition-colors group"
             >
               <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-xs font-semibold flex-shrink-0">

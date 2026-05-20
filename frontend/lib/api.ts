@@ -251,6 +251,89 @@ export async function getCurrentUser(): Promise<UserContext> {
   return request<UserContext>(`/api/auth/me`);
 }
 
+// ============================================================================
+// AuthFusion Self-Service API (spec: docs/integration/authfusion-self-service-v1.md)
+// backend proxy at /api/auth/account/*  → upstream /api/v1/me/*
+// ============================================================================
+
+export interface AccountSummary {
+  sub: string;
+  username: string;
+  email: string;
+  userSource: string;
+}
+
+export interface UserApplicationSummary {
+  applicationId: string;
+  displayName: string;
+  roles: string[];
+}
+
+export interface SessionInfo {
+  sessionId: string;
+  ipAddress: string;
+  userAgent: string;
+  createdAt: string;
+  lastActivityAt: string;
+  expiresAt: string;
+}
+
+export interface MfaStatusResponse {
+  enabled: boolean;
+  algorithm?: string;
+  digits?: number;
+  period?: number;
+  verifiedAt?: string;
+  recoveryCodesRemaining?: number;
+}
+
+export interface TotpSetupResponse {
+  secret: string;
+  qrCodeUri: string;
+  recoveryCodes: string[];
+}
+
+async function accountFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}/api/auth/account${path}`, {
+    credentials: 'include',
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers as Record<string, string> | undefined),
+    },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body);
+  }
+  if (res.status === 204) return undefined as unknown as T;
+  const text = await res.text();
+  return text ? (JSON.parse(text) as T) : (undefined as unknown as T);
+}
+
+export const account = {
+  getSummary: () => accountFetch<AccountSummary>('/summary'),
+  getApplications: () => accountFetch<UserApplicationSummary[]>('/applications'),
+  getSessions: () => accountFetch<SessionInfo[]>('/sessions'),
+  revokeSession: (sessionId: string) =>
+    accountFetch<void>(`/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
+  getMfaStatus: () => accountFetch<MfaStatusResponse>('/mfa/status'),
+  setupMfa: () => accountFetch<TotpSetupResponse>('/mfa/setup', { method: 'POST' }),
+  verifyMfaSetup: (code: string) =>
+    accountFetch<void>('/mfa/verify-setup', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+  disableMfa: () => accountFetch<void>('/mfa/disable', { method: 'POST' }),
+  regenerateRecoveryCodes: () =>
+    accountFetch<string[]>('/mfa/recovery-codes/regenerate', { method: 'POST' }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    accountFetch<void>('/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+};
+
 /**
  * Logout — backend가 access/refresh 쿠키의 token을 revoke + 쿠키 삭제 (ADR-018 §6).
  * 호출자가 navigation은 직접. tenant_id는 backend가 client_id resolve에 필요.

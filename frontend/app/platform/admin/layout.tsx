@@ -87,7 +87,7 @@ export default function PlatformAdminLayout({
             ← 홈
           </Link>
           <Link
-            href="/me"
+            href="/account"
             className="block w-full px-3 py-1.5 rounded-md text-xs text-gray-700 hover:bg-gray-100"
           >
             내 계정
