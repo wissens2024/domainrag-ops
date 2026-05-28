@@ -523,13 +523,16 @@ async def logout(
 
     logout_url: str | None = None
     if auth_cfg.end_session_endpoint:
-        params = {
-            "client_id": client_id,
-            "post_logout_redirect_uri": f"{auth_cfg.app_base_url.rstrip('/')}/",
-        }
+        params = {"client_id": client_id}
         # AuthFusion은 id_token_hint를 요구 (OIDC RP-Initiated Logout §2).
         id_token = request.cookies.get(_ID_TOKEN_COOKIE)
         if id_token:
             params["id_token_hint"] = id_token
+        # post_logout_redirect_uri는 AuthFusion client에 사전 등록된 경우에만 첨부.
+        # 미등록 시 AuthFusion이 "사전 등록되지 않음" 에러로 logout 자체를 중단하므로,
+        # 등록 전에는 생략한다(IdP가 자체 logged-out 페이지 표시). 등록 후 켜려면
+        # configs/platform/auth.yaml의 post_logout_redirect_uri_registered=true.
+        if auth_cfg.post_logout_redirect_registered:
+            params["post_logout_redirect_uri"] = f"{auth_cfg.app_base_url.rstrip('/')}/"
         logout_url = f"{auth_cfg.end_session_endpoint}?{urlencode(params)}"
     return {"logout_url": logout_url}

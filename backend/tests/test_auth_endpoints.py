@@ -268,7 +268,9 @@ def test_logout_calls_revoke_for_both_tokens():
     logout_url = resp.json()["logout_url"]
     assert logout_url is not None
     assert logout_url.startswith("https://sso.test/oauth2/logout")
-    assert "post_logout_redirect_uri=" in logout_url
+    assert "client_id=" in logout_url
+    # post_logout_redirect_uri는 IdP에 사전 등록된 경우(post_logout_redirect_registered)만 첨부.
+    assert "post_logout_redirect_uri=" not in logout_url
     # access + refresh 두 번 revoke
     assert len(token_client.calls.revokes) == 2
     type_hints = {c["token_type_hint"] for c in token_client.calls.revokes}

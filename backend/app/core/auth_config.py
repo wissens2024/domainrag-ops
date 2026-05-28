@@ -73,6 +73,10 @@ class AuthConfig:
     # 운영(authfusion 모드 + 다중 RP)에선 false로 강제 권장 — 다른 RP의 admin이 들어와도 차단.
     accept_legacy_global_roles: bool = True
 
+    # ADR-022 — logout 시 post_logout_redirect_uri를 IdP end_session에 첨부할지.
+    # AuthFusion client에 해당 URI가 사전 등록된 경우에만 true (미등록 시 logout 중단됨).
+    post_logout_redirect_registered: bool = False
+
     def client_id_to_domain_id(
         self, client_id: str, expected_domain_id: str | None = None
     ) -> str:
@@ -273,6 +277,9 @@ class AuthConfigLoader:
             require_verified_email=require_verified_email,
             rp_slug=rp_slug,
             accept_legacy_global_roles=accept_legacy,
+            post_logout_redirect_registered=bool(
+                af.get("post_logout_redirect_registered", False)
+            ),
             client_tenant_map=client_tenant_map,
             service_accounts=service_accounts,
             tenant_overrides=tenant_overrides,
