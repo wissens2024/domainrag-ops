@@ -57,3 +57,9 @@ body {
 .dark .disabled\:bg-gray-400:disabled { background-color: #475569; color: #cbd5e1; }
 /* 색상 tint 박스/배지(bg-*-50/100 + text-*-700)는 다크 페이지 위 "밝은 칩"으로 그대로
  * 읽히므로 건드리지 않는다(색 신호 보존). ui/Badge는 컴포넌트에서 dark: 별도 처리. */
+/* primary(neutral 검정) 요소 — bg-gray-900이 slate-900 배경과 거의 같아 다크에서
+ * 버튼/말풍선/선택항목이 안 보임 → 브랜드색으로 매핑(가시성+일관성). dark: 명시한
+ * 곳은 그쪽이 우선. */
+.dark .bg-gray-900 { background-color: #3845d4; } /* brand-600 */
+.dark .hover\:bg-gray-800:hover { background-color: #4f5fef; } /* brand-500 */
+.dark .disabled\:bg-gray-200:disabled { background-color: #334155; }

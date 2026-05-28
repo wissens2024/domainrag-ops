@@ -89,7 +89,9 @@ function DomainRow({
     <button
       onClick={onClick}
       className={`flex w-full items-center justify-between px-4 py-3 text-left border-b border-gray-100 last:border-0 ${
-        active ? 'bg-gray-900 text-white' : 'hover:bg-gray-50 text-gray-800'
+        active
+          ? 'bg-gray-900 text-white dark:bg-brand-600'
+          : 'hover:bg-gray-50 text-gray-800 dark:hover:bg-slate-700'
       }`}
     >
       <div className="min-w-0">
