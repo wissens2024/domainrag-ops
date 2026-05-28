@@ -80,7 +80,7 @@ export default function DomainSwitcher({
   const chipClass =
     tone === 'dark'
       ? 'bg-gray-800 text-gray-100 hover:bg-gray-700 border-gray-700'
-      : 'bg-white text-gray-900 hover:bg-gray-50 border-gray-200';
+      : 'bg-white text-gray-900 hover:bg-gray-50 border-gray-200 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 dark:border-slate-600';
 
   return (
     <div ref={boxRef} className="relative inline-block text-left">
@@ -99,15 +99,15 @@ export default function DomainSwitcher({
       </button>
 
       {open && canSwitch && (
-        <div className="absolute left-0 mt-1 w-60 rounded-lg border border-gray-200 bg-white shadow-lg z-50 py-1 max-h-80 overflow-y-auto">
+        <div className="absolute left-0 mt-1 w-60 rounded-lg border border-gray-200 bg-white shadow-lg z-50 py-1 max-h-80 overflow-y-auto dark:border-slate-600 dark:bg-slate-800">
           {items.map((d) => {
             const active = d.domain_id === domainId;
             return (
               <button
                 key={d.domain_id}
                 onClick={() => go(d.domain_id)}
-                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50 ${
-                  active ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-700'
+                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-slate-700 ${
+                  active ? 'bg-gray-100 font-medium text-gray-900 dark:bg-slate-700 dark:text-slate-100' : 'text-gray-700 dark:text-slate-300'
                 }`}
               >
                 <span className="truncate">{d.display_name}</span>
