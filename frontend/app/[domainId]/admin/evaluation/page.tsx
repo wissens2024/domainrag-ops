@@ -98,7 +98,7 @@ export default function EvaluationPage() {
             className="px-3 py-1 border rounded"
           >
             <option value="">dataset 선택</option>
-            {datasets?.items.map((d) => (
+            {(datasets?.items ?? []).map((d) => (
               <option key={d.name} value={d.name}>
                 {d.name} ({d.case_count} cases, {d.source})
               </option>
@@ -127,7 +127,7 @@ export default function EvaluationPage() {
               </tr>
             </thead>
             <tbody>
-              {jobs?.items.map((j) => (
+              {(jobs?.items ?? []).map((j) => (
                 <tr
                   key={j.job_id}
                   className={`border-b hover:bg-gray-50 cursor-pointer ${

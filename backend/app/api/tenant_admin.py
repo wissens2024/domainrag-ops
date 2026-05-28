@@ -664,9 +664,9 @@ async def list_evaluation_datasets(
     user: UserContext = Depends(require_admin),
     orchestrator: EvaluationOrchestrator = Depends(get_evaluation_orchestrator),
 ):
-    """ADR-017 §16 — 평가셋 목록."""
+    """ADR-017 §16 — 평가셋 목록. list 응답 규약은 {items} 통일 (jobs·documents와 정합)."""
     await _ensure_tenant_match(domain_id, user)
-    return {"datasets": orchestrator.list_datasets(domain_id)}
+    return {"items": orchestrator.list_datasets(domain_id)}
 
 
 @router.post("/evaluation/run", status_code=202)

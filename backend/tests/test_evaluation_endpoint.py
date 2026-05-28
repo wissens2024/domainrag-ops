@@ -49,7 +49,7 @@ def test_list_datasets_returns_platform_and_tenant():
             headers={"Authorization": "Bearer mock-token"},
         )
     assert resp.status_code == 200, resp.text
-    names = {d["name"] for d in resp.json()["datasets"]}
+    names = {d["name"] for d in resp.json()["items"]}
     assert "platform_smoke" in names
     assert "tenant_security" in names
 

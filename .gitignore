@@ -71,9 +71,11 @@ data/eval/.cache/
 data/raw/
 data/processed/
 
-# Logs
+# Logs — 런타임 로그 디렉터리는 repo 루트 한정으로 ignore.
+# (unanchored `logs/`는 frontend/app/.../admin/logs/ 같은 소스 route 디렉터리까지
+#  삼켜 배포 누락 → 404 유발. leading slash로 root 한정. 로그 *파일*은 *.log가 커버.)
 *.log
-logs/
+/logs/
 
 # Docker volumes (local dev)
 infra/volumes/
