@@ -22,15 +22,23 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # 1) 모든 tenant_id 컬럼 → domain_id (tenants PK 포함; FK·인덱스 참조 자동 갱신)
+    # 1) 모든 tenant_id 컬럼 → domain_id. 파티션 자식(chat_logs_yYYYYmMM)은 직접 rename
+    #    불가 — 부모(파티션 테이블)에서 rename하면 자식에 cascade되므로 자식은 제외한다.
     op.execute(
         """
         DO $$
         DECLARE r record;
         BEGIN
             FOR r IN
-                SELECT table_name FROM information_schema.columns
-                 WHERE column_name = 'tenant_id' AND table_schema = 'public'
+                SELECT c.relname AS table_name
+                  FROM pg_class c
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                  JOIN pg_attribute a ON a.attrelid = c.oid
+                       AND a.attname = 'tenant_id' AND a.attnum > 0
+                       AND NOT a.attisdropped
+                 WHERE n.nspname = 'public'
+                   AND c.relkind IN ('r', 'p')                       -- ordinary + 파티션 부모
+                   AND c.oid NOT IN (SELECT inhrelid FROM pg_inherits)  -- 파티션 자식 제외
             LOOP
                 EXECUTE format(
                     'ALTER TABLE %I RENAME COLUMN tenant_id TO domain_id', r.table_name
@@ -40,13 +48,20 @@ def upgrade() -> None:
         """
     )
 
-    # 2) RLS tenant_isolation 정책 재생성 — domain_id + app.current_domain GUC
+    # 2) RLS tenant_isolation 정책 재생성 — domain_id + app.current_domain GUC.
+    #    파티션 자식은 부모 정책을 상속하므로 부모/일반 테이블에서만 재생성한다.
     op.execute(
         """
         DO $$
         DECLARE r record;
         BEGIN
-            FOR r IN SELECT tablename FROM pg_policies WHERE policyname = 'tenant_isolation'
+            FOR r IN
+                SELECT p.tablename
+                  FROM pg_policies p
+                  JOIN pg_class c ON c.relname = p.tablename
+                  JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = p.schemaname
+                 WHERE p.policyname = 'tenant_isolation'
+                   AND c.oid NOT IN (SELECT inhrelid FROM pg_inherits)  -- 파티션 자식 제외
             LOOP
                 EXECUTE format('DROP POLICY tenant_isolation ON %I', r.tablename);
                 EXECUTE format(
@@ -124,8 +139,15 @@ def downgrade() -> None:
         DECLARE r record;
         BEGIN
             FOR r IN
-                SELECT table_name FROM information_schema.columns
-                 WHERE column_name = 'domain_id' AND table_schema = 'public'
+                SELECT c.relname AS table_name
+                  FROM pg_class c
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                  JOIN pg_attribute a ON a.attrelid = c.oid
+                       AND a.attname = 'domain_id' AND a.attnum > 0
+                       AND NOT a.attisdropped
+                 WHERE n.nspname = 'public'
+                   AND c.relkind IN ('r', 'p')
+                   AND c.oid NOT IN (SELECT inhrelid FROM pg_inherits)
             LOOP
                 EXECUTE format(
                     'ALTER TABLE %I RENAME COLUMN domain_id TO tenant_id', r.table_name
@@ -139,7 +161,13 @@ def downgrade() -> None:
         DO $$
         DECLARE r record;
         BEGIN
-            FOR r IN SELECT tablename FROM pg_policies WHERE policyname = 'tenant_isolation'
+            FOR r IN
+                SELECT p.tablename
+                  FROM pg_policies p
+                  JOIN pg_class c ON c.relname = p.tablename
+                  JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = p.schemaname
+                 WHERE p.policyname = 'tenant_isolation'
+                   AND c.oid NOT IN (SELECT inhrelid FROM pg_inherits)
             LOOP
                 EXECUTE format('DROP POLICY tenant_isolation ON %I', r.tablename);
                 EXECUTE format(
