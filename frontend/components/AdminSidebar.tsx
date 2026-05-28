@@ -180,12 +180,6 @@ export default function AdminSidebar({ domainId }: Props) {
 
       <div className="p-2 border-t border-gray-200 space-y-0.5">
         <Link
-          href={`/${domainId}/chat`}
-          className="block w-full px-3 py-1.5 rounded-md text-xs text-gray-700 hover:bg-gray-100 transition-colors"
-        >
-          ← 채팅으로 돌아가기
-        </Link>
-        <Link
           href="/account"
           className="block w-full px-3 py-1.5 rounded-md text-xs text-gray-700 hover:bg-gray-100 transition-colors"
         >

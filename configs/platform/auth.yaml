@@ -42,6 +42,12 @@ oidc:
   # AuthFusion `OIDC_REQUIRE_VERIFIED_EMAIL` 표준 동작 — id_token email_verified=true 강제.
   require_verified_email: true
 
+  # ADR-022 — logout(end_session) 시 post_logout_redirect_uri 첨부 여부.
+  # AuthFusion client에 `https://rag.aines.kr/`가 post-logout redirect로 사전 등록된
+  # 경우에만 true로. 미등록 상태에서 true면 AuthFusion이 logout을 "미등록" 에러로
+  # 거부하므로 false 유지. 등록 후 true로 바꾸면 로그아웃이 DomainRAG 랜딩으로 복귀.
+  post_logout_redirect_registered: false
+
   # service-scoped role prefix (ADR-0019). 전역 ADMIN 매칭 금지.
   # AuthFusion client 등록 후 Seed Roles로 자동 생성되는 3개 role:
   #   domainrag-ops-admin / domainrag-ops-auditor / domainrag-ops-user

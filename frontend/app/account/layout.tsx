@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import useSWR from 'swr';
-import { logout, swrFetcher } from '@/lib/api';
+import { logout, postLoginDestination, swrFetcher } from '@/lib/api';
 import type { UserContext } from '@/lib/types';
 
 const NAV = [
@@ -42,18 +42,18 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
         <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
-              href={`/${user.domain_id}/chat`}
+              href={postLoginDestination(user)}
               className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
             >
-              ← 채팅
+              ← 돌아가기
             </Link>
             <div className="h-4 w-px bg-gray-200" />
             <h1 className="text-sm font-semibold text-gray-900">내 계정</h1>
           </div>
           <button
             onClick={async () => {
-              await logout(user.domain_id);
-              window.location.href = '/';
+              const url = await logout(user.domain_id);
+              window.location.href = url || '/';
             }}
             className="text-xs text-gray-500 hover:text-gray-900"
           >
