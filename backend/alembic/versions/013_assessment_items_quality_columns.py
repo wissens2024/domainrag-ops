@@ -12,7 +12,8 @@ Item Bank 목록이 500(UndefinedColumnError). ADR-014 품질/벡터 메타 컬�
 
 from alembic import op
 
-revision = "013_assessment_items_quality_columns"
+# revision id ≤ 32자 (alembic_version.version_num VARCHAR(32) 제약)
+revision = "013_assessment_item_cols"
 down_revision = "012_rename_tenant_to_domain"
 branch_labels = None
 depends_on = None
