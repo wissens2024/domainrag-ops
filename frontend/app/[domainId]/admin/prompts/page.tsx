@@ -7,6 +7,7 @@
 
 import dynamic from 'next/dynamic';
 import { useParams } from 'next/navigation';
+import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { listPrompts, patchPrompt, previewPrompt } from '@/lib/api';
@@ -20,6 +21,8 @@ const Editor = dynamic(() => import('@monaco-editor/react').then((m) => m.defaul
 export default function PromptStudioPage() {
   const params = useParams<{ domainId: string }>();
   const domainId = params.domainId;
+  const { resolvedTheme } = useTheme();
+  const editorTheme = resolvedTheme === 'dark' ? 'vs-dark' : 'light';
   const [selected, setSelected] = useState<PromptRecord | null>(null);
   const [systemText, setSystemText] = useState('');
   const [userText, setUserText] = useState('');
@@ -120,6 +123,7 @@ export default function PromptStudioPage() {
                 <div className="border rounded overflow-hidden" style={{ height: '160px' }}>
                   <Editor
                     language="markdown"
+                    theme={editorTheme}
                     value={systemText}
                     onChange={(v) => setSystemText(v ?? '')}
                     options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on' }}
@@ -131,6 +135,7 @@ export default function PromptStudioPage() {
                 <div className="border rounded overflow-hidden" style={{ height: '200px' }}>
                   <Editor
                     language="markdown"
+                    theme={editorTheme}
                     value={userText}
                     onChange={(v) => setUserText(v ?? '')}
                     options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on' }}

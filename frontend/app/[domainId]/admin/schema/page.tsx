@@ -7,6 +7,7 @@
 
 import dynamic from 'next/dynamic';
 import { useParams } from 'next/navigation';
+import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import {
@@ -25,6 +26,8 @@ const Editor = dynamic(() => import('@monaco-editor/react').then((m) => m.defaul
 export default function SchemaEditorPage() {
   const params = useParams<{ domainId: string }>();
   const domainId = params.domainId;
+  const { resolvedTheme } = useTheme();
+  const editorTheme = resolvedTheme === 'dark' ? 'vs-dark' : 'light';
   const [yamlText, setYamlText] = useState('');
   const [baseVersion, setBaseVersion] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
@@ -118,6 +121,7 @@ export default function SchemaEditorPage() {
           <div className="border rounded overflow-hidden mb-4" style={{ height: '500px' }}>
             <Editor
               language="json"
+              theme={editorTheme}
               value={yamlText}
               onChange={(v) => setYamlText(v ?? '')}
               options={{

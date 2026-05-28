@@ -10,6 +10,7 @@ export default function Card({ padded = true, className, children, ...rest }: Pr
     <div
       className={twMerge(
         'bg-white border border-gray-200 rounded-2xl shadow-card',
+        'dark:bg-slate-800 dark:border-slate-700',
         padded && 'p-5',
         className,
       )}
@@ -32,9 +33,9 @@ export function CardHeader({
   return (
     <div className="flex items-start justify-between mb-5">
       <div>
-        <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+        <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100">{title}</h2>
         {description && (
-          <p className="text-xs text-gray-500 mt-0.5">{description}</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">{description}</p>
         )}
       </div>
       {action}

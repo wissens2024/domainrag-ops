@@ -47,3 +47,13 @@ body {
 .dark input,
 .dark textarea,
 .dark select { background-color: #0f172a; color: #f1f5f9; border-color: #334155; }
+/* 누락 중립 surface */
+.dark .bg-gray-200 { background-color: #334155; } /* slate-700 */
+.dark .bg-slate-50 { background-color: #0f172a; }
+.dark .bg-white\/95 { background-color: rgba(30, 41, 59, 0.95); }
+/* disabled 버튼 — 라이트 회색 배경이 그대로 남아 흰 글씨와 겹치는 문제 방지 */
+.dark .disabled\:bg-gray-100:disabled { background-color: #1e293b; }
+.dark .disabled\:bg-gray-300:disabled { background-color: #334155; }
+.dark .disabled\:bg-gray-400:disabled { background-color: #475569; color: #cbd5e1; }
+/* 색상 tint 박스/배지(bg-*-50/100 + text-*-700)는 다크 페이지 위 "밝은 칩"으로 그대로
+ * 읽히므로 건드리지 않는다(색 신호 보존). ui/Badge는 컴포넌트에서 dark: 별도 처리. */

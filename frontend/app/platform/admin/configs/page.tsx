@@ -6,6 +6,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 import useSWR, { mutate } from 'swr';
 import { getPlatformConfig, putPlatformConfig } from '@/lib/api';
@@ -29,6 +30,8 @@ const CATEGORIES = [
 ];
 
 export default function PlatformConfigsPage() {
+  const { resolvedTheme } = useTheme();
+  const editorTheme = resolvedTheme === 'dark' ? 'vs-dark' : 'light';
   const [category, setCategory] = useState('model');
   const [text, setText] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -85,6 +88,7 @@ export default function PlatformConfigsPage() {
       <div className="border rounded overflow-hidden mb-3" style={{ height: '500px' }}>
         <Editor
           language="json"
+          theme={editorTheme}
           value={text}
           onChange={(v) => setText(v ?? '')}
           options={{ minimap: { enabled: false }, fontSize: 13, tabSize: 2 }}
