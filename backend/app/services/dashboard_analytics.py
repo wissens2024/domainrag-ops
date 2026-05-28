@@ -42,12 +42,12 @@ class PostgresDashboardAnalytics:
         self._sf = session_factory
         self._clock = clock
 
-    async def get_snapshot(self, *, tenant_id: str) -> DashboardSnapshot:
+    async def get_snapshot(self, *, domain_id: str) -> DashboardSnapshot:
         today_start = _kst_today_start(self._clock())
         snap = DashboardSnapshot()
 
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
 
             # 1. documents
             doc_row = (

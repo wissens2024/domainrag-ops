@@ -34,7 +34,7 @@ from app.main import app
 
 def _non_admin_user() -> UserContext:
     return UserContext(
-        user_id="dev-user-001", tenant_id="security",
+        user_id="dev-user-001", domain_id="security",
         roles=["USER"], clearance="confidential",
     )
 
@@ -83,7 +83,7 @@ def test_get_routing_returns_platform_default():
         )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["tenant_id"] == "security"
+    assert body["domain_id"] == "security"
     routing = body["routing"]
     # platform routing.yaml에서 로드된 rules 존재
     assert isinstance(routing.get("rules"), list)

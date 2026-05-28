@@ -17,6 +17,7 @@ from app.core.timezone import iso_kst
 from app.core.auth_adapter import UserContext, get_user_context_no_tenant
 from app.core.db import get_admin_db_session
 from app.deps import (
+    get_membership_service,
     get_pii_approval_service,
     get_rag_service,
     get_tenant_lifecycle_service,
@@ -45,10 +46,19 @@ def require_platform_admin(
     return user
 
 
+def require_global_admin(
+    user: UserContext = Depends(get_user_context_no_tenant),
+) -> UserContext:
+    """ADR-022 §3 — admin/platform_admin은 모든 도메인 관리(전역). auditor·user는 거부."""
+    if not user.is_admin:  # is_admin == ADMIN or PLATFORM_ADMIN
+        raise HTTPException(status_code=403, detail={"error": "insufficient_role"})
+    return user
+
+
 def _approval_to_dict(record: PiiApprovalRecord) -> dict[str, Any]:
     return {
         "approval_id": record.approval_id,
-        "tenant_id": record.tenant_id,
+        "domain_id": record.domain_id,
         "policy": record.policy,
         "reason": record.reason,
         "approved_by": record.approved_by,
@@ -62,11 +72,13 @@ def _approval_to_dict(record: PiiApprovalRecord) -> dict[str, Any]:
 
 
 class RegisterTenantRequest(BaseModel):
-    tenant_id: str = Field(..., min_length=1, max_length=64)
+    domain_id: str = Field(..., min_length=1, max_length=64)
     display_name: str = Field(..., min_length=1, max_length=200)
     domain_type: str | None = None
     embedding_model: str | None = None  # None이면 DB default 사용
     modules: list[str] = Field(default_factory=lambda: ["rag"])
+    # ADR-022 §4 — open(전원 자동) | assigned(배정만). 기본 assigned.
+    enrollment_policy: str = "assigned"
 
 
 class StatusPatchRequest(BaseModel):
@@ -108,39 +120,40 @@ async def register_tenant(
     """
     try:
         record = await service.register(
-            tenant_id=req.tenant_id,
+            domain_id=req.domain_id,
             display_name=req.display_name,
             domain_type=req.domain_type,
             embedding_model=req.embedding_model,
             modules=req.modules,
+            enrollment_policy=req.enrollment_policy,
             actor=user.user_id,
         )
     except TenantConflictError as exc:
         raise HTTPException(
             status_code=409,
-            detail={"error": "tenant_already_exists", "tenant_id": exc.tenant_id},
+            detail={"error": "tenant_already_exists", "domain_id": exc.domain_id},
         ) from exc
     return record.to_dict()
 
 
-@router.get("/tenants/{tenant_id}")
+@router.get("/tenants/{domain_id}")
 async def get_tenant(
-    tenant_id: str,
+    domain_id: str,
     user: UserContext = Depends(require_platform_admin),
     service=Depends(get_tenant_lifecycle_service),
 ):
     try:
-        rec = await service.get(tenant_id)
+        rec = await service.get(domain_id)
     except TenantNotFoundError as exc:
         raise HTTPException(
-            status_code=404, detail={"error": "tenant_not_found", "tenant_id": tenant_id}
+            status_code=404, detail={"error": "tenant_not_found", "domain_id": domain_id}
         ) from exc
     return rec.to_dict()
 
 
-@router.patch("/tenants/{tenant_id}")
+@router.patch("/tenants/{domain_id}")
 async def patch_tenant_status(
-    tenant_id: str,
+    domain_id: str,
     req: StatusPatchRequest,
     user: UserContext = Depends(require_platform_admin),
     service=Depends(get_tenant_lifecycle_service),
@@ -148,7 +161,7 @@ async def patch_tenant_status(
     """ADR-012 §2 — status 전이. active ↔ suspended ↔ archived, archived → active (복구)."""
     try:
         rec = await service.update_status(
-            tenant_id=tenant_id, to_status=req.status,
+            domain_id=domain_id, to_status=req.status,
             actor=user.user_id, reason=req.reason,
         )
     except TenantNotFoundError as exc:
@@ -167,9 +180,9 @@ async def patch_tenant_status(
     return rec.to_dict()
 
 
-@router.delete("/tenants/{tenant_id}/hard")
+@router.delete("/tenants/{domain_id}/hard")
 async def hard_delete_tenant(
-    tenant_id: str,
+    domain_id: str,
     req: HardDeleteTenantRequest,
     user: UserContext = Depends(require_platform_admin),
     service=Depends(get_tenant_lifecycle_service),
@@ -177,7 +190,7 @@ async def hard_delete_tenant(
     """ADR-012 §6 cross-system 일관성. archived 상태만 허용. 부분 실패는 dead-letter."""
     try:
         rec = await service.hard_delete(
-            tenant_id=tenant_id, actor=user.user_id, reason=req.reason
+            domain_id=domain_id, actor=user.user_id, reason=req.reason
         )
     except TenantNotFoundError as exc:
         raise HTTPException(
@@ -190,6 +203,89 @@ async def hard_delete_tenant(
                 "error": "tenant_must_be_archived",
                 "current_status": exc.status,
             },
+        ) from exc
+    return rec.to_dict()
+
+
+# ----------------------------------------------------------------------------
+# 도메인 멤버십 관리 (ADR-022 §3·§4) — admin/platform_admin 전역.
+# 특수(assigned) 도메인에 일반 user를 배정·해제. user_id는 AuthFusion sub.
+# ----------------------------------------------------------------------------
+
+
+class AssignMemberRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=255)
+    clearance: str = "internal"
+    department: str | None = None
+    domain_groups: list[str] = Field(default_factory=list)
+
+
+class EnrollmentPolicyRequest(BaseModel):
+    enrollment_policy: str = Field(..., pattern="^(open|assigned)$")
+
+
+@router.get("/domains/{domain_id}/members")
+async def list_domain_members(
+    domain_id: str,
+    user: UserContext = Depends(require_global_admin),
+    membership=Depends(get_membership_service),
+):
+    """ADR-022 §3 — 도메인에 배정된 사용자 목록 (admin 도메인 관리 화면)."""
+    items = await membership.list_for_tenant(domain_id)
+    return {"domain_id": domain_id, "members": items}
+
+
+@router.post("/domains/{domain_id}/members", status_code=201)
+async def assign_domain_member(
+    domain_id: str,
+    req: AssignMemberRequest,
+    user: UserContext = Depends(require_global_admin),
+    membership=Depends(get_membership_service),
+):
+    """ADR-022 §4 — 특수 도메인에 사용자 배정(또는 clearance 갱신). upsert."""
+    rec = await membership.assign(
+        user_id=req.user_id,
+        domain_id=domain_id,
+        clearance=req.clearance,
+        department=req.department,
+        domain_groups=req.domain_groups,
+    )
+    return rec
+
+
+@router.delete("/domains/{domain_id}/members/{user_id}")
+async def revoke_domain_member(
+    domain_id: str,
+    user_id: str,
+    user: UserContext = Depends(require_global_admin),
+    membership=Depends(get_membership_service),
+):
+    """ADR-022 §4 — 도메인 접근 해제 (soft: is_active=false)."""
+    ok = await membership.revoke(user_id=user_id, domain_id=domain_id)
+    if not ok:
+        raise HTTPException(
+            status_code=404, detail={"error": "membership_not_found"}
+        )
+    return {"revoked": True, "domain_id": domain_id, "user_id": user_id}
+
+
+@router.patch("/domains/{domain_id}/enrollment-policy")
+async def set_domain_enrollment_policy(
+    domain_id: str,
+    req: EnrollmentPolicyRequest,
+    user: UserContext = Depends(require_global_admin),
+    service=Depends(get_tenant_lifecycle_service),
+):
+    """ADR-022 §4 — 도메인 가입 정책 변경 (open|assigned)."""
+    try:
+        rec = await service.set_enrollment_policy(
+            domain_id=domain_id,
+            enrollment_policy=req.enrollment_policy,
+            actor=user.user_id,
+        )
+    except TenantNotFoundError as exc:
+        raise HTTPException(
+            status_code=404, detail={"error": "tenant_not_found"}
         ) from exc
     return rec.to_dict()
 
@@ -256,9 +352,9 @@ async def cross_tenant_usage(
         writer = rag._deps.chat_log_writer  # type: ignore[attr-defined]
         by_tenant: dict[str, dict[str, Any]] = {}
         for rec in writer.records:
-            t = rec.tenant_id
+            t = rec.domain_id
             entry = by_tenant.setdefault(
-                t, {"tenant_id": t, "messages": 0, "fallbacks": 0,
+                t, {"domain_id": t, "messages": 0, "fallbacks": 0,
                      "avg_latency_ms": 0.0, "_latencies": []},
             )
             entry["messages"] += 1
@@ -283,12 +379,12 @@ async def cross_tenant_usage(
             await session.execute(
                 text(
                     """
-                    SELECT tenant_id,
+                    SELECT domain_id,
                            COUNT(*) AS messages,
                            COUNT(*) FILTER (WHERE fallback_reason IS NOT NULL) AS fallbacks,
                            COALESCE(AVG(latency_ms), 0) AS avg_latency_ms
                       FROM chat_logs
-                     GROUP BY tenant_id
+                     GROUP BY domain_id
                      ORDER BY messages DESC
                     """
                 )
@@ -297,7 +393,7 @@ async def cross_tenant_usage(
     return {
         "items": [
             {
-                "tenant_id": r[0],
+                "domain_id": r[0],
                 "messages": int(r[1] or 0),
                 "fallbacks": int(r[2] or 0),
                 "avg_latency_ms": round(float(r[3] or 0.0), 4),
@@ -425,11 +521,11 @@ class PiiApprovalRevokeRequest(BaseModel):
 
 
 @router.post(
-    "/tenants/{tenant_id}/pii-storage-approvals",
+    "/tenants/{domain_id}/pii-storage-approvals",
     status_code=201,
 )
 async def approve_plain_storage(
-    tenant_id: str,
+    domain_id: str,
     req: PiiApprovalRequest,
     user: UserContext = Depends(require_platform_admin),
     approval_service=Depends(get_pii_approval_service),
@@ -441,7 +537,7 @@ async def approve_plain_storage(
     """
     try:
         record = await approval_service.approve_plain(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             reason=req.reason,
             approved_by=user.user_id,
             valid_until=req.valid_until,
@@ -456,9 +552,9 @@ async def approve_plain_storage(
     return _approval_to_dict(record)
 
 
-@router.get("/tenants/{tenant_id}/pii-storage-approvals")
+@router.get("/tenants/{domain_id}/pii-storage-approvals")
 async def list_plain_storage_approvals(
-    tenant_id: str,
+    domain_id: str,
     page: int = 1,
     page_size: int = 50,
     user: UserContext = Depends(require_platform_admin),
@@ -469,7 +565,7 @@ async def list_plain_storage_approvals(
         raise HTTPException(status_code=400, detail={"error": "invalid_paging"})
     offset = (page - 1) * page_size
     rows = await approval_service.list_by_tenant(
-        tenant_id=tenant_id, limit=page_size, offset=offset
+        domain_id=domain_id, limit=page_size, offset=offset
     )
     return {
         "items": [_approval_to_dict(r) for r in rows],
@@ -478,9 +574,9 @@ async def list_plain_storage_approvals(
     }
 
 
-@router.delete("/tenants/{tenant_id}/pii-storage-approvals/active")
+@router.delete("/tenants/{domain_id}/pii-storage-approvals/active")
 async def revoke_plain_storage_approval(
-    tenant_id: str,
+    domain_id: str,
     req: PiiApprovalRevokeRequest,
     user: UserContext = Depends(require_platform_admin),
     approval_service=Depends(get_pii_approval_service),
@@ -488,7 +584,7 @@ async def revoke_plain_storage_approval(
     """ADR-020 §4 — active 승인 회수. 회수 즉시 RAGService config_loader가 mask로 복귀."""
     try:
         record = await approval_service.revoke_active(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             revoked_by=user.user_id,
             revoke_reason=req.reason,
         )

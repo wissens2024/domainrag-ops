@@ -17,7 +17,7 @@ export default function UsageAnalyticsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left">
-              <th className="p-2">tenant_id</th>
+              <th className="p-2">domain_id</th>
               <th className="p-2">messages</th>
               <th className="p-2">fallbacks</th>
               <th className="p-2">avg_latency_ms</th>
@@ -25,8 +25,8 @@ export default function UsageAnalyticsPage() {
           </thead>
           <tbody>
             {data.items.map((u) => (
-              <tr key={u.tenant_id} className="border-b">
-                <td className="p-2 font-mono text-xs">{u.tenant_id}</td>
+              <tr key={u.domain_id} className="border-b">
+                <td className="p-2 font-mono text-xs">{u.domain_id}</td>
                 <td className="p-2 text-xs">{u.messages.toLocaleString()}</td>
                 <td className="p-2 text-xs">{u.fallbacks.toLocaleString()}</td>
                 <td className="p-2 text-xs">{u.avg_latency_ms.toFixed(0)}</td>

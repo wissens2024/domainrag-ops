@@ -18,12 +18,12 @@
 #   step1 → tenants row 제거
 #
 # 사용법:
-#   ./tenant_register.sh <tenant_id> --display-name "..." --domain-type security ...
+#   ./tenant_register.sh <domain_id> --display-name "..." --domain-type security ...
 # ============================================================================
 
 set -euo pipefail
 
-TENANT_ID="${1:?tenant_id 필수}"
+TENANT_ID="${1:?domain_id 필수}"
 shift
 
 # 기본값
@@ -52,19 +52,19 @@ MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-domainrag}"
 MINIO_SECRET_KEY="${MINIO_SECRET_KEY:-changeme_minio_root}"
 MINIO_BUCKET="${MINIO_BUCKET:-domainrag}"
 
-echo "[tenant_register] tenant_id=$TENANT_ID display=$DISPLAY_NAME domain=$DOMAIN_TYPE modules=$MODULES"
+echo "[tenant_register] domain_id=$TENANT_ID display=$DISPLAY_NAME domain=$DOMAIN_TYPE modules=$MODULES"
 
 # ----------------------------------------------------------------------------
 # Y5 — Step 0: status 검증 — 존재하지 않을 때만 등록 진행
 # ----------------------------------------------------------------------------
-EXISTS=$(psql -X -A -t "$PG_ADMIN_DSN" -c "SELECT count(*) FROM tenants WHERE tenant_id='$TENANT_ID';" | tr -d '[:space:]')
+EXISTS=$(psql -X -A -t "$PG_ADMIN_DSN" -c "SELECT count(*) FROM tenants WHERE domain_id='$TENANT_ID';" | tr -d '[:space:]')
 if [[ "$EXISTS" != "0" ]]; then
   echo "[tenant_register] ERROR: tenant '$TENANT_ID' already exists. Use tenant_restore.sh for archived tenants." >&2
   exit 2
 fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
-  echo "[tenant_register] DRY_RUN — would register tenant_id=$TENANT_ID"
+  echo "[tenant_register] DRY_RUN — would register domain_id=$TENANT_ID"
   exit 0
 fi
 
@@ -88,7 +88,7 @@ rollback() {
   # ADR-021 §5 — dead-letter 누적
   psql -X "$PG_ADMIN_DSN" -c "
     INSERT INTO tenant_register_failures (
-        tenant_id, failed_step, error_message, rollback_succeeded, details
+        domain_id, failed_step, error_message, rollback_succeeded, details
     ) VALUES (
         '$TENANT_ID', '$FAILED_STEP', 'see operator console',
         $ROLLBACK_OK, '{}'::jsonb
@@ -143,10 +143,10 @@ fi
 CURRENT_STEP="step2_tenants_insert"
 echo "[Step 2] PostgreSQL tenants row INSERT..."
 psql -X "$PG_ADMIN_DSN" -c "
-  INSERT INTO tenants (tenant_id, display_name, domain_type, embedding_model, status, modules, created_at)
+  INSERT INTO tenants (domain_id, display_name, domain_type, embedding_model, status, modules, created_at)
   VALUES ('$TENANT_ID', '$DISPLAY_NAME', '$DOMAIN_TYPE', '$EMBEDDING_MODEL', 'active', ARRAY['$MODULES'], NOW());
 "
-add_rollback "psql -X \"$PG_ADMIN_DSN\" -c \"DELETE FROM tenants WHERE tenant_id='$TENANT_ID';\""
+add_rollback "psql -X \"$PG_ADMIN_DSN\" -c \"DELETE FROM tenants WHERE domain_id='$TENANT_ID';\""
 
 # ----------------------------------------------------------------------------
 # Step 2: configs/tenants/<id>/ 시드
@@ -216,10 +216,10 @@ fi
 CURRENT_STEP="step5_input_schema_seed"
 echo "[Step 5] tenant_input_schemas 시드..."
 psql -X "$PG_ADMIN_DSN" -c "
-  INSERT INTO tenant_input_schemas (tenant_id, schema_version, status, schema_yaml, created_at)
+  INSERT INTO tenant_input_schemas (domain_id, schema_version, status, schema_yaml, created_at)
   VALUES ('$TENANT_ID', 1, 'active', '{}'::jsonb, NOW());
 "
-add_rollback "psql -X \"$PG_ADMIN_DSN\" -c \"DELETE FROM tenant_input_schemas WHERE tenant_id='$TENANT_ID';\""
+add_rollback "psql -X \"$PG_ADMIN_DSN\" -c \"DELETE FROM tenant_input_schemas WHERE domain_id='$TENANT_ID';\""
 
 # ----------------------------------------------------------------------------
 # Step 6: NOTIFY tenant_lifecycle_changed (ADR-021 §2)
@@ -228,7 +228,7 @@ CURRENT_STEP="step6_notify"
 echo "[Step 6] pg_notify tenant_lifecycle_changed..."
 psql -X "$PG_ADMIN_DSN" -c "
   SELECT pg_notify('tenant_lifecycle_changed',
-    json_build_object('tenant_id', '$TENANT_ID',
+    json_build_object('domain_id', '$TENANT_ID',
                       'old_status', NULL,
                       'new_status', 'active')::text);
 "
@@ -240,7 +240,7 @@ CURRENT_STEP="step7_lifecycle_log"
 echo "[Step 7] tenant_lifecycle_logs INSERT..."
 psql -X "$PG_ADMIN_DSN" -c "
   INSERT INTO tenant_lifecycle_logs (
-      tenant_id, action, from_state, to_state, actor, reason, details
+      domain_id, action, from_state, to_state, actor, reason, details
   ) VALUES (
       '$TENANT_ID', 'tenant_registered', NULL, 'active',
       'tenant_register.sh', 'new tenant',

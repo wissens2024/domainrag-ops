@@ -35,7 +35,7 @@ class EvalCaseResult:
 
     case_id: str
     question: str
-    tenant_id: str
+    domain_id: str
 
     # 산출
     retrieved_chunk_ids: list[str] = field(default_factory=list)
@@ -119,12 +119,12 @@ class EvalRunner:
             graph = build_chat_structured_full(self._deps)
             state = RAGState(
                 request_id=f"eval-{case.case_id}",
-                tenant_id=case.tenant_id,
+                domain_id=case.domain_id,
                 user_id=case.user_context.get("user_id", "eval-user"),
                 question=case.question,
                 user_context=case.user_context or {
                     "user_id": "eval-user",
-                    "tenant_id": case.tenant_id,
+                    "domain_id": case.domain_id,
                     "clearance": "internal",
                     "department": None,
                     "domain_groups": [],
@@ -180,7 +180,7 @@ def _build_case_result(case: EvalCase, state: dict) -> EvalCaseResult:
     return EvalCaseResult(
         case_id=case.case_id,
         question=case.question,
-        tenant_id=case.tenant_id,
+        domain_id=case.domain_id,
         retrieved_chunk_ids=list(retrieved),
         cited_chunk_ids=list(cited),
         answer_segments=list(answer_segments),

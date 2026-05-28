@@ -11,7 +11,7 @@ class UserContext:
     """ADR-018 §5."""
 
     user_id: str
-    tenant_id: str
+    domain_id: str
     roles: list[str] = field(default_factory=list)
     clearance: str = "internal"
     department: str | None = None
@@ -29,5 +29,5 @@ class AuthAdapter(Protocol):
     """ADR-008 §7 Protocol stub의 구체 인터페이스."""
 
     async def verify_and_extract(
-        self, bearer_token: str, expected_tenant_id: str
+        self, bearer_token: str, expected_domain_id: str
     ) -> UserContext: ...

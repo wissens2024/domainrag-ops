@@ -39,7 +39,7 @@ logger = structlog.get_logger(__name__)
 
 @dataclass
 class ReverifyJobSummary:
-    tenant_id: str
+    domain_id: str
     from_date: datetime | None
     to_date: datetime | None
     scanned: int = 0
@@ -61,25 +61,25 @@ class ChatLogCitationUpdater:
     async def update(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         request_id: str,
         citations: list[dict[str, Any]],
         verifier_metrics: dict[str, Any],
     ) -> int:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             result = await session.execute(
                 text(
                     """
                     UPDATE chat_logs
                        SET citations = CAST(:citations AS JSONB),
                            verifier_metrics = CAST(:verifier_metrics AS JSONB)
-                     WHERE tenant_id = :tenant_id
+                     WHERE domain_id = :domain_id
                        AND request_id = :request_id
                     """
                 ),
                 {
-                    "tenant_id": tenant_id,
+                    "domain_id": domain_id,
                     "request_id": request_id,
                     "citations": json.dumps(citations, ensure_ascii=False, default=str),
                     "verifier_metrics": json.dumps(
@@ -100,14 +100,14 @@ class InMemoryChatLogCitationUpdater:
     async def update(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         request_id: str,
         citations: list[dict[str, Any]],
         verifier_metrics: dict[str, Any],
     ) -> int:
         affected = 0
         for rec in self._writer.records:
-            if rec.tenant_id == tenant_id and rec.request_id == request_id:
+            if rec.domain_id == domain_id and rec.request_id == request_id:
                 rec.citations = list(citations)
                 rec.verifier_metrics = dict(verifier_metrics)
                 affected += 1
@@ -140,7 +140,7 @@ class CitationReverifyService:
     async def reverify(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         actor: str | None,
         from_date: datetime | None,
         to_date: datetime | None,
@@ -148,7 +148,7 @@ class CitationReverifyService:
         max_records: int = 100,
     ) -> ReverifyJobSummary:
         summary = ReverifyJobSummary(
-            tenant_id=tenant_id, from_date=from_date, to_date=to_date
+            domain_id=domain_id, from_date=from_date, to_date=to_date
         )
         reverifier = CitationReverifier(
             embedder=self._embedder, thresholds=thresholds
@@ -161,7 +161,7 @@ class CitationReverifyService:
         while summary.scanned < max_records:
             page_size = min(20, max_records - summary.scanned)
             result = await self._reader.list_by_tenant(
-                tenant_id=tenant_id, filters=filters,
+                domain_id=domain_id, filters=filters,
                 page=page, page_size=page_size,
             )
             if not result.items:
@@ -193,7 +193,7 @@ class CitationReverifyService:
                 new_verifier["reverified_by"] = actor
 
                 applied = await self._updater.update(
-                    tenant_id=tenant_id,
+                    domain_id=domain_id,
                     request_id=record.request_id,
                     citations=out.citations_after,
                     verifier_metrics=new_verifier,
@@ -230,17 +230,17 @@ class CitationReverifyService:
                     text(
                         """
                         INSERT INTO tenant_lifecycle_logs (
-                            tenant_id, action, from_state, to_state, actor,
+                            domain_id, action, from_state, to_state, actor,
                             reason, details
                         )
                         VALUES (
-                            :tenant_id, 'citation_inspector_reverified',
+                            :domain_id, 'citation_inspector_reverified',
                             NULL, NULL, :actor, NULL, CAST(:details AS JSONB)
                         )
                         """
                     ),
                     {
-                        "tenant_id": summary.tenant_id,
+                        "domain_id": summary.domain_id,
                         "actor": actor,
                         "details": json.dumps(
                             {

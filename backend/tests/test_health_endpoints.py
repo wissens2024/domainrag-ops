@@ -12,7 +12,7 @@ from app.main import app
 def _platform_admin_user() -> UserContext:
     return UserContext(
         user_id="ops-001",
-        tenant_id="platform",
+        domain_id="platform",
         roles=["PLATFORM_ADMIN"],
         clearance="top_secret",
     )
@@ -21,7 +21,7 @@ def _platform_admin_user() -> UserContext:
 def _regular_admin_user() -> UserContext:
     return UserContext(
         user_id="admin-001",
-        tenant_id="security",
+        domain_id="security",
         roles=["ADMIN"],
         clearance="restricted",
     )
@@ -82,10 +82,10 @@ def test_platform_health_metrics_returns_failure_buckets():
     reset_chat_log_failure_metrics()
     # 가짜 실패 1건씩 누적
     LEDGER_DEAD_LETTERS.append(
-        {"event_type": "auth_failure", "tenant_id": "t1", "error": "x"}
+        {"event_type": "auth_failure", "domain_id": "t1", "error": "x"}
     )
     CHAT_LOG_WRITE_DEAD_LETTERS.append(
-        {"tenant_id": "t1", "request_id": "r1", "exc_type": "RuntimeError"}
+        {"domain_id": "t1", "request_id": "r1", "exc_type": "RuntimeError"}
     )
 
     app.dependency_overrides[get_user_context] = _platform_admin_user

@@ -73,7 +73,7 @@ _STREAMING_YAML = "configs/platform/prompts/chat_streaming.yaml"
 def _user_context_to_dict(user: UserContext) -> dict[str, Any]:
     return {
         "user_id": user.user_id,
-        "tenant_id": user.tenant_id,
+        "domain_id": user.domain_id,
         "clearance": user.clearance,
         "department": user.department,
         "domain_groups": list(user.domain_groups),
@@ -143,7 +143,7 @@ class RAGService:
     async def chat_structured(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         user: UserContext,
         question: str,
         conversation_id: str | None,
@@ -163,7 +163,7 @@ class RAGService:
 
         state = RAGState(
             request_id=request_id,
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             user_id=user.user_id,
             conversation_id=conversation_id,
             question=question,
@@ -181,7 +181,7 @@ class RAGService:
         ):
             try:
                 await self._ledger.publish_pii_high_severity_block(
-                    tenant_id=tenant_id,
+                    domain_id=domain_id,
                     actor=user.user_id,
                     categories=list(out.get("blocked_categories") or []),
                     details={"request_id": request_id, "ui_mode": "chat_structured"},
@@ -191,7 +191,7 @@ class RAGService:
 
         return _build_chat_response(
             state=out,
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             conversation_id=conversation_id,
             message_id=message_id,
             latency_ms=latency_ms,
@@ -200,7 +200,7 @@ class RAGService:
     async def chat_streaming(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         user: UserContext,
         question: str,
         conversation_id: str | None,
@@ -215,9 +215,9 @@ class RAGService:
             await self._on_first_call()
             self._initialized = True
 
-        tenant_config_dict = await self._load_tenant_config(tenant_id)
+        tenant_config_dict = await self._load_tenant_config(domain_id)
         return self._streaming_service.stream(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             user_id=user.user_id,
             question=question,
             tenant_config=tenant_config_dict,
@@ -225,9 +225,9 @@ class RAGService:
             selected_model=self._default_model,
         )
 
-    async def _load_tenant_config(self, tenant_id: str) -> dict[str, Any]:
+    async def _load_tenant_config(self, domain_id: str) -> dict[str, Any]:
         loader = self._deps.config_loader
-        result = loader(tenant_id)
+        result = loader(domain_id)
         if hasattr(result, "__await__"):
             result = await result  # type: ignore[assignment]
         return dict(result or {})
@@ -241,7 +241,7 @@ class RAGService:
 def _build_chat_response(
     *,
     state: dict[str, Any],
-    tenant_id: str,
+    domain_id: str,
     conversation_id: str,
     message_id: str,
     latency_ms: int,
@@ -292,7 +292,7 @@ def _build_chat_response(
         elif fallback_reason == "ui_mode_streaming_required":
             fallback_block = {
                 "reason": fallback_reason,
-                "redirect_to_endpoint": f"/api/{tenant_id}/chat/stream",
+                "redirect_to_endpoint": f"/api/{domain_id}/chat/stream",
                 "suggested_actions": [
                     "이 질문은 streaming 모드로 라우팅되었습니다.",
                     "/chat/stream 엔드포인트로 다시 요청해 주세요.",
@@ -335,8 +335,8 @@ def _build_chat_response(
 # --------------------------------------------------------------------------- #
 
 
-def _config_loader_from_tenant_config_service(tenant_id: str) -> dict[str, Any]:
-    return _config_to_dict(TenantConfigService.load(tenant_id))
+def _config_loader_from_tenant_config_service(domain_id: str) -> dict[str, Any]:
+    return _config_to_dict(TenantConfigService.load(domain_id))
 
 
 def _build_config_loader_with_pii_approval(approval_service):
@@ -346,9 +346,9 @@ def _build_config_loader_with_pii_approval(approval_service):
     loader는 매 요청마다 active 승인 여부를 조회해 config 트리에 심는다.
     """
 
-    async def _loader(tenant_id: str) -> dict[str, Any]:
-        cfg = _config_to_dict(TenantConfigService.load(tenant_id))
-        approved = await approval_service.is_plain_approved(tenant_id)
+    async def _loader(domain_id: str) -> dict[str, Any]:
+        cfg = _config_to_dict(TenantConfigService.load(domain_id))
+        approved = await approval_service.is_plain_approved(domain_id)
         pii_section = cfg.setdefault("pii", {})
         storage_section = pii_section.setdefault("storage", {})
         storage_section["plain_approved"] = approved
@@ -377,8 +377,8 @@ def _build_prompt_provider(fallback: GenerationPrompt):
     self._prompt(=fallback)으로 fallback.
     """
 
-    def _provider(tenant_id: str | None) -> GenerationPrompt | None:
-        if tenant_id is None:
+    def _provider(domain_id: str | None) -> GenerationPrompt | None:
+        if domain_id is None:
             return None
         # PromptStudioService는 backend deps singleton. 순환 import 회피 위해 lazy.
         try:
@@ -388,7 +388,7 @@ def _build_prompt_provider(fallback: GenerationPrompt):
             svc = get_prompt_studio_service(_gs())
         except Exception:  # noqa: BLE001
             return None
-        record = svc.get_prompt(tenant_id, "chat_answer")
+        record = svc.get_prompt(domain_id, "chat_answer")
         if record is None:
             return None
         return GenerationPrompt(
@@ -633,7 +633,7 @@ def _build_inmemory_service(
     llm = InMemoryLLMClient(responses=[fixed_llm_response])
 
     async def _seed() -> None:
-        await vector_store.create_collection(tenant_id="security", dense_dim=64)
+        await vector_store.create_collection(domain_id="security", dense_dim=64)
         seeds = [
             ("c1", "패스워드는 12자 이상이어야 합니다",
              {"approval_status": "approved", "security_level": "internal",
@@ -652,7 +652,7 @@ def _build_inmemory_service(
             points.append(
                 {"id": cid, "dense_vector": d, "sparse_vector": s, "payload": payload}
             )
-        await vector_store.upsert_chunks(tenant_id="security", points=points)
+        await vector_store.upsert_chunks(domain_id="security", points=points)
 
     retrieval = RetrievalService(
         embedder=embedder, vector_store=vector_store, reranker=reranker
@@ -682,9 +682,9 @@ def _build_inmemory_service(
 
     inmemory_approval_service = pii_approval_service or InMemoryPiiStorageApprovalService()
 
-    async def _inmemory_config_loader(tenant_id: str) -> dict[str, Any]:
+    async def _inmemory_config_loader(domain_id: str) -> dict[str, Any]:
         # InMemory cosine 분포에 맞춘 임계 — 운영(citation.yaml)은 strong=0.75/medium=0.55.
-        cfg = _config_to_dict(TenantConfigService.load(tenant_id))
+        cfg = _config_to_dict(TenantConfigService.load(domain_id))
         citation = cfg.setdefault("citation", {})
         citation.setdefault("verification", {}).setdefault("tier2", {})[
             "thresholds"
@@ -699,7 +699,7 @@ def _build_inmemory_service(
             "max_unsupported_ratio": 0.5,
             "min_confidence": 0.3,
         }
-        approved = await inmemory_approval_service.is_plain_approved(tenant_id)
+        approved = await inmemory_approval_service.is_plain_approved(domain_id)
         pii_section = cfg.setdefault("pii", {})
         pii_section.setdefault("storage", {})["plain_approved"] = approved
         return cfg

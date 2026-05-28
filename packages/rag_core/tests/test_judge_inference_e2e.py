@@ -42,7 +42,7 @@ REPO = Path(__file__).resolve().parents[3]
 async def populated_corpus():
     store = InMemoryVectorStore()
     embedder = InMemoryEmbedder(dense_dim=64)
-    await store.create_collection(tenant_id="security", dense_dim=64)
+    await store.create_collection(domain_id="security", dense_dim=64)
     docs = [
         ("c1", "패스워드는 12자 이상이어야 합니다",
          {"approval_status": "approved", "security_level": "internal",
@@ -59,13 +59,13 @@ async def populated_corpus():
     for cid, text, payload in docs:
         d, s = await embedder.embed_query(text)
         points.append({"id": cid, "dense_vector": d, "sparse_vector": s, "payload": payload})
-    await store.upsert_chunks(tenant_id="security", points=points)
+    await store.upsert_chunks(domain_id="security", points=points)
     return store, embedder
 
 
 def _user() -> dict:
     return {
-        "user_id": "u1", "tenant_id": "security",
+        "user_id": "u1", "domain_id": "security",
         "clearance": "confidential", "department": "security",
         "domain_groups": ["group:security"], "roles": ["USER"],
     }
@@ -151,7 +151,7 @@ async def test_inference_passes_judge_capped_at_medium(populated_corpus):
         InMemoryLLMClient(responses=[judge_response]),
     )
     graph = build_chat_structured_full(deps)
-    state = RAGState(request_id="r1", tenant_id="security", user_id="u1",
+    state = RAGState(request_id="r1", domain_id="security", user_id="u1",
                      question="패스워드 정책은?", user_context=_user())
     result = await graph.ainvoke(state)
 
@@ -197,7 +197,7 @@ async def test_inference_rejected_by_judge(populated_corpus):
         InMemoryLLMClient(responses=[judge_response]),
     )
     graph = build_chat_structured_full(deps)
-    state = RAGState(request_id="r2", tenant_id="security", user_id="u1",
+    state = RAGState(request_id="r2", domain_id="security", user_id="u1",
                      question="패스워드 정책은?", user_context=_user())
     result = await graph.ainvoke(state)
 
@@ -236,7 +236,7 @@ async def test_inference_low_confidence_below_threshold_rejected(populated_corpu
         InMemoryLLMClient(responses=[judge_response]),
     )
     graph = build_chat_structured_full(deps)
-    state = RAGState(request_id="r3", tenant_id="security", user_id="u1",
+    state = RAGState(request_id="r3", domain_id="security", user_id="u1",
                      question="패스워드 정책은?", user_context=_user())
     result = await graph.ainvoke(state)
 
@@ -269,7 +269,7 @@ async def test_inference_tier2_weak_chunk_skipped_before_judge(populated_corpus)
         judge_llm,
     )
     graph = build_chat_structured_full(deps)
-    state = RAGState(request_id="r4", tenant_id="security", user_id="u1",
+    state = RAGState(request_id="r4", domain_id="security", user_id="u1",
                      question="패스워드 정책은?", user_context=_user())
     result = await graph.ainvoke(state)
 
@@ -309,7 +309,7 @@ async def test_judge_disabled_keeps_old_downgrade_path(populated_corpus):
     deps.config_loader = _cfg
 
     graph = build_chat_structured_full(deps)
-    state = RAGState(request_id="r5", tenant_id="security", user_id="u1",
+    state = RAGState(request_id="r5", domain_id="security", user_id="u1",
                      question="패스워드 정책은?", user_context=_user())
     result = await graph.ainvoke(state)
     assert "inference" not in result["citation_types"]

@@ -18,17 +18,17 @@ class PostgresAssessmentLogger:
 
     async def write(self, payload: AssessmentLogPayload) -> None:
         async with self._sf() as session:
-            await set_tenant_context(session, payload.tenant_id)
+            await set_tenant_context(session, payload.domain_id)
             await session.execute(
                 text(
                     """
                     INSERT INTO assessment_logs (
-                        tenant_id, request_id, action, criteria,
+                        domain_id, request_id, action, criteria,
                         result_summary, validator_summary, similarity_results,
                         latency_ms, actor
                     )
                     VALUES (
-                        :tenant_id, :request_id, :action,
+                        :domain_id, :request_id, :action,
                         CAST(:criteria AS JSONB),
                         CAST(:result_summary AS JSONB),
                         CAST(:validator_summary AS JSONB),
@@ -38,7 +38,7 @@ class PostgresAssessmentLogger:
                     """
                 ),
                 {
-                    "tenant_id": payload.tenant_id,
+                    "domain_id": payload.domain_id,
                     "request_id": payload.request_id,
                     "action": payload.action,
                     "criteria": json.dumps(payload.criteria, ensure_ascii=False, default=str),

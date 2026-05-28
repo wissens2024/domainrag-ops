@@ -20,9 +20,9 @@ class PiiStorageApproval(Base):
         primary_key=True,
         server_default=func.gen_random_uuid(),
     )
-    tenant_id: Mapped[str] = mapped_column(
+    domain_id: Mapped[str] = mapped_column(
         String(64),
-        ForeignKey("tenants.tenant_id", ondelete="CASCADE"),
+        ForeignKey("tenants.domain_id", ondelete="CASCADE"),
         nullable=False,
     )
     policy: Mapped[str] = mapped_column(

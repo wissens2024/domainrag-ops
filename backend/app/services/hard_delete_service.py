@@ -42,7 +42,7 @@ ChatLogsAction = Literal["keep_excerpts", "mask_excerpts", "delete_logs"]
 
 @dataclass
 class HardDeleteResult:
-    tenant_id: str
+    domain_id: str
     doc_id: str
     version: str | None
     removed_chunks: int
@@ -83,7 +83,7 @@ class HardDeleteService:
     async def execute(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str | None = None,
         actor: str,
@@ -91,7 +91,7 @@ class HardDeleteService:
         chat_logs_action: ChatLogsAction = "keep_excerpts",
     ) -> HardDeleteResult:
         result = HardDeleteResult(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             doc_id=doc_id,
             version=version,
             removed_chunks=0,
@@ -104,7 +104,7 @@ class HardDeleteService:
         # 1) chunks DELETE
         try:
             chunk_ids = await self._chunks.delete_by_doc(
-                tenant_id=tenant_id, doc_id=doc_id, doc_version=version
+                domain_id=domain_id, doc_id=doc_id, doc_version=version
             )
             result.removed_chunks = len(chunk_ids)
         except Exception as exc:  # noqa: BLE001
@@ -117,7 +117,7 @@ class HardDeleteService:
         if chunk_ids:
             try:
                 await self._vs.delete_points(
-                    tenant_id=tenant_id, chunk_ids=chunk_ids
+                    domain_id=domain_id, chunk_ids=chunk_ids
                 )
             except Exception as exc:  # noqa: BLE001
                 result.dead_letters.append(
@@ -127,7 +127,7 @@ class HardDeleteService:
         # 3) Storage
         try:
             result.removed_storage_files = await self._storage.delete(
-                tenant_id=tenant_id, doc_id=doc_id, version=version
+                domain_id=domain_id, doc_id=doc_id, version=version
             )
         except Exception as exc:  # noqa: BLE001
             result.dead_letters.append(
@@ -137,7 +137,7 @@ class HardDeleteService:
         # 4) documents DELETE
         try:
             result.removed_documents = await self._docs.delete(
-                tenant_id=tenant_id, doc_id=doc_id, version=version
+                domain_id=domain_id, doc_id=doc_id, version=version
             )
         except Exception as exc:  # noqa: BLE001
             result.dead_letters.append(
@@ -146,18 +146,18 @@ class HardDeleteService:
 
         # 5) chat_logs 처리
         result.affected_chat_logs = await self._handle_chat_logs(
-            tenant_id=tenant_id, doc_id=doc_id, action=chat_logs_action
+            domain_id=domain_id, doc_id=doc_id, action=chat_logs_action
         )
 
         # 6) audit (tenant_lifecycle_logs)
         await self._audit(
-            tenant_id=tenant_id, actor=actor, reason=reason, result=result
+            domain_id=domain_id, actor=actor, reason=reason, result=result
         )
         # 7) AuthFusion Ledger publish (ADR-020 §8). 실패는 swallow.
         if self._ledger is not None:
             try:
                 await self._ledger.publish_hard_delete(
-                    tenant_id=tenant_id,
+                    domain_id=domain_id,
                     actor=actor,
                     reason=reason,
                     doc_id=doc_id,
@@ -177,7 +177,7 @@ class HardDeleteService:
     async def _handle_chat_logs(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         action: ChatLogsAction,
     ) -> int:
@@ -185,23 +185,23 @@ class HardDeleteService:
             return 0
         if self._chat_logs_handler is not None:
             return await self._chat_logs_handler.apply(
-                tenant_id=tenant_id, doc_id=doc_id, action=action
+                domain_id=domain_id, doc_id=doc_id, action=action
             )
         if self._app is None:
             return 0
         async with self._app() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             if action == "delete_logs":
                 result = await session.execute(
                     text(
                         """
                         DELETE FROM chat_logs
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                            AND citations @> CAST(:doc_filter AS JSONB)
                         """
                     ),
                     {
-                        "tenant_id": tenant_id,
+                        "domain_id": domain_id,
                         "doc_filter": json.dumps([{"doc_id": doc_id}]),
                     },
                 )
@@ -215,7 +215,7 @@ class HardDeleteService:
                         WITH affected AS (
                             SELECT id, created_at, citations
                               FROM chat_logs
-                             WHERE tenant_id = :tenant_id
+                             WHERE domain_id = :domain_id
                                AND citations @> CAST(:doc_filter AS JSONB)
                         ),
                         masked AS (
@@ -238,7 +238,7 @@ class HardDeleteService:
                         """
                     ),
                     {
-                        "tenant_id": tenant_id,
+                        "domain_id": domain_id,
                         "doc_id": doc_id,
                         "doc_filter": json.dumps([{"doc_id": doc_id}]),
                     },
@@ -254,7 +254,7 @@ class HardDeleteService:
     async def _audit(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         actor: str,
         reason: str,
         result: HardDeleteResult,
@@ -262,21 +262,21 @@ class HardDeleteService:
         if self._admin is None:
             return
         async with self._admin() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             await session.execute(
                 text(
                     """
                     INSERT INTO tenant_lifecycle_logs (
-                        tenant_id, action, from_state, to_state, actor, reason, details
+                        domain_id, action, from_state, to_state, actor, reason, details
                     )
                     VALUES (
-                        :tenant_id, 'document_hard_deleted',
+                        :domain_id, 'document_hard_deleted',
                         NULL, NULL, :actor, :reason, CAST(:details AS JSONB)
                     )
                     """
                 ),
                 {
-                    "tenant_id": tenant_id,
+                    "domain_id": domain_id,
                     "actor": actor,
                     "reason": reason,
                     "details": json.dumps(
@@ -315,7 +315,7 @@ class InMemoryChatLogsActionHandler:
     async def apply(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         action: ChatLogsAction,
     ) -> int:
@@ -324,7 +324,7 @@ class InMemoryChatLogsActionHandler:
         affected = 0
         kept = []
         for rec in self._writer.records:
-            if rec.tenant_id != tenant_id:
+            if rec.domain_id != domain_id:
                 kept.append(rec)
                 continue
             citations = list(rec.citations or [])

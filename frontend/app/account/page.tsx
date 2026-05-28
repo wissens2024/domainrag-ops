@@ -21,7 +21,7 @@ export default function ProfilePage() {
     { label: '사용자 ID', value: user.user_id, mono: true },
     { label: '이름', value: user.preferred_username },
     { label: '이메일', value: user.email },
-    { label: '소속 tenant', value: user.tenant_id },
+    { label: '소속 tenant', value: user.domain_id },
     { label: '부서', value: user.department },
     { label: '보안 등급', value: user.clearance },
   ];

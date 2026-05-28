@@ -14,13 +14,13 @@ class VectorStore(Protocol):
     """
 
     async def create_collection(
-        self, *, tenant_id: str, dense_dim: int, with_sparse: bool = True
+        self, *, domain_id: str, dense_dim: int, with_sparse: bool = True
     ) -> None: ...
 
     async def upsert_chunks(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         points: list[dict[str, Any]],
     ) -> None:
         """points = [{id, dense_vector, sparse_vector, payload}, ...]"""
@@ -29,7 +29,7 @@ class VectorStore(Protocol):
     async def hybrid_query(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         dense_query: list[float],
         sparse_query: dict[int, float],
         acl_filter: dict,
@@ -41,17 +41,17 @@ class VectorStore(Protocol):
     async def set_payload(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         chunk_ids: list[str],
         payload: dict,
     ) -> None:
         """ADR-007/012 metadata-only 갱신."""
         ...
 
-    async def delete_collection(self, tenant_id: str) -> None: ...
+    async def delete_collection(self, domain_id: str) -> None: ...
 
     async def delete_points(
-        self, *, tenant_id: str, chunk_ids: list[str]
+        self, *, domain_id: str, chunk_ids: list[str]
     ) -> None:
         """ADR-007/012 hard delete — collection은 유지하고 특정 chunk만 제거."""
         ...

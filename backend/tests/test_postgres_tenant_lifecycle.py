@@ -89,10 +89,10 @@ async def test_register_executes_insert_and_returns_record():
         ledger_audit=ledger,
     )
     out = await svc.register(
-        tenant_id="legal", display_name="법무",
+        domain_id="legal", display_name="법무",
         domain_type="legal", modules=["rag"], actor="platform-admin-1",
     )
-    assert out.tenant_id == "legal"
+    assert out.domain_id == "legal"
     assert out.status == "active"
     sqls = " | ".join(s for s, _ in rec.statements)
     assert "INSERT INTO tenants" in sqls
@@ -125,7 +125,7 @@ async def test_register_duplicate_raises_conflict():
     )
     with pytest.raises(TenantConflictError):
         await svc.register(
-            tenant_id="legal", display_name="법무", actor="x",
+            domain_id="legal", display_name="법무", actor="x",
         )
 
 
@@ -148,12 +148,12 @@ async def test_get_returns_record_when_present():
     sf = _factory(rec, {
         "SELECT display_name": [
             ("Legal", "legal", "bge-m3", "idle", "active",
-             ["rag"], now, now, None, None)
+             ["rag"], now, now, None, None, "assigned")
         ],
     })
     svc = PostgresTenantLifecycleService(admin_session_factory=sf)
     out = await svc.get("legal")
-    assert out.tenant_id == "legal"
+    assert out.domain_id == "legal"
     assert out.display_name == "Legal"
     assert out.status == "active"
 
@@ -164,7 +164,7 @@ async def test_update_status_validates_transition():
     sf = _factory(rec, {
         "SELECT display_name": [
             ("Legal", None, "bge-m3", "idle", "active",
-             ["rag"], now, now, None, None)
+             ["rag"], now, now, None, None, "assigned")
         ],
     })
     ledger = _RecordingLedger()
@@ -173,7 +173,7 @@ async def test_update_status_validates_transition():
     )
     # active → suspended는 허용
     out = await svc.update_status(
-        tenant_id="legal", to_status="suspended", actor="root",
+        domain_id="legal", to_status="suspended", actor="root",
     )
     assert out.status == "suspended"
     sqls = " | ".join(s for s, _ in rec.statements)
@@ -187,13 +187,13 @@ async def test_update_status_invalid_raises():
     sf = _factory(rec, {
         "SELECT display_name": [
             ("Legal", None, "bge-m3", "idle", "active",
-             ["rag"], now, now, None, None)
+             ["rag"], now, now, None, None, "assigned")
         ],
     })
     svc = PostgresTenantLifecycleService(admin_session_factory=sf)
     with pytest.raises(InvalidStatusTransitionError):
         await svc.update_status(
-            tenant_id="legal", to_status="deleted", actor="root",
+            domain_id="legal", to_status="deleted", actor="root",
         )
 
 
@@ -208,12 +208,12 @@ async def test_hard_delete_requires_archived_status():
     sf = _factory(rec, {
         "SELECT display_name": [
             ("Legal", None, "bge-m3", "idle", "active",
-             ["rag"], now, now, None, None)
+             ["rag"], now, now, None, None, "assigned")
         ],
     })
     svc = PostgresTenantLifecycleService(admin_session_factory=sf)
     with pytest.raises(TenantNotArchivedError) as exc:
-        await svc.hard_delete(tenant_id="legal", actor="root", reason="x")
+        await svc.hard_delete(domain_id="legal", actor="root", reason="x")
     assert exc.value.status == "active"
 
 
@@ -221,16 +221,16 @@ class _RecordingVectorStore:
     def __init__(self):
         self.deleted: list[str] = []
 
-    async def delete_collection(self, tenant_id: str) -> None:
-        self.deleted.append(tenant_id)
+    async def delete_collection(self, domain_id: str) -> None:
+        self.deleted.append(domain_id)
 
 
 class _RecordingStorage:
     def __init__(self):
         self.deleted: list[tuple[str, str]] = []
 
-    async def delete(self, *, tenant_id: str, doc_id: str, version=None):
-        self.deleted.append((tenant_id, doc_id))
+    async def delete(self, *, domain_id: str, doc_id: str, version=None):
+        self.deleted.append((domain_id, doc_id))
         return 0
 
 
@@ -243,7 +243,7 @@ async def test_hard_delete_runs_full_cross_system_when_archived():
         # 처음 1회 get → archived 상태
         "SELECT display_name": [
             ("Legal", None, "bge-m3", "idle", "archived",
-             ["rag"], now, now, None, None)
+             ["rag"], now, now, None, None, "assigned")
         ],
     })
     vs = _RecordingVectorStore()
@@ -254,7 +254,7 @@ async def test_hard_delete_runs_full_cross_system_when_archived():
         vector_store=vs, storage=storage, ledger_audit=ledger,
     )
     out = await svc.hard_delete(
-        tenant_id="legal", actor="platform-admin", reason="compliance"
+        domain_id="legal", actor="platform-admin", reason="compliance"
     )
     assert out.status == "deleted"
     assert out.delete_status == "completed"

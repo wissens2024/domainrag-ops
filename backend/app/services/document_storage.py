@@ -1,11 +1,11 @@
 """DocumentStorage — 업로드된 원본 파일의 영속화 (ADR-008/019 prefix-per-tenant).
 
 운영 (MinIOStorage):
-  bucket/{tenant_id}/{doc_id}/{version}/{filename} 으로 prefix-per-tenant 적재.
+  bucket/{domain_id}/{doc_id}/{version}/{filename} 으로 prefix-per-tenant 적재.
   반환되는 object_storage_path는 documents.object_storage_path 컬럼에 그대로 저장된다.
 
 로컬 dev / 테스트 (LocalFilesystemStorage):
-  base_dir/{tenant_id}/{doc_id}/{version}/{filename} 로 평문 저장. parser가 file_path를
+  base_dir/{domain_id}/{doc_id}/{version}/{filename} 로 평문 저장. parser가 file_path를
   바로 읽도록 절대 경로를 반환.
 
 Protocol 형태로 정의해 IndexingService와 분리. caller(API endpoint)가 storage.save를
@@ -36,7 +36,7 @@ class DocumentStorage(Protocol):
     async def save(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         filename: str,
@@ -46,7 +46,7 @@ class DocumentStorage(Protocol):
     async def delete(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str | None = None,
     ) -> int:
@@ -71,14 +71,14 @@ class LocalFilesystemStorage:
     async def save(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         filename: str,
         stream: IO[bytes],
     ) -> StoredDocument:
         safe_filename = os.path.basename(filename) or "upload.bin"
-        rel_dir = Path(tenant_id) / doc_id / version
+        rel_dir = Path(domain_id) / doc_id / version
         target_dir = self._base / rel_dir
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / safe_filename
@@ -98,15 +98,15 @@ class LocalFilesystemStorage:
     async def delete(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str | None = None,
     ) -> int:
         """파일 + 빈 디렉토리 cleanup. version None이면 doc_id 디렉토리 전체."""
         if version is None:
-            target = self._base / tenant_id / doc_id
+            target = self._base / domain_id / doc_id
         else:
-            target = self._base / tenant_id / doc_id / version
+            target = self._base / domain_id / doc_id / version
         if not target.exists():
             return 0
         count = 0
@@ -125,7 +125,7 @@ class LocalFilesystemStorage:
 class MinIOStorage:
     """MinIO put_object 기반 storage (ADR-008/019).
 
-    bucket/{tenant_id}/{doc_id}/{version}/{filename} layout. parser는 즉시 file_path를
+    bucket/{domain_id}/{doc_id}/{version}/{filename} layout. parser는 즉시 file_path를
     필요로 하므로 업로드 후 같은 layout으로 로컬 cache_dir에도 복사해 local_path를 제공.
     """
 
@@ -144,14 +144,14 @@ class MinIOStorage:
     async def save(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         filename: str,
         stream: IO[bytes],
     ) -> StoredDocument:
         safe_filename = os.path.basename(filename) or "upload.bin"
-        rel = Path(tenant_id) / doc_id / version / safe_filename
+        rel = Path(domain_id) / doc_id / version / safe_filename
         object_key = str(rel).replace("\\", "/")
 
         # 캐시 먼저 기록 (size 확정 + parser 즉시 접근용)
@@ -179,12 +179,12 @@ class MinIOStorage:
     async def delete(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str | None = None,
     ) -> int:
         """MinIO prefix 삭제 + 캐시 cleanup. version None이면 doc_id prefix 전체."""
-        prefix_parts = [tenant_id, doc_id]
+        prefix_parts = [domain_id, doc_id]
         if version is not None:
             prefix_parts.append(version)
         prefix = "/".join(prefix_parts) + "/"
@@ -204,9 +204,9 @@ class MinIOStorage:
 
         # 캐시도 cleanup (parser가 다시 안 읽도록)
         if version is None:
-            cache_target = self._cache / tenant_id / doc_id
+            cache_target = self._cache / domain_id / doc_id
         else:
-            cache_target = self._cache / tenant_id / doc_id / version
+            cache_target = self._cache / domain_id / doc_id / version
         if cache_target.exists():
             shutil.rmtree(cache_target, ignore_errors=True)
 

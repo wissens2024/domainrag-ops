@@ -1,4 +1,4 @@
-"""POST/GET/DELETE /api/platform/admin/tenants/{tenant_id}/pii-storage-approvals
+"""POST/GET/DELETE /api/platform/admin/tenants/{domain_id}/pii-storage-approvals
 + chat 흐름이 승인 상태를 반영하는지 검증 (ADR-020 §4).
 
 env: AUTH_MODE=mock + RAG_BACKEND=inmemory (conftest.py).
@@ -24,7 +24,7 @@ from app.main import app
 def _platform_admin_user() -> UserContext:
     return UserContext(
         user_id="platform-admin-001",
-        tenant_id="platform",
+        domain_id="platform",
         roles=["PLATFORM_ADMIN"],
         clearance="secret",
     )
@@ -33,7 +33,7 @@ def _platform_admin_user() -> UserContext:
 def _regular_user() -> UserContext:
     return UserContext(
         user_id="dev-user-001",
-        tenant_id="security",
+        domain_id="security",
         roles=["USER", "ADMIN"],
         clearance="confidential",
     )
@@ -63,7 +63,7 @@ def test_approve_plain_returns_201_and_records_audit():
         )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["tenant_id"] == "security"
+    assert body["domain_id"] == "security"
     assert body["policy"] == "plain"
     assert body["status"] == "active"
     assert body["approved_by"] == "platform-admin-001"
@@ -75,7 +75,7 @@ def test_approve_plain_returns_201_and_records_audit():
     settings = get_settings()
     approval_svc = get_pii_approval_service(settings)
     assert any(
-        e["action"] == "pii_storage_plain_approved" and e["tenant_id"] == "security"
+        e["action"] == "pii_storage_plain_approved" and e["domain_id"] == "security"
         for e in approval_svc.audit_events
     )
 
@@ -124,7 +124,7 @@ def test_revoke_active_returns_200_and_records_audit():
 
     approval_svc = get_pii_approval_service(get_settings())
     assert any(
-        e["action"] == "pii_storage_plain_revoked" and e["tenant_id"] == "security"
+        e["action"] == "pii_storage_plain_revoked" and e["domain_id"] == "security"
         for e in approval_svc.audit_events
     )
 
@@ -198,8 +198,8 @@ def test_chat_uses_mask_until_approval_granted():
     # _build_inmemory_service 내부 loader가 approval_svc로 결정).
     original_loader = rag._deps.config_loader  # type: ignore[attr-defined]
 
-    async def _patched(tenant_id: str):
-        cfg = original_loader(tenant_id)
+    async def _patched(domain_id: str):
+        cfg = original_loader(domain_id)
         if hasattr(cfg, "__await__"):
             cfg = await cfg
         cfg.setdefault("pii", {}).setdefault("storage", {})[
@@ -229,7 +229,7 @@ def test_chat_uses_mask_until_approval_granted():
 
     asyncio.new_event_loop().run_until_complete(
         approval_svc.approve_plain(
-            tenant_id="security",
+            domain_id="security",
             reason="조사",
             approved_by="platform-admin-001",
         )

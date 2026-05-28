@@ -25,7 +25,7 @@ class RAGState:
     """LangGraph state (ADR-013 §9 + ADR-018·020 보강)."""
 
     request_id: str
-    tenant_id: str
+    domain_id: str
     user_id: str
     conversation_id: str | None = None
     question: str = ""
@@ -340,7 +340,7 @@ def build_chat_structured_slice(deps) -> Any:
     """chat_structured 우주왕복 1회 — 6개 노드 + fallback (ADR-013 §9 부분집합).
 
     입력 state 요건:
-      - tenant_id, user_id, question, user_context (dict)
+      - domain_id, user_id, question, user_context (dict)
     출력 state:
       - answer_segments, limitations, raw_response, gate1_metrics, final_contexts
         (Gate 1 fail이면 fallback path: answer_segments=fallback, fallback_reason 채움)

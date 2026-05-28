@@ -1,7 +1,7 @@
 # ADR-018: SSO Integration with AuthFusion (OIDC, client_id ≡ tenant_id)
 
 ## Status
-**Accepted** (2026-05-08)
+**Accepted** (2026-05-08) — **§1(client≡tenant)·§8(tenant 전환=재로그인)은 [ADR-022](./022-domain-terminology-and-access-model.md)로 Superseded** (2026-05-28). 운영은 공용 client 단일 + membership 기반 인가. 나머지 절(인증 흐름·JWT 검증·refresh·service account)은 유효.
 
 > 본 ADR은 ADR-008 §7의 AuthAdapter Protocol stub을 **외부 시스템 AuthFusion Platform과의 구체 OIDC 통합으로 완성**한다. ADR-008이 정의한 multi-tenant 격리·tenant_id 1차 분기 정책을 AuthFusion의 OAuth2 client 모델로 구현한다.
 

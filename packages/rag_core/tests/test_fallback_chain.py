@@ -37,7 +37,7 @@ def _prompt() -> GenerationPrompt:
 def _state(model: str = "tenant_slm", lora: str | None = "security-v1") -> RAGState:
     state = RAGState(
         request_id="r1",
-        tenant_id="security",
+        domain_id="security",
         user_id="u1",
         question="패스워드?",
     )

@@ -121,7 +121,7 @@ def test_platform_smoke_loader() -> None:
 
 def test_tenant_dataset_joins_citation_gold() -> None:
     ds = load_tenant_dataset(EVAL_ROOT, "security")
-    assert ds.tenant_id == "security"
+    assert ds.domain_id == "security"
     assert len(ds.cases) == 5
     by_id = {c.case_id: c for c in ds.cases}
     assert by_id["sec-qa-001"].expected_chunk_ids == ["c1", "c2"]

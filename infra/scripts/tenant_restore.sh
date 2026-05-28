@@ -16,25 +16,25 @@
 #   7) 검증 — chunk count + collection 정합
 #
 # 사용법:
-#   ./tenant_restore.sh <backup_dir> <tenant_id>
+#   ./tenant_restore.sh <backup_dir> <domain_id>
 # ============================================================================
 
 set -euo pipefail
 
 BACKUP_DIR="${1:?backup_dir 필수}"
-TENANT_ID="${2:?tenant_id 필수}"
+TENANT_ID="${2:?domain_id 필수}"
 [[ -d "$BACKUP_DIR" ]] || { echo "ERROR: $BACKUP_DIR 없음" >&2; exit 1; }
 
 PG_ADMIN_DSN="${POSTGRES_ADMIN_URL:-postgresql://domainrag_platform_admin:changeme_admin@localhost:5432/domainrag}"
 QDRANT_URL="${QDRANT_URL:-http://localhost:6333}"
 
-echo "[tenant_restore] tenant_id=$TENANT_ID backup_dir=$BACKUP_DIR"
+echo "[tenant_restore] domain_id=$TENANT_ID backup_dir=$BACKUP_DIR"
 
 # ----------------------------------------------------------------------------
 # Y5 — Step 0: status 검증
 # ----------------------------------------------------------------------------
 STATUS=$(psql -X -A -t "$PG_ADMIN_DSN" \
-  -c "SELECT status FROM tenants WHERE tenant_id='$TENANT_ID';" 2>/dev/null | tr -d '[:space:]')
+  -c "SELECT status FROM tenants WHERE domain_id='$TENANT_ID';" 2>/dev/null | tr -d '[:space:]')
 
 if [[ "$STATUS" == "active" ]]; then
   echo "[tenant_restore] ERROR: tenant '$TENANT_ID' is already active. Aborting to avoid clobbering live data." >&2
@@ -79,7 +79,7 @@ for tbl in tenants user_tenant_membership documents chunks conversations message
            chunks_archive; do
   CSV="$BACKUP_DIR/postgres/${tbl}.csv"
   if [[ -f "$CSV" ]]; then
-    psql -X "$PG_ADMIN_DSN" -c "DELETE FROM $tbl WHERE tenant_id='$TENANT_ID';" 2>/dev/null || true
+    psql -X "$PG_ADMIN_DSN" -c "DELETE FROM $tbl WHERE domain_id='$TENANT_ID';" 2>/dev/null || true
     psql -X "$PG_ADMIN_DSN" -c "\COPY $tbl FROM '$CSV' CSV HEADER"
     echo "  ✓ $tbl"
   fi
@@ -132,7 +132,7 @@ echo "[Step 6] tenants.status = 'active'..."
 psql -X "$PG_ADMIN_DSN" -c "
   UPDATE tenants
      SET status='active', delete_status=NULL, deleted_at=NULL
-   WHERE tenant_id='$TENANT_ID';
+   WHERE domain_id='$TENANT_ID';
 "
 
 # ----------------------------------------------------------------------------
@@ -140,7 +140,7 @@ psql -X "$PG_ADMIN_DSN" -c "
 # ----------------------------------------------------------------------------
 echo "[Step 7] 검증 — chunk count + collection 정합..."
 CHUNK_COUNT_DB=$(psql -X -A -t "$PG_ADMIN_DSN" \
-  -c "SELECT count(*) FROM chunks WHERE tenant_id='$TENANT_ID';" | tr -d '[:space:]')
+  -c "SELECT count(*) FROM chunks WHERE domain_id='$TENANT_ID';" | tr -d '[:space:]')
 COLLECTION_INFO=$(curl -fsS "$QDRANT_URL/collections/chunks_$TENANT_ID" 2>/dev/null \
   | jq -r '.result.points_count // 0' 2>/dev/null || echo "?")
 

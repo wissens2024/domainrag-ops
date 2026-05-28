@@ -1,4 +1,4 @@
-"""/api/{tenant_id}/admin/evaluation/* e2e (ADR-017 §16).
+"""/api/{domain_id}/admin/evaluation/* e2e (ADR-017 §16).
 
 env: AUTH_MODE=mock + RAG_BACKEND=inmemory. RAGService의 InMemory deps와 vector store/
 embedder를 공유해 chat_structured_full 그래프로 평가를 실행한다.
@@ -170,7 +170,7 @@ def test_promote_succeeds_when_gate_passed_after_override():
         orch.repo.create(
             EvaluationJobRecord(
                 job_id="EVAL-PASS-001",
-                tenant_id="security",
+                domain_id="security",
                 dataset_name="tenant_security",
                 status="completed",
                 actor="seed",

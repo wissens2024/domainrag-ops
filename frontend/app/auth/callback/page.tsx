@@ -113,9 +113,9 @@ export default function AuthCallbackPage() {
             description: detail?.reason ?? detail?.detail ?? '',
           } as ErrorState;
         }
-        const body = (await res.json()) as { tenant_id: string };
+        const body = (await res.json()) as { domain_id: string };
         setStatus('success');
-        window.location.replace(`/${body.tenant_id}/chat`);
+        window.location.replace(`/${body.domain_id}/chat`);
       })
       .catch((err) => {
         setStatus('error');

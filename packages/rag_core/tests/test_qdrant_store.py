@@ -28,7 +28,7 @@ def mock_qdrant() -> AsyncMock:
 @pytest.mark.asyncio
 async def test_create_collection_sets_named_vectors(mock_qdrant):
     store = QdrantVectorStore(client=mock_qdrant)
-    await store.create_collection(tenant_id="security", dense_dim=1024)
+    await store.create_collection(domain_id="security", dense_dim=1024)
     mock_qdrant.create_collection.assert_awaited_once()
     kwargs = mock_qdrant.create_collection.await_args.kwargs
     assert kwargs["collection_name"] == "chunks_security"
@@ -42,7 +42,7 @@ async def test_create_collection_sets_named_vectors(mock_qdrant):
 async def test_create_collection_without_sparse(mock_qdrant):
     store = QdrantVectorStore(client=mock_qdrant)
     await store.create_collection(
-        tenant_id="legal", dense_dim=768, with_sparse=False
+        domain_id="legal", dense_dim=768, with_sparse=False
     )
     kwargs = mock_qdrant.create_collection.await_args.kwargs
     assert kwargs["sparse_vectors_config"] is None
@@ -52,7 +52,7 @@ async def test_create_collection_without_sparse(mock_qdrant):
 async def test_upsert_chunks_builds_point_structs(mock_qdrant):
     store = QdrantVectorStore(client=mock_qdrant)
     await store.upsert_chunks(
-        tenant_id="security",
+        domain_id="security",
         points=[
             {
                 "id": "c1",
@@ -78,7 +78,7 @@ async def test_upsert_chunks_builds_point_structs(mock_qdrant):
 async def test_upsert_omits_sparse_when_absent(mock_qdrant):
     store = QdrantVectorStore(client=mock_qdrant)
     await store.upsert_chunks(
-        tenant_id="security",
+        domain_id="security",
         points=[{"id": "c1", "dense_vector": [0.1], "payload": {}}],
     )
     pts = mock_qdrant.upsert.await_args.kwargs["points"]
@@ -101,7 +101,7 @@ async def test_hybrid_query_passes_dbsf_and_filter(mock_qdrant):
         ]
     }
     hits = await store.hybrid_query(
-        tenant_id="security",
+        domain_id="security",
         dense_query=[0.1, 0.2, 0.3],
         sparse_query={4: 0.5},
         acl_filter=acl,
@@ -129,7 +129,7 @@ async def test_hybrid_query_passes_dbsf_and_filter(mock_qdrant):
 async def test_set_payload_targets_collection(mock_qdrant):
     store = QdrantVectorStore(client=mock_qdrant)
     await store.set_payload(
-        tenant_id="security",
+        domain_id="security",
         chunk_ids=["c1", "c2"],
         payload={"approval_status": "archived"},
     )

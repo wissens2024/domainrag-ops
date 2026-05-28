@@ -178,7 +178,7 @@ def test_callback_exchanges_code_and_sets_cookies():
         resp = client.get(f"/api/auth/callback?code=real-code&state={state}")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["tenant_id"] == "security"
+    assert body["domain_id"] == "security"
     assert body["expires_in"] == 900
     # token client가 정확한 verifier로 호출되어야 한다
     assert len(token_client.calls.exchanges) == 1
@@ -210,7 +210,7 @@ def test_callback_rejects_expired_state():
     store.put(
         OAuthStateEntry(
             state=state,
-            tenant_id="security",
+            domain_id="security",
             code_verifier="v",
             redirect_uri="http://localhost:3010/auth/callback",
             client_id="client-security",
@@ -247,7 +247,7 @@ def test_refresh_uses_cookie_when_body_missing():
         client.get(f"/api/auth/callback?code=x&state={state}")
         # body에 refresh_token 없이 호출 — cookie를 사용
         resp = client.post(
-            "/api/auth/refresh", json={"tenant_id": "security"}
+            "/api/auth/refresh", json={"domain_id": "security"}
         )
     assert resp.status_code == 200, resp.text
     assert len(token_client.calls.refreshes) == 1
@@ -261,7 +261,7 @@ def test_logout_calls_revoke_for_both_tokens():
         auth_resp = client.get("/api/auth/authorize/security")
         state = auth_resp.json()["state"]
         client.get(f"/api/auth/callback?code=x&state={state}")
-        resp = client.post("/api/auth/logout", json={"tenant_id": "security"})
+        resp = client.post("/api/auth/logout", json={"domain_id": "security"})
     assert resp.status_code == 204
     # access + refresh 두 번 revoke
     assert len(token_client.calls.revokes) == 2

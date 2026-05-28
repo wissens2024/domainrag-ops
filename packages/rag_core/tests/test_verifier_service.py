@@ -190,11 +190,11 @@ def test_assemble_citations_includes_meta():
         }
     ]
     citations, types = VerifierService.assemble_citations(
-        segs, contexts, tenant_id="security"
+        segs, contexts, domain_id="security"
     )
     assert len(citations) == 1
     c = citations[0]
-    assert c["tenant_id"] == "security"
+    assert c["domain_id"] == "security"
     assert c["support_level"] == "strong"
     assert c["verified"] is True
     assert c["similarity"] == 0.85
@@ -278,7 +278,7 @@ async def test_run_full_path_happy():
     res = await svc.run(
         raw_segments=raw,
         contexts=contexts,
-        tenant_id="security",
+        domain_id="security",
         thresholds=t,
     )
     assert res.gate2_passed is True
@@ -383,7 +383,7 @@ async def test_run_inference_segment_limitations_caveat():
     res = await svc.run(
         raw_segments=raw,
         contexts=contexts,
-        tenant_id="security",
+        domain_id="security",
         thresholds=t,
     )
     # inference segment는 다운그레이드되어 citation 0개

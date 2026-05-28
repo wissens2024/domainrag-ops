@@ -1,4 +1,4 @@
-"""GET /api/{tenant_id}/admin/dashboard — endpoint e2e (ADR-017 §10).
+"""GET /api/{domain_id}/admin/dashboard — endpoint e2e (ADR-017 §10).
 
 env: AUTH_MODE=mock + RAG_BACKEND=inmemory.
 InMemory backend라 실제 chat + upload 호출로 in-memory state 시드 → endpoint 검증.
@@ -28,7 +28,7 @@ from app.main import app
 
 def _non_admin_user() -> UserContext:
     return UserContext(
-        user_id="dev-user-001", tenant_id="security",
+        user_id="dev-user-001", domain_id="security",
         roles=["USER"], clearance="confidential",
     )
 
@@ -96,7 +96,7 @@ def test_dashboard_returns_all_metrics():
         "fallback_distribution", "routing_distribution",
     ):
         assert key in body, key
-    assert body["tenant_id"] == "security"
+    assert body["domain_id"] == "security"
     # 2 chat 호출 — questions_today ≥ 2 (RAG가 fallback 분기 가능하므로 ≥)
     assert body["questions_today"] >= 2
     # routing decision은 graph가 매 응답 채움 — distribution에 최소 1 entry
@@ -125,7 +125,7 @@ def test_dashboard_requires_admin():
 
 
 def test_dashboard_isolates_tenant_state():
-    """InMemoryDashboardAnalytics가 tenant_id 필터링하는지 검증.
+    """InMemoryDashboardAnalytics가 domain_id 필터링하는지 검증.
 
     security tenant에서 chat 2건 호출 후, legal tenant 대시보드 호출 — questions_today=0.
     legal admin은 platform_admin이 아니므로 실제 운영에선 tenant_mismatch 403이지만,
@@ -133,7 +133,7 @@ def test_dashboard_isolates_tenant_state():
     """
     def _legal_admin() -> UserContext:
         return UserContext(
-            user_id="legal-admin", tenant_id="legal",
+            user_id="legal-admin", domain_id="legal",
             roles=["USER", "ADMIN"], clearance="confidential",
         )
 
@@ -152,6 +152,6 @@ def test_dashboard_isolates_tenant_state():
         )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["tenant_id"] == "legal"
+    assert body["domain_id"] == "legal"
     assert body["questions_today"] == 0
     assert body["total_documents"] == 0

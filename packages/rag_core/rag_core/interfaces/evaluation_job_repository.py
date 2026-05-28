@@ -13,7 +13,7 @@ from typing import Any, Protocol
 @dataclass
 class EvaluationJobRecord:
     job_id: str
-    tenant_id: str
+    domain_id: str
     dataset_name: str
     status: str = "pending"  # pending | running | completed | failed | promoted
     actor: str | None = None
@@ -48,12 +48,12 @@ class EvaluationJobRepository(Protocol):
         promotion_version: str | None = None,
     ) -> None: ...
 
-    async def get(self, *, tenant_id: str, job_id: str) -> EvaluationJobRecord | None: ...
+    async def get(self, *, domain_id: str, job_id: str) -> EvaluationJobRecord | None: ...
 
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         limit: int = 50,
         offset: int = 0,
     ) -> list[EvaluationJobRecord]: ...
@@ -69,7 +69,7 @@ class InMemoryEvaluationJobRepository:
         self._jobs: dict[tuple[str, str], EvaluationJobRecord] = {}
 
     async def create(self, job: EvaluationJobRecord) -> None:
-        key = (job.tenant_id, job.job_id)
+        key = (job.domain_id, job.job_id)
         if key in self._jobs:
             raise ValueError(f"job already exists: {job.job_id}")
         self._jobs[key] = job
@@ -114,18 +114,18 @@ class InMemoryEvaluationJobRepository:
             record.promotion_version = promotion_version
 
     async def get(
-        self, *, tenant_id: str, job_id: str
+        self, *, domain_id: str, job_id: str
     ) -> EvaluationJobRecord | None:
-        return self._jobs.get((tenant_id, job_id))
+        return self._jobs.get((domain_id, job_id))
 
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         limit: int = 50,
         offset: int = 0,
     ) -> list[EvaluationJobRecord]:
-        out = [j for k, j in self._jobs.items() if k[0] == tenant_id]
+        out = [j for k, j in self._jobs.items() if k[0] == domain_id]
         out.reverse()  # 최신순 (등록 순의 역)
         return out[offset : offset + limit]
 

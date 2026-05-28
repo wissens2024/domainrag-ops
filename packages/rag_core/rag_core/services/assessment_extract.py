@@ -44,11 +44,11 @@ class AssessmentExtractService:
     async def extract(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         criteria: ExtractCriteria,
     ) -> ExtractResult:
         candidates = await self._repo.list_candidates_for_extract(
-            tenant_id=tenant_id, criteria=criteria, limit=1000,
+            domain_id=domain_id, criteria=criteria, limit=1000,
         )
         result = ExtractResult()
 
@@ -73,22 +73,22 @@ class AssessmentExtractService:
         result.extracted_count = len(result.items)
         if result.items:
             await self._repo.touch_used(
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 item_ids=[r.item_id for r in result.items],
             )
 
         for i, item in enumerate(result.items, start=1):
-            result.citations.append(_item_to_citation(item, marker=f"[{i}]", tenant_id=tenant_id))
+            result.citations.append(_item_to_citation(item, marker=f"[{i}]", domain_id=domain_id))
         return result
 
 
 def _item_to_citation(
-    item: AssessmentItemRecord, *, marker: str, tenant_id: str
+    item: AssessmentItemRecord, *, marker: str, domain_id: str
 ) -> dict[str, Any]:
     return {
         "citation_id": f"cite-item-{item.item_id}",
         "marker": marker,
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "support_type": "direct",
         "item_id": item.item_id,
         "subject": item.subject,

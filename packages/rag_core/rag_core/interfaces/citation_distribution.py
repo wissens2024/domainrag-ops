@@ -33,7 +33,7 @@ class CitationDistributionAnalytics(Protocol):
     async def distribution(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         from_date: datetime | None,
         to_date: datetime | None,
         group_by: Literal["day", "hour"],
@@ -48,7 +48,7 @@ class CitationDistributionAnalytics(Protocol):
 class InMemoryCitationDistributionAnalytics:
     """InMemoryChatLogWriter.records 위에서 동작.
 
-    InMemory는 created_at 없음 → 모든 record를 단일 'all' 버킷에 집계. tenant_id
+    InMemory는 created_at 없음 → 모든 record를 단일 'all' 버킷에 집계. domain_id
     필터링은 적용.
     """
 
@@ -58,12 +58,12 @@ class InMemoryCitationDistributionAnalytics:
     async def distribution(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         from_date: datetime | None,
         to_date: datetime | None,
         group_by: Literal["day", "hour"],
     ) -> CitationDistributionResult:
-        records = [r for r in self._writer.records if r.tenant_id == tenant_id]
+        records = [r for r in self._writer.records if r.domain_id == domain_id]
         counts: dict[str, int] = {}
         for r in records:
             for ct in set(r.citation_types or []):

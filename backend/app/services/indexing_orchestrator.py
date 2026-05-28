@@ -48,7 +48,7 @@ class IndexingOrchestrator:
     Args:
         indexing_service: rag_core IndexingService 인스턴스
         storage: 업로드 원본 영속화 (LocalFilesystemStorage / MinIOStorage)
-        config_loader: tenant_id → tenant_config dict (PII config 추출용)
+        config_loader: domain_id → tenant_config dict (PII config 추출용)
     """
 
     def __init__(
@@ -71,7 +71,7 @@ class IndexingOrchestrator:
     async def prepare_upload(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str | None,
         version: str,
         title: str,
@@ -83,7 +83,7 @@ class IndexingOrchestrator:
         """파일 저장 + indexing_jobs row 동기 INSERT. 충돌이면 IndexingConflictError raise."""
         effective_doc_id = doc_id or f"DOC-{uuid.uuid4().hex[:12].upper()}"
         stored = await self._storage.save(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             doc_id=effective_doc_id,
             version=version,
             filename=filename,
@@ -91,7 +91,7 @@ class IndexingOrchestrator:
         )
 
         job_id = await self._register_job(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             doc_id=effective_doc_id,
             version=version,
             filename=stored.local_path,
@@ -108,7 +108,7 @@ class IndexingOrchestrator:
             }
         }
         request = IndexingRequest(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             doc_id=effective_doc_id,
             doc_version=version,
             file_path=stored.local_path,
@@ -135,7 +135,7 @@ class IndexingOrchestrator:
     async def prepare_reindex(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         mode: ReindexMode,
@@ -143,16 +143,16 @@ class IndexingOrchestrator:
     ) -> PreparedIndexing:
         """기존 document에 대한 재색인. doc_repo.get으로 source_path/title을 가져온다."""
         existing = await self._service.document_repo.get(
-            tenant_id=tenant_id, doc_id=doc_id, version=version
+            domain_id=domain_id, doc_id=doc_id, version=version
         )
         if existing is None:
             raise FileNotFoundError(
-                f"document not found: {tenant_id}/{doc_id}/{version}"
+                f"document not found: {domain_id}/{doc_id}/{version}"
             )
 
         file_path = existing.source_path or ""
         job_id = await self._register_job(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             doc_id=doc_id,
             version=version,
             filename=file_path,
@@ -160,7 +160,7 @@ class IndexingOrchestrator:
 
         meta = metadata or {}
         request = IndexingRequest(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             doc_id=doc_id,
             doc_version=version,
             file_path=file_path,
@@ -183,7 +183,7 @@ class IndexingOrchestrator:
         )
 
     async def retry_job(
-        self, *, tenant_id: str, job_id: str
+        self, *, domain_id: str, job_id: str
     ) -> "PreparedIndexing":
         """ADR-017 §7 — failed/partial job을 in-place 재실행.
 
@@ -195,19 +195,19 @@ class IndexingOrchestrator:
           5. _pending[job_id] = request → caller가 background로 execute(job_id) 호출
         """
         job = await self._service.job_repo.get(job_id)
-        if job is None or job.tenant_id != tenant_id:
+        if job is None or job.domain_id != domain_id:
             raise FileNotFoundError(f"job not found: {job_id}")
         if job.status not in {"failed", "partial"}:
             raise ValueError("invalid_status")
         existing = await self._service.document_repo.get(
-            tenant_id=tenant_id, doc_id=job.doc_id, version=job.doc_version,
+            domain_id=domain_id, doc_id=job.doc_id, version=job.doc_version,
         )
         if existing is None:
             raise FileNotFoundError(
-                f"document not found: {tenant_id}/{job.doc_id}/{job.doc_version}"
+                f"document not found: {domain_id}/{job.doc_id}/{job.doc_version}"
             )
         request = IndexingRequest(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             doc_id=job.doc_id,
             doc_version=job.doc_version,
             file_path=existing.source_path or "",
@@ -244,8 +244,8 @@ class IndexingOrchestrator:
         if request is None:
             logger.warning("execute called with unknown job_id=%s", job_id)
             return
-        await self._ensure_collection_exists(request.tenant_id)
-        pii_config = await self._load_pii_config(request.tenant_id)
+        await self._ensure_collection_exists(request.domain_id)
+        pii_config = await self._load_pii_config(request.domain_id)
         try:
             await self._service.run_with_existing_job(
                 request, job_id=job_id, pii_config=pii_config
@@ -255,7 +255,7 @@ class IndexingOrchestrator:
                 "background indexing job failed: job_id=%s err=%s", job_id, exc
             )
 
-    async def _ensure_collection_exists(self, tenant_id: str) -> None:
+    async def _ensure_collection_exists(self, domain_id: str) -> None:
         """vector store에 collection이 없으면 lazy 생성.
 
         운영(Qdrant)에서는 tenant_register.sh가 collection을 만들어 두지만, 만일의
@@ -264,7 +264,7 @@ class IndexingOrchestrator:
         """
         try:
             await self._service.vector_store.create_collection(
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 dense_dim=self._service.embedder.dense_dim,
             )
         except Exception:  # noqa: BLE001 — 이미 존재 또는 backend별 에러 모두 무해
@@ -273,7 +273,7 @@ class IndexingOrchestrator:
     async def _register_job(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         filename: str,
@@ -283,7 +283,7 @@ class IndexingOrchestrator:
             await self._service.job_repo.create(
                 IndexingJobRecord(
                     job_id=job_id,
-                    tenant_id=tenant_id,
+                    domain_id=domain_id,
                     doc_id=doc_id,
                     doc_version=version,
                     status="pending",
@@ -294,8 +294,8 @@ class IndexingOrchestrator:
             raise
         return job_id
 
-    async def _load_pii_config(self, tenant_id: str) -> dict[str, Any] | None:
-        cfg = self._config_loader(tenant_id)
+    async def _load_pii_config(self, domain_id: str) -> dict[str, Any] | None:
+        cfg = self._config_loader(domain_id)
         if hasattr(cfg, "__await__"):
             cfg = await cfg  # type: ignore[assignment]
         if not isinstance(cfg, dict):

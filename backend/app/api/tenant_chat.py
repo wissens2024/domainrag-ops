@@ -1,5 +1,5 @@
 """
-Chat API — `/api/{tenant_id}/chat`, `/chat/stream` (ADR-017 §3, ADR-013).
+Chat API — `/api/{domain_id}/chat`, `/chat/stream` (ADR-017 §3, ADR-013).
 """
 
 import json
@@ -37,7 +37,7 @@ class ChatRequest(BaseModel):
 
 @router.post("/chat")
 async def chat(
-    tenant_id: str,
+    domain_id: str,
     req: ChatRequest,
     user: UserContext = Depends(get_user_context),
     rag: RAGService = Depends(get_rag_service),
@@ -51,10 +51,10 @@ async def chat(
     deps 패턴으로 추가된다.
     """
     await ensure_tenant_match(
-        tenant_id, user, ledger=get_ledger_audit_service(get_settings())
+        domain_id, user, ledger=get_ledger_audit_service(get_settings())
     )
     return await rag.chat_structured(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         user=user,
         question=req.question,
         conversation_id=req.conversation_id,
@@ -63,7 +63,7 @@ async def chat(
 
 @router.post("/chat/stream")
 async def chat_stream(
-    tenant_id: str,
+    domain_id: str,
     req: ChatRequest,
     user: UserContext = Depends(get_user_context),
     rag: RAGService = Depends(get_rag_service),
@@ -78,7 +78,7 @@ async def chat_stream(
         data: {"message_id": "...", "metadata": {...}}
     """
     await ensure_tenant_match(
-        tenant_id, user, ledger=get_ledger_audit_service(get_settings())
+        domain_id, user, ledger=get_ledger_audit_service(get_settings())
     )
     if not rag.streaming_enabled:
         raise HTTPException(
@@ -87,7 +87,7 @@ async def chat_stream(
         )
 
     iterator = await rag.chat_streaming(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         user=user,
         question=req.question,
         conversation_id=req.conversation_id,
@@ -112,7 +112,7 @@ async def chat_stream(
 
 @router.get("/conversations")
 async def list_conversations(
-    tenant_id: str,
+    domain_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     user: UserContext = Depends(get_user_context),
@@ -120,10 +120,10 @@ async def list_conversations(
 ):
     """ADR-017 §4 — 본인 대화 목록 (updated_at 최신순)."""
     await ensure_tenant_match(
-        tenant_id, user, ledger=get_ledger_audit_service(get_settings())
+        domain_id, user, ledger=get_ledger_audit_service(get_settings())
     )
     result = await repo.list_by_user(
-        tenant_id=tenant_id, user_id=user.user_id,
+        domain_id=domain_id, user_id=user.user_id,
         page=page, page_size=page_size,
     )
     return {
@@ -136,7 +136,7 @@ async def list_conversations(
 
 @router.get("/conversations/{conversation_id}")
 async def get_conversation(
-    tenant_id: str,
+    domain_id: str,
     conversation_id: str,
     user: UserContext = Depends(get_user_context),
     repo=Depends(get_conversation_repository),
@@ -148,10 +148,10 @@ async def get_conversation(
     구성. answer가 fallback인 경우에도 동일 schema로 반환.
     """
     await ensure_tenant_match(
-        tenant_id, user, ledger=get_ledger_audit_service(get_settings())
+        domain_id, user, ledger=get_ledger_audit_service(get_settings())
     )
     record = await repo.get(
-        tenant_id=tenant_id, user_id=user.user_id, conversation_id=conversation_id,
+        domain_id=domain_id, user_id=user.user_id, conversation_id=conversation_id,
     )
     if record is None:
         raise HTTPException(
@@ -159,7 +159,7 @@ async def get_conversation(
             detail={"error": "conversation_not_found", "conversation_id": conversation_id},
         )
     messages = await _list_messages(
-        tenant_id=tenant_id, conversation_id=conversation_id,
+        domain_id=domain_id, conversation_id=conversation_id,
         chat_log_reader=chat_log_reader,
     )
     return {
@@ -174,7 +174,7 @@ class ConversationPatchRequest(BaseModel):
 
 @router.patch("/conversations/{conversation_id}")
 async def patch_conversation(
-    tenant_id: str,
+    domain_id: str,
     conversation_id: str,
     req: ConversationPatchRequest,
     user: UserContext = Depends(get_user_context),
@@ -182,10 +182,10 @@ async def patch_conversation(
 ):
     """ADR-017 §4 — 본인 대화 제목 수정."""
     await ensure_tenant_match(
-        tenant_id, user, ledger=get_ledger_audit_service(get_settings())
+        domain_id, user, ledger=get_ledger_audit_service(get_settings())
     )
     updated = await repo.update_title(
-        tenant_id=tenant_id, user_id=user.user_id,
+        domain_id=domain_id, user_id=user.user_id,
         conversation_id=conversation_id, title=req.title,
     )
     if updated is None:
@@ -198,17 +198,17 @@ async def patch_conversation(
 
 @router.delete("/conversations/{conversation_id}", status_code=204)
 async def delete_conversation(
-    tenant_id: str,
+    domain_id: str,
     conversation_id: str,
     user: UserContext = Depends(get_user_context),
     repo=Depends(get_conversation_repository),
 ):
     """ADR-017 §4 — 본인 대화 삭제. chat_logs는 보존(audit truth, ADR-020 §10 별도)."""
     await ensure_tenant_match(
-        tenant_id, user, ledger=get_ledger_audit_service(get_settings())
+        domain_id, user, ledger=get_ledger_audit_service(get_settings())
     )
     affected = await repo.delete(
-        tenant_id=tenant_id, user_id=user.user_id, conversation_id=conversation_id,
+        domain_id=domain_id, user_id=user.user_id, conversation_id=conversation_id,
     )
     if affected == 0:
         raise HTTPException(
@@ -221,7 +221,7 @@ async def delete_conversation(
 def _conversation_to_dict(record) -> dict:
     return {
         "conversation_id": record.id,
-        "tenant_id": record.tenant_id,
+        "domain_id": record.domain_id,
         "user_id": record.user_id,
         "title": record.title,
         "message_count": record.message_count,
@@ -231,14 +231,14 @@ def _conversation_to_dict(record) -> dict:
 
 
 async def _list_messages(
-    *, tenant_id: str, conversation_id: str, chat_log_reader
+    *, domain_id: str, conversation_id: str, chat_log_reader
 ) -> list[dict]:
     """chat_logs를 conversation_id 필터로 가져와 user/assistant 메시지 쌍으로 변환."""
     from rag_core.interfaces.chat_log_reader import ChatLogListFilters
 
     # 단일 conversation 내 chat_logs는 통상 ~수십건. 100건 페이지로 한 번에.
     result = await chat_log_reader.list_by_tenant(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         filters=ChatLogListFilters(conversation_id=conversation_id),
         page=1, page_size=100,
     )
@@ -273,7 +273,7 @@ class FeedbackRequest(BaseModel):
 
 @router.post("/feedback", status_code=204)
 async def feedback(
-    tenant_id: str,
+    domain_id: str,
     req: FeedbackRequest,
     user: UserContext = Depends(get_user_context),
     writer=Depends(get_feedback_writer),
@@ -285,10 +285,10 @@ async def feedback(
     rule로 자동 차단된다.
     """
     await ensure_tenant_match(
-        tenant_id, user, ledger=get_ledger_audit_service(get_settings())
+        domain_id, user, ledger=get_ledger_audit_service(get_settings())
     )
     result = await writer.record(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         message_id=req.message_id,
         user_id=user.user_id,
         feedback=req.feedback,

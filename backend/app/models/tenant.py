@@ -15,7 +15,7 @@ from app.models.base import Base
 class Tenant(Base):
     __tablename__ = "tenants"
 
-    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    domain_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
     domain_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     embedding_model: Mapped[str] = mapped_column(
@@ -26,6 +26,10 @@ class Tenant(Base):
     )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="active", server_default="active"
+    )
+    # ADR-022 §4 — open(인증된 모든 user 자동 접근) | assigned(관리자 배정만)
+    enrollment_policy: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="assigned", server_default="assigned"
     )
     modules: Mapped[list[str]] = mapped_column(
         JSONB().with_variant(JSON(), "sqlite"),
@@ -56,7 +60,7 @@ class TenantDeleteFailure(Base):
         primary_key=True,
         server_default=func.gen_random_uuid(),
     )
-    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    domain_id: Mapped[str] = mapped_column(String(64), nullable=False)
     failed_step: Mapped[str] = mapped_column(String(50), nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(

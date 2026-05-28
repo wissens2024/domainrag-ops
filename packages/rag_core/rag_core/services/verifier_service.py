@@ -433,7 +433,7 @@ class VerifierService:
         segments: list[dict],
         contexts: list[RetrievedChunk],
         *,
-        tenant_id: str,
+        domain_id: str,
     ) -> tuple[list[dict[str, Any]], list[str]]:
         """ADR-017 §3.1 citation 객체 + citation_types 배열 생성.
 
@@ -455,7 +455,7 @@ class VerifierService:
                     {
                         "citation_id": f"cite-{uuid4().hex[:12]}",
                         "marker": f"[{cidx}]",
-                        "tenant_id": tenant_id,
+                        "domain_id": domain_id,
                         "support_type": seg["support_type"],
                         "support_level": meta.support_level if meta else None,
                         "verified": meta.verified if meta else None,
@@ -540,7 +540,7 @@ class VerifierService:
         *,
         raw_segments: list[dict],
         contexts: list[RetrievedChunk],
-        tenant_id: str,
+        domain_id: str,
         thresholds: VerifierThresholds,
         limitations: str | None = None,
     ) -> VerificationResult:
@@ -552,7 +552,7 @@ class VerifierService:
         unsupported_idx, unsupported_ratio = self.tier3_unsupported(segments)
 
         citations, types = self.assemble_citations(
-            segments, contexts, tenant_id=tenant_id
+            segments, contexts, domain_id=domain_id
         )
         confidence = self.compute_confidence(
             segments=segments,

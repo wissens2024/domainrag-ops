@@ -20,7 +20,7 @@ class Chunk(Base):
         primary_key=True,
         server_default=func.gen_random_uuid(),
     )
-    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    domain_id: Mapped[str] = mapped_column(String(64), nullable=False)
     chunk_id: Mapped[str] = mapped_column(String(512), nullable=False)
     doc_id: Mapped[str] = mapped_column(String(255), nullable=False)
     doc_version: Mapped[str | None] = mapped_column(String(50), nullable=True)

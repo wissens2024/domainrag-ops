@@ -37,10 +37,10 @@ async def get_admin_db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def get_tenant_session(
-    tenant_id: str,
+    domain_id: str,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> AsyncGenerator[AsyncSession, None]:
-    """tenant context가 자동 주입된 session — `/api/{tenant_id}/...` endpoint용."""
+    """tenant context가 자동 주입된 session — `/api/{domain_id}/...` endpoint용."""
     async with AppSessionLocal() as session:
-        await set_tenant_context(session, tenant_id)
+        await set_tenant_context(session, domain_id)
         yield session

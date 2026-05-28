@@ -42,11 +42,11 @@ class PostgresChunksArchiver:
     async def find_candidates(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         valid_until_before: date,
     ) -> list[ChunkRecord]:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             rows = (
                 await session.execute(
                     text(
@@ -59,19 +59,19 @@ class PostgresChunksArchiver:
                                valid_from, valid_until, embedding_model, embedding_version,
                                vector_id, pii_warnings
                           FROM chunks
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                            AND archived_at IS NULL
                            AND valid_until IS NOT NULL
                            AND valid_until < :threshold
                          ORDER BY valid_until ASC
                         """
                     ),
-                    {"tenant_id": tenant_id, "threshold": valid_until_before},
+                    {"domain_id": domain_id, "threshold": valid_until_before},
                 )
             ).all()
             return [
                 ChunkRecord(
-                    tenant_id=tenant_id,
+                    domain_id=domain_id,
                     chunk_id=r[0],
                     doc_id=r[1],
                     doc_version=r[2] or "",
@@ -106,15 +106,15 @@ class PostgresChunksArchiver:
     async def archive(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         chunks: list[ChunkRecord],
         reason: str = "valid_until_threshold",
     ) -> ArchivalBatchResult:
         if not chunks:
-            return ArchivalBatchResult(tenant_id=tenant_id, reason=reason)
+            return ArchivalBatchResult(domain_id=domain_id, reason=reason)
 
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
 
             chunk_ids = [c.chunk_id for c in chunks]
             # INSERT INTO chunks_archive ... SELECT FROM chunks (단일 트랜잭션 — atomic move)
@@ -122,7 +122,7 @@ class PostgresChunksArchiver:
                 text(
                     """
                     INSERT INTO chunks_archive (
-                        tenant_id, chunk_id, doc_id, doc_version, parser_version,
+                        domain_id, chunk_id, doc_id, doc_version, parser_version,
                         chunk_strategy, chunk_index, title, page_number, section_title,
                         heading_path, content, content_hash, start_char, end_char,
                         token_count, department, doc_type, security_level, acl,
@@ -131,7 +131,7 @@ class PostgresChunksArchiver:
                         created_at, archive_reason
                     )
                     SELECT
-                        tenant_id, chunk_id, doc_id, doc_version, parser_version,
+                        domain_id, chunk_id, doc_id, doc_version, parser_version,
                         chunk_strategy, chunk_index, title, page_number, section_title,
                         heading_path, content, content_hash, start_char, end_char,
                         token_count, department, doc_type, security_level, acl,
@@ -139,7 +139,7 @@ class PostgresChunksArchiver:
                         embedding_model, embedding_version, vector_id, pii_warnings,
                         created_at, :reason
                       FROM chunks
-                     WHERE tenant_id = :tenant_id
+                     WHERE domain_id = :domain_id
                        AND chunk_id IN :chunk_ids
                        AND archived_at IS NULL
                     """
@@ -148,7 +148,7 @@ class PostgresChunksArchiver:
             )
             await session.execute(
                 insert_stmt,
-                {"tenant_id": tenant_id, "chunk_ids": chunk_ids, "reason": reason},
+                {"domain_id": domain_id, "chunk_ids": chunk_ids, "reason": reason},
             )
 
             update_stmt = (
@@ -156,7 +156,7 @@ class PostgresChunksArchiver:
                     """
                     UPDATE chunks
                        SET archived_at = NOW()
-                     WHERE tenant_id = :tenant_id
+                     WHERE domain_id = :domain_id
                        AND chunk_id IN :chunk_ids
                        AND archived_at IS NULL
                     RETURNING chunk_id
@@ -167,7 +167,7 @@ class PostgresChunksArchiver:
             updated = (
                 await session.execute(
                     update_stmt,
-                    {"tenant_id": tenant_id, "chunk_ids": chunk_ids},
+                    {"domain_id": domain_id, "chunk_ids": chunk_ids},
                 )
             ).all()
             await session.commit()
@@ -175,7 +175,7 @@ class PostgresChunksArchiver:
             archived_ids = [r[0] for r in updated]
             skipped = [cid for cid in chunk_ids if cid not in set(archived_ids)]
             return ArchivalBatchResult(
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 archived_chunk_ids=archived_ids,
                 skipped_chunk_ids=skipped,
                 reason=reason,

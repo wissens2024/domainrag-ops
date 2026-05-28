@@ -16,7 +16,7 @@ class AssessmentItemRecord:
     """assessment_items row 1건."""
 
     item_id: str
-    tenant_id: str
+    domain_id: str
     subject: str | None = None
     chapter: str | None = None
     difficulty: str | None = None  # easy | medium | hard
@@ -60,7 +60,7 @@ class AssessmentItemConflictError(Exception):
 
 class AssessmentItemRepository(Protocol):
     async def get(
-        self, *, tenant_id: str, item_id: str
+        self, *, domain_id: str, item_id: str
     ) -> AssessmentItemRecord | None: ...
 
     async def upsert(self, record: AssessmentItemRecord) -> AssessmentItemRecord:
@@ -70,7 +70,7 @@ class AssessmentItemRepository(Protocol):
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         keyword: str | None = None,
         subject: str | None = None,
         chapter: str | None = None,
@@ -83,13 +83,13 @@ class AssessmentItemRepository(Protocol):
         ...
 
     async def list_candidates_for_extract(
-        self, *, tenant_id: str, criteria: ExtractCriteria, limit: int = 200
+        self, *, domain_id: str, criteria: ExtractCriteria, limit: int = 200
     ) -> list[AssessmentItemRecord]: ...
 
     async def update_quality(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         item_id: str,
         quality_status: str | None = None,
         quality_score: float | None = None,
@@ -97,7 +97,7 @@ class AssessmentItemRepository(Protocol):
     ) -> AssessmentItemRecord | None: ...
 
     async def touch_used(
-        self, *, tenant_id: str, item_ids: list[str]
+        self, *, domain_id: str, item_ids: list[str]
     ) -> int:
         """used_count += 1, last_used_at = NOW(). 영향 row 수 반환."""
         ...
@@ -105,7 +105,7 @@ class AssessmentItemRepository(Protocol):
     async def list_review_queue(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[AssessmentItemRecord], int]:
@@ -113,7 +113,7 @@ class AssessmentItemRepository(Protocol):
         ...
 
     async def analytics_summary(
-        self, *, tenant_id: str
+        self, *, domain_id: str
     ) -> dict[str, Any]:
         """subject/chapter/difficulty별 used_count + status 분포."""
         ...
@@ -126,18 +126,18 @@ class AssessmentItemRepository(Protocol):
 
 class InMemoryAssessmentItemRepository:
     def __init__(self) -> None:
-        # (tenant_id, item_id) → record
+        # (domain_id, item_id) → record
         self._records: dict[tuple[str, str], AssessmentItemRecord] = {}
 
     async def get(
-        self, *, tenant_id: str, item_id: str
+        self, *, domain_id: str, item_id: str
     ) -> AssessmentItemRecord | None:
-        return self._records.get((tenant_id, item_id))
+        return self._records.get((domain_id, item_id))
 
     async def upsert(
         self, record: AssessmentItemRecord
     ) -> AssessmentItemRecord:
-        key = (record.tenant_id, record.item_id)
+        key = (record.domain_id, record.item_id)
         if key in self._records and self._records[key].created_at is not None:
             # update 모드 — created_at 보존
             existing = self._records[key]
@@ -151,7 +151,7 @@ class InMemoryAssessmentItemRepository:
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         keyword: str | None = None,
         subject: str | None = None,
         chapter: str | None = None,
@@ -160,7 +160,7 @@ class InMemoryAssessmentItemRepository:
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[AssessmentItemRecord], int]:
-        rows = [r for (tid, _iid), r in self._records.items() if tid == tenant_id]
+        rows = [r for (tid, _iid), r in self._records.items() if tid == domain_id]
         if subject is not None:
             rows = [r for r in rows if r.subject == subject]
         if chapter is not None:
@@ -182,9 +182,9 @@ class InMemoryAssessmentItemRepository:
         return rows[start : start + page_size], total
 
     async def list_candidates_for_extract(
-        self, *, tenant_id: str, criteria: ExtractCriteria, limit: int = 200
+        self, *, domain_id: str, criteria: ExtractCriteria, limit: int = 200
     ) -> list[AssessmentItemRecord]:
-        rows = [r for (tid, _iid), r in self._records.items() if tid == tenant_id]
+        rows = [r for (tid, _iid), r in self._records.items() if tid == domain_id]
         if criteria.subject is not None:
             rows = [r for r in rows if r.subject == criteria.subject]
         if criteria.chapter is not None:
@@ -208,13 +208,13 @@ class InMemoryAssessmentItemRepository:
     async def update_quality(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         item_id: str,
         quality_status: str | None = None,
         quality_score: float | None = None,
         validator_results: dict[str, Any] | None = None,
     ) -> AssessmentItemRecord | None:
-        rec = self._records.get((tenant_id, item_id))
+        rec = self._records.get((domain_id, item_id))
         if rec is None:
             return None
         if quality_status is not None:
@@ -227,12 +227,12 @@ class InMemoryAssessmentItemRepository:
         return rec
 
     async def touch_used(
-        self, *, tenant_id: str, item_ids: list[str]
+        self, *, domain_id: str, item_ids: list[str]
     ) -> int:
         now = datetime.utcnow()
         affected = 0
         for iid in item_ids:
-            rec = self._records.get((tenant_id, iid))
+            rec = self._records.get((domain_id, iid))
             if rec is None:
                 continue
             rec.used_count += 1
@@ -243,13 +243,13 @@ class InMemoryAssessmentItemRepository:
     async def list_review_queue(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[AssessmentItemRecord], int]:
         rows = [
             r for (tid, _iid), r in self._records.items()
-            if tid == tenant_id and r.quality_status in {"draft", "reviewed"}
+            if tid == domain_id and r.quality_status in {"draft", "reviewed"}
         ]
         total = len(rows)
         rows.sort(key=lambda r: r.created_at or datetime.min)  # 오래된 것부터 검토
@@ -257,9 +257,9 @@ class InMemoryAssessmentItemRepository:
         return rows[start : start + page_size], total
 
     async def analytics_summary(
-        self, *, tenant_id: str
+        self, *, domain_id: str
     ) -> dict[str, Any]:
-        rows = [r for (tid, _iid), r in self._records.items() if tid == tenant_id]
+        rows = [r for (tid, _iid), r in self._records.items() if tid == domain_id]
         by_status: dict[str, int] = {}
         by_difficulty: dict[str, int] = {}
         by_subject: dict[str, int] = {}

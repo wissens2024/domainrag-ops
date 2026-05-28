@@ -4,12 +4,12 @@ approval_status를 documents + chunks + Qdrant payload 3개 layer에 동시에 �
 reindex 없음 — chunk content / embedding은 그대로, 메타데이터만 갱신.
 
 흐름:
-  1. document_repo.update_approval(tenant_id, doc_id, version, approval_status)
+  1. document_repo.update_approval(domain_id, doc_id, version, approval_status)
      - documents row UPDATE
-     - 같은 (tenant_id, doc_id, doc_version) chunks rows도 함께 업데이트하지는 않음 — 본 service가 별도 처리
+     - 같은 (domain_id, doc_id, doc_version) chunks rows도 함께 업데이트하지는 않음 — 본 service가 별도 처리
   2. chunks_for_update = chunk_repo.list_by_doc(tenant, doc_id, version)
   3. chunk_repo.update_metadata(chunk_ids, {"approval_status": ...})
-  4. vector_store.set_payload(tenant_id, chunk_ids, {"approval_status": ...})
+  4. vector_store.set_payload(domain_id, chunk_ids, {"approval_status": ...})
   5. tenant_lifecycle_logs audit (document_approval_changed)
 """
 
@@ -65,7 +65,7 @@ class DocumentApprovalService:
     async def set_approval(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         approval_status: str,
@@ -74,7 +74,7 @@ class DocumentApprovalService:
     ) -> ApprovalResult | None:
         """document approval 전이 + chunks/payload 동기화 + audit. None이면 doc 없음."""
         updated_doc = await self._docs.update_approval(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             doc_id=doc_id,
             version=version,
             approval_status=approval_status,
@@ -83,29 +83,29 @@ class DocumentApprovalService:
             return None
 
         existing_chunks = await self._chunks.list_by_doc(
-            tenant_id=tenant_id, doc_id=doc_id, doc_version=version
+            domain_id=domain_id, doc_id=doc_id, doc_version=version
         )
         chunk_ids = [c.chunk_id for c in existing_chunks]
         if chunk_ids:
             await self._chunks.update_metadata(
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 chunk_ids=chunk_ids,
                 metadata={"approval_status": approval_status},
             )
             try:
                 await self._vs.set_payload(
-                    tenant_id=tenant_id,
+                    domain_id=domain_id,
                     chunk_ids=chunk_ids,
                     payload={"approval_status": approval_status},
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.error(
                     "set_payload failed during approval sync: tenant=%s doc=%s err=%s",
-                    tenant_id, doc_id, exc,
+                    domain_id, doc_id, exc,
                 )
 
         await self._audit(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             actor=actor,
             details={
                 "doc_id": doc_id,
@@ -120,28 +120,28 @@ class DocumentApprovalService:
     async def _audit(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         actor: str,
         details: dict[str, Any],
     ) -> None:
         if self._admin is None:
             return
         async with self._admin() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             await session.execute(
                 text(
                     """
                     INSERT INTO tenant_lifecycle_logs (
-                        tenant_id, action, from_state, to_state, actor, reason, details
+                        domain_id, action, from_state, to_state, actor, reason, details
                     )
                     VALUES (
-                        :tenant_id, 'document_approval_changed',
+                        :domain_id, 'document_approval_changed',
                         NULL, :to_state, :actor, :reason, CAST(:details AS JSONB)
                     )
                     """
                 ),
                 {
-                    "tenant_id": tenant_id,
+                    "domain_id": domain_id,
                     "to_state": details.get("approval_status"),
                     "actor": actor,
                     "reason": details.get("reason") or "approval_status_changed",

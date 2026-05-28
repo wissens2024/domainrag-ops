@@ -26,7 +26,7 @@ class TenantConfig:
     골격 단계는 dict로.
     """
 
-    tenant_id: str
+    domain_id: str
     citation: dict = field(default_factory=dict)
     retrieval: dict = field(default_factory=dict)
     model: dict = field(default_factory=dict)
@@ -48,51 +48,51 @@ class TenantConfigService:
     _lock = Lock()
     _ttl = 60.0
     # runtime overrides — ADR-017 §13 PUT routing (그리고 ADR-009 DB→load() 영구화 대기 동안)
-    # tenant_id → {category: dict}. apply_runtime_override가 채우고 load()가 deep merge.
+    # domain_id → {category: dict}. apply_runtime_override가 채우고 load()가 deep merge.
     _runtime_overrides: dict[str, dict[str, dict]] = {}
 
     @classmethod
-    def load(cls, tenant_id: str) -> TenantConfig:
+    def load(cls, domain_id: str) -> TenantConfig:
         with cls._lock:
-            cached = cls._cache.get(tenant_id)
+            cached = cls._cache.get(domain_id)
             if cached and (time() - cached[1] < cls._ttl):
                 return cached[0]
 
-        config = cls._load_from_disk(tenant_id)
+        config = cls._load_from_disk(domain_id)
         # runtime overrides 적용 (PUT routing 등) — 영구화는 ADR-009 DB→load() 작업
-        runtime = cls._runtime_overrides.get(tenant_id) or {}
+        runtime = cls._runtime_overrides.get(domain_id) or {}
         for cat, value in runtime.items():
             if isinstance(value, dict) and hasattr(config, cat):
                 current = getattr(config, cat) or {}
                 setattr(config, cat, _deep_merge(current, value))
 
         with cls._lock:
-            cls._cache[tenant_id] = (config, time())
+            cls._cache[domain_id] = (config, time())
         return config
 
     @classmethod
     def apply_runtime_override(
-        cls, tenant_id: str, category: str, value: dict
+        cls, domain_id: str, category: str, value: dict
     ) -> None:
         """ADR-017 §13 PUT — runtime layer에 카테고리 단위 dict override 저장.
 
         DB→load() 영구화가 끝나면 본 메서드는 단지 캐시 invalidate만 수행하도록
         간소화한다. 현재는 같은 프로세스 내 즉시 반영 보장.
         """
-        cls._runtime_overrides.setdefault(tenant_id, {})[category] = value
-        cls.invalidate(tenant_id)
+        cls._runtime_overrides.setdefault(domain_id, {})[category] = value
+        cls.invalidate(domain_id)
 
     @classmethod
-    def clear_runtime_overrides(cls, tenant_id: str | None = None) -> None:
+    def clear_runtime_overrides(cls, domain_id: str | None = None) -> None:
         """테스트용 — runtime override 초기화."""
-        if tenant_id is None:
+        if domain_id is None:
             cls._runtime_overrides.clear()
         else:
-            cls._runtime_overrides.pop(tenant_id, None)
-        cls.invalidate(tenant_id)
+            cls._runtime_overrides.pop(domain_id, None)
+        cls.invalidate(domain_id)
 
     @classmethod
-    def _load_from_disk(cls, tenant_id: str) -> TenantConfig:
+    def _load_from_disk(cls, domain_id: str) -> TenantConfig:
         settings = get_settings()
         config_dir: Path = settings.config_dir.resolve()
 
@@ -108,7 +108,7 @@ class TenantConfigService:
                 merged[cat] = {}
 
         # 2) tenant static
-        tenant_dir = config_dir / "tenants" / tenant_id
+        tenant_dir = config_dir / "tenants" / domain_id
         if tenant_dir.exists():
             overrides_path = tenant_dir / "overrides.yaml"
             if overrides_path.exists():
@@ -116,7 +116,7 @@ class TenantConfigService:
                 merged = _deep_merge(merged, tenant_overrides)
 
         return TenantConfig(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             citation=merged.get("citation", {}),
             retrieval=merged.get("retrieval", {}),
             model=merged.get("model", {}),
@@ -131,13 +131,13 @@ class TenantConfigService:
         )
 
     @classmethod
-    def invalidate(cls, tenant_id: str | None = None) -> None:
-        """Cache invalidate. tenant_id 미지정 시 전체."""
+    def invalidate(cls, domain_id: str | None = None) -> None:
+        """Cache invalidate. domain_id 미지정 시 전체."""
         with cls._lock:
-            if tenant_id is None:
+            if domain_id is None:
                 cls._cache.clear()
             else:
-                cls._cache.pop(tenant_id, None)
+                cls._cache.pop(domain_id, None)
 
 
 def _read_yaml(path: Path) -> dict:

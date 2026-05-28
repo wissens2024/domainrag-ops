@@ -1,7 +1,7 @@
 """Conversation API — `/api/{tid}/conversations*` endpoint e2e (ADR-017 §4).
 
 env: AUTH_MODE=mock + RAG_BACKEND=inmemory. mock default_user는
-user_id=dev-user-001, tenant_id=security.
+user_id=dev-user-001, domain_id=security.
 
 InMemoryConversationRepository는 InMemoryChatLogWriter.records 위에서 동작 —
 실제 chat 호출로 conversation을 자동 생성한 뒤 4개 endpoint를 검증.
@@ -187,7 +187,7 @@ def test_other_user_cannot_access_my_conversation():
 
     def _other() -> UserContext:
         return UserContext(
-            user_id="other-user", tenant_id="security",
+            user_id="other-user", domain_id="security",
             roles=["USER"], clearance="confidential",
         )
 

@@ -26,7 +26,7 @@ from typing import Any, Protocol
 @dataclass
 class AdapterRecord:
     adapter_id: str
-    tenant_id: str
+    domain_id: str
     version: str | None = None
     base_model: str | None = None
     keyhub_secret_ref: str | None = None
@@ -72,11 +72,11 @@ class LoRAInvalidTransitionError(Exception):
 
 class LoRARegistry(Protocol):
     async def list_by_tenant(
-        self, *, tenant_id: str, status: str | None = None
+        self, *, domain_id: str, status: str | None = None
     ) -> list[AdapterRecord]: ...
 
     async def get(
-        self, *, tenant_id: str, adapter_id: str
+        self, *, domain_id: str, adapter_id: str
     ) -> AdapterRecord | None: ...
 
     async def upload(self, record: AdapterRecord) -> AdapterRecord:
@@ -84,19 +84,19 @@ class LoRARegistry(Protocol):
         ...
 
     async def activate(
-        self, *, tenant_id: str, adapter_id: str
+        self, *, domain_id: str, adapter_id: str
     ) -> AdapterRecord:
         """registered → active. retired→active는 금지(LoRAInvalidTransitionError)."""
         ...
 
     async def retire(
-        self, *, tenant_id: str, adapter_id: str
+        self, *, domain_id: str, adapter_id: str
     ) -> AdapterRecord:
         """active → retired. registered→retired도 허용 (uploaded but never active)."""
         ...
 
     async def delete(
-        self, *, tenant_id: str, adapter_id: str
+        self, *, domain_id: str, adapter_id: str
     ) -> int:
         """row 삭제. active 상태면 LoRADeleteForbiddenError. 미발견은 0."""
         ...
@@ -112,19 +112,19 @@ class InMemoryLoRARegistry:
         self._records: dict[str, AdapterRecord] = {}  # adapter_id 전역 UNIQUE
 
     async def list_by_tenant(
-        self, *, tenant_id: str, status: str | None = None
+        self, *, domain_id: str, status: str | None = None
     ) -> list[AdapterRecord]:
-        out = [r for r in self._records.values() if r.tenant_id == tenant_id]
+        out = [r for r in self._records.values() if r.domain_id == domain_id]
         if status is not None:
             out = [r for r in out if r.status == status]
         out.sort(key=lambda r: (r.registered_at or datetime.min), reverse=True)
         return out
 
     async def get(
-        self, *, tenant_id: str, adapter_id: str
+        self, *, domain_id: str, adapter_id: str
     ) -> AdapterRecord | None:
         rec = self._records.get(adapter_id)
-        if rec is None or rec.tenant_id != tenant_id:
+        if rec is None or rec.domain_id != domain_id:
             return None
         return rec
 
@@ -134,7 +134,7 @@ class InMemoryLoRARegistry:
         now = datetime.utcnow()
         rec = AdapterRecord(
             adapter_id=record.adapter_id,
-            tenant_id=record.tenant_id,
+            domain_id=record.domain_id,
             version=record.version,
             base_model=record.base_model,
             keyhub_secret_ref=record.keyhub_secret_ref,
@@ -146,9 +146,9 @@ class InMemoryLoRARegistry:
         return rec
 
     async def activate(
-        self, *, tenant_id: str, adapter_id: str
+        self, *, domain_id: str, adapter_id: str
     ) -> AdapterRecord:
-        rec = await self.get(tenant_id=tenant_id, adapter_id=adapter_id)
+        rec = await self.get(domain_id=domain_id, adapter_id=adapter_id)
         if rec is None:
             raise LoRANotFoundError(adapter_id)
         if rec.status == "retired":
@@ -159,9 +159,9 @@ class InMemoryLoRARegistry:
         return rec
 
     async def retire(
-        self, *, tenant_id: str, adapter_id: str
+        self, *, domain_id: str, adapter_id: str
     ) -> AdapterRecord:
-        rec = await self.get(tenant_id=tenant_id, adapter_id=adapter_id)
+        rec = await self.get(domain_id=domain_id, adapter_id=adapter_id)
         if rec is None:
             raise LoRANotFoundError(adapter_id)
         if rec.status == "retired":
@@ -171,9 +171,9 @@ class InMemoryLoRARegistry:
         return rec
 
     async def delete(
-        self, *, tenant_id: str, adapter_id: str
+        self, *, domain_id: str, adapter_id: str
     ) -> int:
-        rec = await self.get(tenant_id=tenant_id, adapter_id=adapter_id)
+        rec = await self.get(domain_id=domain_id, adapter_id=adapter_id)
         if rec is None:
             return 0
         if rec.status == "active":

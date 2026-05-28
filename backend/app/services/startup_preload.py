@@ -4,7 +4,7 @@
 않도록 lifespan에서 DB → load() 일괄 preload한다. PUT으로 갱신된 값이 같은 프로세스
 재시작 후에도 즉시 반영 보장.
 
-- preload_tenant_configs: tenant_config_overrides 전체 row를 (tenant_id, category)로
+- preload_tenant_configs: tenant_config_overrides 전체 row를 (domain_id, category)로
   그룹화 + dotted path를 nested dict로 풀어 TenantConfigService.apply_runtime_override
 - preload_tenant_input_schemas: tenant_input_schemas WHERE status='active' SELECT 후
   InputSchemaLoader.apply_runtime_override
@@ -62,7 +62,7 @@ async def preload_tenant_configs(
 ) -> int:
     """tenant_config_overrides 전체 row → runtime override 일괄 적재.
 
-    Returns: 적재된 (tenant_id, category) 그룹 수.
+    Returns: 적재된 (domain_id, category) 그룹 수.
     """
     grouped: dict[tuple[str, str], dict] = {}
     async with admin_session_factory() as session:
@@ -70,20 +70,20 @@ async def preload_tenant_configs(
             await session.execute(
                 text(
                     """
-                    SELECT tenant_id, category, path, value
+                    SELECT domain_id, category, path, value
                       FROM tenant_config_overrides
                      WHERE active = TRUE
                     """
                 )
             )
         ).all()
-    for tenant_id, category, path, value in rows:
-        key = (str(tenant_id), str(category))
+    for domain_id, category, path, value in rows:
+        key = (str(domain_id), str(category))
         bucket = grouped.setdefault(key, {})
         # value는 jsonb → asyncpg/sqlalchemy가 이미 dict/primitive로 decode
         _set_nested(bucket, path or "", value)
-    for (tenant_id, category), nested in grouped.items():
-        TenantConfigService.apply_runtime_override(tenant_id, category, nested)
+    for (domain_id, category), nested in grouped.items():
+        TenantConfigService.apply_runtime_override(domain_id, category, nested)
     logger.info(
         "preload_tenant_configs",
         rows=len(rows),
@@ -105,23 +105,23 @@ async def preload_tenant_input_schemas(
             await session.execute(
                 text(
                     """
-                    SELECT tenant_id, schema_yaml
+                    SELECT domain_id, schema_yaml
                       FROM tenant_input_schemas
                      WHERE status = 'active'
                     """
                 )
             )
         ).all()
-    for tenant_id, schema_yaml in rows:
+    for domain_id, schema_yaml in rows:
         if isinstance(schema_yaml, dict):
-            InputSchemaLoader.apply_runtime_override(str(tenant_id), schema_yaml)
+            InputSchemaLoader.apply_runtime_override(str(domain_id), schema_yaml)
             count += 1
     logger.info("preload_tenant_input_schemas", tenants=count)
     return count
 
 
 async def reload_tenant_config(
-    *, admin_session_factory: async_sessionmaker, tenant_id: str
+    *, admin_session_factory: async_sessionmaker, domain_id: str
 ) -> None:
     """NOTIFY tenant_config_changed 수신 시 호출 — 단일 tenant만 재로드."""
     nested: dict[str, dict] = {}
@@ -132,23 +132,23 @@ async def reload_tenant_config(
                     """
                     SELECT category, path, value
                       FROM tenant_config_overrides
-                     WHERE active = TRUE AND tenant_id = :tid
+                     WHERE active = TRUE AND domain_id = :tid
                     """
                 ),
-                {"tid": tenant_id},
+                {"tid": domain_id},
             )
         ).all()
     for category, path, value in rows:
         bucket = nested.setdefault(str(category), {})
         _set_nested(bucket, path or "", value)
     # 기존 runtime layer를 비우고 새로 채운다 (delete 반영)
-    TenantConfigService.clear_runtime_overrides(tenant_id)
+    TenantConfigService.clear_runtime_overrides(domain_id)
     for category, value in nested.items():
-        TenantConfigService.apply_runtime_override(tenant_id, category, value)
+        TenantConfigService.apply_runtime_override(domain_id, category, value)
 
 
 async def reload_tenant_schema(
-    *, admin_session_factory: async_sessionmaker, tenant_id: str
+    *, admin_session_factory: async_sessionmaker, domain_id: str
 ) -> None:
     """NOTIFY tenant_schema_changed 수신 시 호출 — active schema 재로드."""
     async with admin_session_factory() as session:
@@ -158,15 +158,15 @@ async def reload_tenant_schema(
                     """
                     SELECT schema_yaml
                       FROM tenant_input_schemas
-                     WHERE status = 'active' AND tenant_id = :tid
+                     WHERE status = 'active' AND domain_id = :tid
                     """
                 ),
-                {"tid": tenant_id},
+                {"tid": domain_id},
             )
         ).first()
     if row is None:
-        InputSchemaLoader.clear_runtime_override(tenant_id)
+        InputSchemaLoader.clear_runtime_override(domain_id)
         return
     schema_yaml = row[0]
     if isinstance(schema_yaml, dict):
-        InputSchemaLoader.apply_runtime_override(tenant_id, schema_yaml)
+        InputSchemaLoader.apply_runtime_override(domain_id, schema_yaml)

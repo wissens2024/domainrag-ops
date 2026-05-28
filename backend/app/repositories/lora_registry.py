@@ -1,6 +1,6 @@
 """PostgresLoRARegistry — adapter_registry CRUD (ADR-017 §14 + ADR-013).
 
-RLS context 적용. adapter_id는 전역 UNIQUE이므로 RLS 외에도 tenant_id 명시.
+RLS context 적용. adapter_id는 전역 UNIQUE이므로 RLS 외에도 domain_id 명시.
 """
 
 from __future__ import annotations
@@ -28,11 +28,11 @@ class PostgresLoRARegistry:
         self._sf = session_factory
 
     async def list_by_tenant(
-        self, *, tenant_id: str, status: str | None = None
+        self, *, domain_id: str, status: str | None = None
     ) -> list[AdapterRecord]:
-        params: dict = {"tenant_id": tenant_id, "status": status}
+        params: dict = {"domain_id": domain_id, "status": status}
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             rows = (
                 await session.execute(
                     text(
@@ -41,7 +41,7 @@ class PostgresLoRARegistry:
                                status, training_metadata, registered_at,
                                activated_at, retired_at
                           FROM adapter_registry
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                            AND (status = :status OR :status IS NULL)
                          ORDER BY registered_at DESC
                         """
@@ -49,13 +49,13 @@ class PostgresLoRARegistry:
                     params,
                 )
             ).all()
-        return [_row_to_record(tenant_id, r) for r in rows]
+        return [_row_to_record(domain_id, r) for r in rows]
 
     async def get(
-        self, *, tenant_id: str, adapter_id: str
+        self, *, domain_id: str, adapter_id: str
     ) -> AdapterRecord | None:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             row = (
                 await session.execute(
                     text(
@@ -64,34 +64,34 @@ class PostgresLoRARegistry:
                                status, training_metadata, registered_at,
                                activated_at, retired_at
                           FROM adapter_registry
-                         WHERE tenant_id = :tenant_id AND adapter_id = :adapter_id
+                         WHERE domain_id = :domain_id AND adapter_id = :adapter_id
                         """
                     ),
-                    {"tenant_id": tenant_id, "adapter_id": adapter_id},
+                    {"domain_id": domain_id, "adapter_id": adapter_id},
                 )
             ).first()
-        return _row_to_record(tenant_id, row) if row else None
+        return _row_to_record(domain_id, row) if row else None
 
     async def upload(self, record: AdapterRecord) -> AdapterRecord:
         async with self._sf() as session:
-            await set_tenant_context(session, record.tenant_id)
+            await set_tenant_context(session, record.domain_id)
             try:
                 await session.execute(
                     text(
                         """
                         INSERT INTO adapter_registry (
-                            tenant_id, adapter_id, version, base_model,
+                            domain_id, adapter_id, version, base_model,
                             keyhub_secret_ref, status, training_metadata
                         )
                         VALUES (
-                            :tenant_id, :adapter_id, :version, :base_model,
+                            :domain_id, :adapter_id, :version, :base_model,
                             :keyhub_secret_ref, 'registered',
                             CAST(:training_metadata AS JSONB)
                         )
                         """
                     ),
                     {
-                        "tenant_id": record.tenant_id,
+                        "domain_id": record.domain_id,
                         "adapter_id": record.adapter_id,
                         "version": record.version,
                         "base_model": record.base_model,
@@ -107,15 +107,15 @@ class PostgresLoRARegistry:
                 await session.rollback()
                 raise LoRAConflictError(record.adapter_id) from exc
         loaded = await self.get(
-            tenant_id=record.tenant_id, adapter_id=record.adapter_id,
+            domain_id=record.domain_id, adapter_id=record.adapter_id,
         )
         assert loaded is not None
         return loaded
 
     async def activate(
-        self, *, tenant_id: str, adapter_id: str
+        self, *, domain_id: str, adapter_id: str
     ) -> AdapterRecord:
-        rec = await self.get(tenant_id=tenant_id, adapter_id=adapter_id)
+        rec = await self.get(domain_id=domain_id, adapter_id=adapter_id)
         if rec is None:
             raise LoRANotFoundError(adapter_id)
         if rec.status == "retired":
@@ -123,74 +123,74 @@ class PostgresLoRARegistry:
         if rec.status == "active":
             return rec
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             await session.execute(
                 text(
                     """
                     UPDATE adapter_registry
                        SET status = 'active', activated_at = NOW()
-                     WHERE tenant_id = :tenant_id AND adapter_id = :adapter_id
+                     WHERE domain_id = :domain_id AND adapter_id = :adapter_id
                     """
                 ),
-                {"tenant_id": tenant_id, "adapter_id": adapter_id},
+                {"domain_id": domain_id, "adapter_id": adapter_id},
             )
             await session.commit()
-        loaded = await self.get(tenant_id=tenant_id, adapter_id=adapter_id)
+        loaded = await self.get(domain_id=domain_id, adapter_id=adapter_id)
         assert loaded is not None
         return loaded
 
     async def retire(
-        self, *, tenant_id: str, adapter_id: str
+        self, *, domain_id: str, adapter_id: str
     ) -> AdapterRecord:
-        rec = await self.get(tenant_id=tenant_id, adapter_id=adapter_id)
+        rec = await self.get(domain_id=domain_id, adapter_id=adapter_id)
         if rec is None:
             raise LoRANotFoundError(adapter_id)
         if rec.status == "retired":
             return rec
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             await session.execute(
                 text(
                     """
                     UPDATE adapter_registry
                        SET status = 'retired', retired_at = NOW()
-                     WHERE tenant_id = :tenant_id AND adapter_id = :adapter_id
+                     WHERE domain_id = :domain_id AND adapter_id = :adapter_id
                     """
                 ),
-                {"tenant_id": tenant_id, "adapter_id": adapter_id},
+                {"domain_id": domain_id, "adapter_id": adapter_id},
             )
             await session.commit()
-        loaded = await self.get(tenant_id=tenant_id, adapter_id=adapter_id)
+        loaded = await self.get(domain_id=domain_id, adapter_id=adapter_id)
         assert loaded is not None
         return loaded
 
     async def delete(
-        self, *, tenant_id: str, adapter_id: str
+        self, *, domain_id: str, adapter_id: str
     ) -> int:
-        rec = await self.get(tenant_id=tenant_id, adapter_id=adapter_id)
+        rec = await self.get(domain_id=domain_id, adapter_id=adapter_id)
         if rec is None:
             return 0
         if rec.status == "active":
             raise LoRADeleteForbiddenError(adapter_id)
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             result = await session.execute(
                 text(
                     """
                     DELETE FROM adapter_registry
-                     WHERE tenant_id = :tenant_id AND adapter_id = :adapter_id
+                     WHERE domain_id = :domain_id AND adapter_id = :adapter_id
                     """
                 ),
-                {"tenant_id": tenant_id, "adapter_id": adapter_id},
+                {"domain_id": domain_id, "adapter_id": adapter_id},
             )
             await session.commit()
         return result.rowcount or 0
 
 
-def _row_to_record(tenant_id: str, row) -> AdapterRecord:
+def _row_to_record(domain_id: str, row) -> AdapterRecord:
     return AdapterRecord(
         adapter_id=str(row[0]),
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         version=row[1],
         base_model=row[2],
         keyhub_secret_ref=row[3],

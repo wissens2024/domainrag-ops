@@ -1,8 +1,8 @@
 """TenantInputSchemaRepository — ADR-015 + ADR-017 §15 schema CRUD Protocol.
 
 tenant_input_schemas 테이블:
-  (id, tenant_id, schema_version INT, status active|deprecated, schema_yaml JSONB,
-   ui_schema_yaml JSONB, created_at, deprecated_at, UNIQUE(tenant_id, schema_version))
+  (id, domain_id, schema_version INT, status active|deprecated, schema_yaml JSONB,
+   ui_schema_yaml JSONB, created_at, deprecated_at, UNIQUE(domain_id, schema_version))
 
 Status 머신:
   - 새 PUT 시 기존 active row를 deprecated로 전이 + 새 row status='active' 삽입
@@ -23,7 +23,7 @@ from typing import Any, Protocol
 @dataclass
 class TenantInputSchemaRecord:
     schema_id: str
-    tenant_id: str
+    domain_id: str
     schema_version: int
     status: str  # 'active' | 'deprecated'
     schema_yaml: dict[str, Any] = field(default_factory=dict)
@@ -45,14 +45,14 @@ class SchemaVersionConflictError(Exception):
 
 
 class TenantInputSchemaRepository(Protocol):
-    async def get_active(self, *, tenant_id: str) -> TenantInputSchemaRecord | None:
+    async def get_active(self, *, domain_id: str) -> TenantInputSchemaRecord | None:
         """현재 active schema 1건. 없으면 None (tenant 미등록)."""
         ...
 
     async def list_history(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         limit: int = 50,
         offset: int = 0,
     ) -> list[TenantInputSchemaRecord]:
@@ -62,7 +62,7 @@ class TenantInputSchemaRepository(Protocol):
     async def insert_new_active(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         base_version: int | None,
         schema_yaml: dict[str, Any],
         ui_schema_yaml: dict[str, Any],
@@ -82,14 +82,14 @@ class TenantInputSchemaRepository(Protocol):
 
 class InMemoryTenantInputSchemaRepository:
     def __init__(self) -> None:
-        # tenant_id → list[TenantInputSchemaRecord] (append 순)
+        # domain_id → list[TenantInputSchemaRecord] (append 순)
         self._records: dict[str, list[TenantInputSchemaRecord]] = {}
         self._id_counter = 0
 
     async def get_active(
-        self, *, tenant_id: str
+        self, *, domain_id: str
     ) -> TenantInputSchemaRecord | None:
-        rows = self._records.get(tenant_id) or []
+        rows = self._records.get(domain_id) or []
         for r in reversed(rows):
             if r.status == "active":
                 return r
@@ -98,23 +98,23 @@ class InMemoryTenantInputSchemaRepository:
     async def list_history(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         limit: int = 50,
         offset: int = 0,
     ) -> list[TenantInputSchemaRecord]:
-        rows = list(self._records.get(tenant_id) or [])
+        rows = list(self._records.get(domain_id) or [])
         rows.sort(key=lambda r: r.schema_version, reverse=True)
         return rows[offset : offset + limit]
 
     async def insert_new_active(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         base_version: int | None,
         schema_yaml: dict[str, Any],
         ui_schema_yaml: dict[str, Any],
     ) -> TenantInputSchemaRecord:
-        current = await self.get_active(tenant_id=tenant_id)
+        current = await self.get_active(domain_id=domain_id)
         current_version = current.schema_version if current else None
         if current_version != base_version:
             raise SchemaVersionConflictError(
@@ -128,12 +128,12 @@ class InMemoryTenantInputSchemaRepository:
         self._id_counter += 1
         record = TenantInputSchemaRecord(
             schema_id=f"schema-{self._id_counter:08d}",
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             schema_version=new_version,
             status="active",
             schema_yaml=dict(schema_yaml or {}),
             ui_schema_yaml=dict(ui_schema_yaml or {}),
             created_at=datetime.utcnow(),
         )
-        self._records.setdefault(tenant_id, []).append(record)
+        self._records.setdefault(domain_id, []).append(record)
         return record

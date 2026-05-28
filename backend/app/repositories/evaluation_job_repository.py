@@ -29,23 +29,23 @@ class PostgresEvaluationJobRepository:
 
     async def create(self, job: EvaluationJobRecord) -> None:
         async with self._sf() as session:
-            await set_tenant_context(session, job.tenant_id)
+            await set_tenant_context(session, job.domain_id)
             await session.execute(
                 text(
                     """
                     INSERT INTO evaluation_jobs (
-                        job_id, tenant_id, dataset_name, status, actor,
+                        job_id, domain_id, dataset_name, status, actor,
                         config_override
                     )
                     VALUES (
-                        :job_id, :tenant_id, :dataset_name, :status, :actor,
+                        :job_id, :domain_id, :dataset_name, :status, :actor,
                         CAST(:config_override AS JSONB)
                     )
                     """
                 ),
                 {
                     "job_id": job.job_id,
-                    "tenant_id": job.tenant_id,
+                    "domain_id": job.domain_id,
                     "dataset_name": job.dataset_name,
                     "status": job.status,
                     "actor": job.actor,
@@ -106,19 +106,19 @@ class PostgresEvaluationJobRepository:
             return
 
         async with self._sf() as session:
-            # tenant_id를 먼저 조회 — RLS context 적용
+            # domain_id를 먼저 조회 — RLS context 적용
             row = (
                 await session.execute(
                     text(
-                        "SELECT tenant_id FROM evaluation_jobs WHERE job_id = :job_id"
+                        "SELECT domain_id FROM evaluation_jobs WHERE job_id = :job_id"
                     ),
                     {"job_id": job_id},
                 )
             ).first()
             if row is None:
                 return
-            tenant_id = str(row[0])
-            await set_tenant_context(session, tenant_id)
+            domain_id = str(row[0])
+            await set_tenant_context(session, domain_id)
             await session.execute(
                 text(
                     f"UPDATE evaluation_jobs SET {', '.join(set_clauses)} "
@@ -129,10 +129,10 @@ class PostgresEvaluationJobRepository:
             await session.commit()
 
     async def get(
-        self, *, tenant_id: str, job_id: str
+        self, *, domain_id: str, job_id: str
     ) -> EvaluationJobRecord | None:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             row = (
                 await session.execute(
                     text(
@@ -142,25 +142,25 @@ class PostgresEvaluationJobRepository:
                                finished_at, promoted_at, promoted_by, promotion_target,
                                promotion_version
                           FROM evaluation_jobs
-                         WHERE tenant_id = :tenant_id AND job_id = :job_id
+                         WHERE domain_id = :domain_id AND job_id = :job_id
                         """
                     ),
-                    {"tenant_id": tenant_id, "job_id": job_id},
+                    {"domain_id": domain_id, "job_id": job_id},
                 )
             ).first()
             if row is None:
                 return None
-            return _row_to_record(tenant_id, row)
+            return _row_to_record(domain_id, row)
 
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         limit: int = 50,
         offset: int = 0,
     ) -> list[EvaluationJobRecord]:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             rows = (
                 await session.execute(
                     text(
@@ -170,21 +170,21 @@ class PostgresEvaluationJobRepository:
                                finished_at, promoted_at, promoted_by, promotion_target,
                                promotion_version
                           FROM evaluation_jobs
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                          ORDER BY created_at DESC
                          LIMIT :limit OFFSET :offset
                         """
                     ),
-                    {"tenant_id": tenant_id, "limit": limit, "offset": offset},
+                    {"domain_id": domain_id, "limit": limit, "offset": offset},
                 )
             ).all()
-            return [_row_to_record(tenant_id, r) for r in rows]
+            return [_row_to_record(domain_id, r) for r in rows]
 
 
-def _row_to_record(tenant_id: str, r) -> EvaluationJobRecord:
+def _row_to_record(domain_id: str, r) -> EvaluationJobRecord:
     return EvaluationJobRecord(
         job_id=str(r[0]),
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         dataset_name=r[1],
         status=r[2],
         actor=r[3],

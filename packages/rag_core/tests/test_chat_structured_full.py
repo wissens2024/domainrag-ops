@@ -64,7 +64,7 @@ def _pii_config() -> dict:
 async def populated_corpus():
     store = InMemoryVectorStore()
     embedder = InMemoryEmbedder(dense_dim=64)
-    await store.create_collection(tenant_id="security", dense_dim=64)
+    await store.create_collection(domain_id="security", dense_dim=64)
 
     docs = [
         ("c1", "패스워드는 12자 이상이어야 합니다",
@@ -84,14 +84,14 @@ async def populated_corpus():
         points.append(
             {"id": cid, "dense_vector": d, "sparse_vector": s, "payload": payload}
         )
-    await store.upsert_chunks(tenant_id="security", points=points)
+    await store.upsert_chunks(domain_id="security", points=points)
     return store, embedder
 
 
 def _user_context() -> dict:
     return {
         "user_id": "u1",
-        "tenant_id": "security",
+        "domain_id": "security",
         "clearance": "confidential",
         "department": "security",
         "domain_groups": ["group:security"],
@@ -192,7 +192,7 @@ async def test_full_path_returns_verified_citations(populated_corpus):
     graph = build_chat_structured_full(deps)
     state = RAGState(
         request_id="r1",
-        tenant_id="security",
+        domain_id="security",
         user_id="u1",
         question="패스워드 정책은?",
         user_context=_user_context(),
@@ -231,7 +231,7 @@ async def test_invalid_citation_index_stripped_by_tier1(populated_corpus):
     deps = _build_deps(populated_corpus, llm)
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r2", tenant_id="security", user_id="u1",
+        request_id="r2", domain_id="security", user_id="u1",
         question="q", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
@@ -259,7 +259,7 @@ async def test_inference_segment_downgraded_with_caveat(populated_corpus):
     deps = _build_deps(populated_corpus, llm)
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r3", tenant_id="security", user_id="u1",
+        request_id="r3", domain_id="security", user_id="u1",
         question="q", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
@@ -287,7 +287,7 @@ async def test_synthesis_drops_when_one_chunk_weak(populated_corpus):
     deps = _build_deps(populated_corpus, llm)
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r4", tenant_id="security", user_id="u1",
+        request_id="r4", domain_id="security", user_id="u1",
         question="q", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
@@ -323,7 +323,7 @@ async def test_llm_primary_conflict_with_groups_kept(date_conflict_corpus):
     deps = _build_conflict_deps(date_conflict_corpus, llm)
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-prim-1", tenant_id="security", user_id="u1",
+        request_id="r-prim-1", domain_id="security", user_id="u1",
         question="시행일은?", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
@@ -424,7 +424,7 @@ async def test_inference_chain_forwarded_to_judge(populated_corpus):
     )
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-inf-1", tenant_id="security", user_id="u1",
+        request_id="r-inf-1", domain_id="security", user_id="u1",
         question="패스워드 정책?", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
@@ -472,7 +472,7 @@ async def test_layer2_chat_logs_question_masked_under_default_policy(
     deps.chat_log_writer = InMemoryChatLogWriter()
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-stor-1", tenant_id="security", user_id="u1",
+        request_id="r-stor-1", domain_id="security", user_id="u1",
         # 이메일은 low severity → block 안 됨. 하지만 storage policy=mask면 마스킹.
         question="문의는 user@example.com 으로 패스워드 정책 알려주세요",
         user_context=_user_context(),
@@ -517,7 +517,7 @@ async def test_layer2_chat_logs_question_plain_under_explicit_policy(
     deps.chat_log_writer = InMemoryChatLogWriter()
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-stor-2", tenant_id="security", user_id="u1",
+        request_id="r-stor-2", domain_id="security", user_id="u1",
         question="문의는 user@example.com 으로 패스워드 정책",
         user_context=_user_context(),
     )
@@ -558,7 +558,7 @@ async def test_layer2_plain_without_approval_falls_back_to_mask(populated_corpus
     deps.chat_log_writer = InMemoryChatLogWriter()
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-stor-4", tenant_id="security", user_id="u1",
+        request_id="r-stor-4", domain_id="security", user_id="u1",
         question="문의는 user@example.com 으로 패스워드 정책",
         user_context=_user_context(),
     )
@@ -596,7 +596,7 @@ async def test_layer2_gdpr_strict_forces_mask_overriding_plain(populated_corpus)
     deps.chat_log_writer = InMemoryChatLogWriter()
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-stor-3", tenant_id="security", user_id="u1",
+        request_id="r-stor-3", domain_id="security", user_id="u1",
         question="문의는 user@example.com 으로 정책",
         user_context=_user_context(),
     )
@@ -635,7 +635,7 @@ async def test_chat_redirects_to_stream_endpoint_when_routing_picks_streaming(
     deps.config_loader = _loader_streaming
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-redir-1", tenant_id="security", user_id="u1",
+        request_id="r-redir-1", domain_id="security", user_id="u1",
         question="패스워드 정책은?", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
@@ -664,7 +664,7 @@ async def test_layer1_blocks_input_with_rrn(populated_corpus):
     deps = _build_deps(populated_corpus, llm)
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-pii-1", tenant_id="security", user_id="u1",
+        request_id="r-pii-1", domain_id="security", user_id="u1",
         question="제 주민번호 901231-1234567 로 조회해 주세요",
         user_context=_user_context(),
     )
@@ -690,7 +690,7 @@ async def date_conflict_corpus():
     """date_diff 휴리스틱이 트립되는 corpus — 같은 주제, 다른 시행일 두 chunk."""
     store = InMemoryVectorStore()
     embedder = InMemoryEmbedder(dense_dim=64)
-    await store.create_collection(tenant_id="security", dense_dim=64)
+    await store.create_collection(domain_id="security", dense_dim=64)
 
     docs = [
         ("c1", "시행일은 2024-01-01입니다",
@@ -710,7 +710,7 @@ async def date_conflict_corpus():
         points.append(
             {"id": cid, "dense_vector": d, "sparse_vector": s, "payload": payload}
         )
-    await store.upsert_chunks(tenant_id="security", points=points)
+    await store.upsert_chunks(domain_id="security", points=points)
     return store, embedder
 
 
@@ -771,7 +771,7 @@ async def test_heuristic_reclassifies_synthesis_to_conflict(date_conflict_corpus
     deps = _build_conflict_deps(date_conflict_corpus, llm)
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-conf-1", tenant_id="security", user_id="u1",
+        request_id="r-conf-1", domain_id="security", user_id="u1",
         question="시행일은 언제인가요?", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
@@ -810,7 +810,7 @@ async def test_heuristic_conflict_kept_when_both_sides_verified(
     deps = _build_conflict_deps(date_conflict_corpus, llm)
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-conf-2", tenant_id="security", user_id="u1",
+        request_id="r-conf-2", domain_id="security", user_id="u1",
         question="시행일은?", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
@@ -892,7 +892,7 @@ async def test_query_rewrite_hyde_used_for_retrieval(populated_corpus):
     )
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-rw-1", tenant_id="security", user_id="u1",
+        request_id="r-rw-1", domain_id="security", user_id="u1",
         question="정책", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
@@ -939,7 +939,7 @@ async def test_query_rewrite_disabled_uses_original_question(populated_corpus):
     deps.query_rewriter = rewriter
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-rw-2", tenant_id="security", user_id="u1",
+        request_id="r-rw-2", domain_id="security", user_id="u1",
         question="패스워드 정책은?", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
@@ -971,7 +971,7 @@ async def test_layer4_masks_pii_in_response(populated_corpus):
     deps = _build_deps(populated_corpus, llm)
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-pii-2", tenant_id="security", user_id="u1",
+        request_id="r-pii-2", domain_id="security", user_id="u1",
         question="패스워드 정책은?", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
@@ -1000,7 +1000,7 @@ async def test_gate2_fail_routes_to_fallback(populated_corpus):
     deps = _build_deps(populated_corpus, llm)
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r5", tenant_id="security", user_id="u1",
+        request_id="r5", domain_id="security", user_id="u1",
         question="q", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)

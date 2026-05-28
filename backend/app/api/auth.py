@@ -1,7 +1,7 @@
 """인증 API — `/api/auth/*` (ADR-017 §2, ADR-018 §2·§6).
 
 흐름:
-  1. Frontend → GET /api/auth/authorize/{tenant_id} — backend가 PKCE pair 생성 + state 저장 +
+  1. Frontend → GET /api/auth/authorize/{domain_id} — backend가 PKCE pair 생성 + state 저장 +
      authorize URL 반환. Frontend가 그 URL로 redirect.
   2. AuthFusion → GET /api/auth/callback?code&state — backend가 state로 code_verifier
      복원 → token endpoint 호출 → httpOnly Secure 쿠키 set.
@@ -37,7 +37,9 @@ from app.core.oauth_state_store import (
 from app.core.auth_adapter import UserContext, get_user_context_no_tenant
 from app.deps import (
     get_authfusion_token_client,
+    get_membership_service,
     get_oauth_state_store,
+    get_tenant_lifecycle_service,
 )
 
 router = APIRouter()
@@ -90,36 +92,36 @@ def _redirect_uri(auth_cfg: AuthConfig) -> str:
     return f"{base}{auth_cfg.redirect_path}"
 
 
-def _resolve_client_id(auth_cfg: AuthConfig, tenant_id: str) -> str:
-    ov = auth_cfg.tenant_overrides.get(tenant_id) or {}
+def _resolve_client_id(auth_cfg: AuthConfig, domain_id: str) -> str:
+    ov = auth_cfg.tenant_overrides.get(domain_id) or {}
     cid = ov.get("client_id")
     if not cid:
         # client_tenant_map 역방향 탐색 (mapped는 list[str])
         for client_id, mapped in auth_cfg.client_tenant_map.items():
-            if tenant_id in mapped:
+            if domain_id in mapped:
                 return client_id
         raise HTTPException(
             status_code=404,
-            detail={"error": "client_id_not_configured", "tenant_id": tenant_id},
+            detail={"error": "client_id_not_configured", "domain_id": domain_id},
         )
     return str(cid)
 
 
 # ----------------------------------------------------------------------------
-# /authorize/{tenant_id} — Frontend가 SSO redirect를 시작하기 전 호출
+# /authorize/{domain_id} — Frontend가 SSO redirect를 시작하기 전 호출
 # ----------------------------------------------------------------------------
 
 
-@router.get("/authorize/{tenant_id}")
+@router.get("/authorize/{domain_id}")
 async def build_authorize_url(
-    tenant_id: str,
+    domain_id: str,
     redirect: bool = Query(default=False),
     settings: Settings = Depends(get_settings),
     state_store: InMemoryOAuthStateStore = Depends(get_oauth_state_store),
 ):
     """ADR-018 §2 — PKCE pair 생성 + state 저장 + authorize URL 반환.
 
-    기본은 JSON({authorize_url, state, tenant_id}) — frontend SPA가 직접
+    기본은 JSON({authorize_url, state, domain_id}) — frontend SPA가 직접
     navigation을 다룰 때. `?redirect=1`이면 그 URL로 302 redirect — Next.js
     middleware나 일반 브라우저 navigation이 그대로 사용 가능.
     """
@@ -130,19 +132,19 @@ async def build_authorize_url(
             status_code=500, detail={"error": "authorize_endpoint_not_configured"}
         )
 
-    # tenant_id 화이트리스트 — auth configs (configs/tenants/<tid>/auth.yaml) 또는
+    # domain_id 화이트리스트 — auth configs (configs/tenants/<tid>/auth.yaml) 또는
     # platform map에 등록된 경우만 허용. 임의 문자열로 SSO 흐름 트리거 방지.
     is_known_tenant = (
-        tenant_id in auth_cfg.tenant_overrides
-        or any(tenant_id in mapped for mapped in auth_cfg.client_tenant_map.values())
+        domain_id in auth_cfg.tenant_overrides
+        or any(domain_id in mapped for mapped in auth_cfg.client_tenant_map.values())
     )
     if not is_known_tenant:
         raise HTTPException(
             status_code=404,
-            detail={"error": "tenant_not_registered", "tenant_id": tenant_id},
+            detail={"error": "tenant_not_registered", "domain_id": domain_id},
         )
 
-    client_id = _resolve_client_id(auth_cfg, tenant_id)
+    client_id = _resolve_client_id(auth_cfg, domain_id)
     verifier, challenge = generate_pkce_pair()
     state = generate_state()
     redirect_uri = _redirect_uri(auth_cfg)
@@ -150,7 +152,7 @@ async def build_authorize_url(
     state_store.put(
         OAuthStateEntry(
             state=state,
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             code_verifier=verifier,
             redirect_uri=redirect_uri,
             client_id=client_id,
@@ -173,7 +175,7 @@ async def build_authorize_url(
     return {
         "authorize_url": authorize_url,
         "state": state,
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
     }
 
 
@@ -183,7 +185,7 @@ async def build_authorize_url(
 
 
 class CallbackResponse(BaseModel):
-    tenant_id: str
+    domain_id: str
     expires_in: int
     token_type: str
     scope: str | None = None
@@ -228,7 +230,7 @@ async def oauth_callback(
 
     _set_cookies(response, token=token, is_production=is_production)
     return CallbackResponse(
-        tenant_id=entry.tenant_id,
+        domain_id=entry.domain_id,
         expires_in=token.expires_in,
         token_type=token.token_type,
         scope=token.scope,
@@ -250,9 +252,10 @@ async def auth_me(user: UserContext = Depends(get_user_context_no_tenant)):
     """
     return {
         "user_id": user.user_id,
-        "tenant_id": user.tenant_id,
+        "domain_id": user.domain_id,
         "roles": user.roles,
         "is_admin": user.is_admin,
+        "is_auditor": user.is_auditor,
         "is_platform_admin": user.is_platform_admin,
         "clearance": user.clearance,
         "department": user.department,
@@ -260,6 +263,55 @@ async def auth_me(user: UserContext = Depends(get_user_context_no_tenant)):
         "preferred_username": user.preferred_username,
         "email": user.email,
     }
+
+
+@router.get("/me/domains")
+async def auth_me_domains(
+    user: UserContext = Depends(get_user_context_no_tenant),
+    tenant_service=Depends(get_tenant_lifecycle_service),
+    membership_service=Depends(get_membership_service),
+):
+    """ADR-022 §7 — 내가 접근 가능한 도메인 목록 (frontend 도메인 switcher).
+
+    - admin/auditor/platform_admin: 모든 active 도메인 (전역 역할).
+    - 일반 user: 내 membership 도메인 + enrollment_policy=open 도메인.
+
+    각 항목의 `access`는 어떻게 접근권을 얻었는지: global(전역역할) | member(배정) | open(개방).
+    """
+    active = await tenant_service.list_(status="active", limit=500, offset=0)
+    is_global = user.is_admin or user.is_auditor or user.is_platform_admin
+
+    if is_global:
+        items = [
+            {
+                "domain_id": t.domain_id,
+                "display_name": t.display_name,
+                "enrollment_policy": t.enrollment_policy,
+                "access": "global",
+            }
+            for t in active
+        ]
+        return {"items": items, "is_global": True}
+
+    memberships = await membership_service.list_for_user(user.user_id)
+    member_ids = {m["domain_id"] for m in memberships}
+    items = []
+    for t in active:
+        if t.domain_id in member_ids:
+            access = "member"
+        elif t.enrollment_policy == "open":
+            access = "open"
+        else:
+            continue
+        items.append(
+            {
+                "domain_id": t.domain_id,
+                "display_name": t.display_name,
+                "enrollment_policy": t.enrollment_policy,
+                "access": access,
+            }
+        )
+    return {"items": items, "is_global": False}
 
 
 # ----------------------------------------------------------------------------
@@ -373,7 +425,7 @@ async def authfusion_self_service_proxy(
 class RefreshRequest(BaseModel):
     # 명시적 refresh_token 또는 cookie 사용. body 우선.
     refresh_token: str | None = None
-    tenant_id: str  # client_id 매핑에 필요
+    domain_id: str  # client_id 매핑에 필요
 
 
 @router.post("/refresh")
@@ -398,7 +450,7 @@ async def refresh_token_endpoint(
             status_code=500, detail={"error": "token_client_not_configured"}
         )
 
-    client_id = _resolve_client_id(auth_cfg, req.tenant_id)
+    client_id = _resolve_client_id(auth_cfg, req.domain_id)
     try:
         token = await token_client.refresh(
             refresh_token=refresh, client_id=client_id
@@ -411,7 +463,7 @@ async def refresh_token_endpoint(
 
     _set_cookies(response, token=token, is_production=is_production)
     return {
-        "tenant_id": req.tenant_id,
+        "domain_id": req.domain_id,
         "expires_in": token.expires_in,
         "token_type": token.token_type,
     }
@@ -423,7 +475,7 @@ async def refresh_token_endpoint(
 
 
 class LogoutRequest(BaseModel):
-    tenant_id: str
+    domain_id: str
 
 
 @router.post("/logout", status_code=204)
@@ -442,7 +494,7 @@ async def logout(
     refresh = request.cookies.get(_REFRESH_COOKIE)
 
     if token_client is not None:
-        client_id = _resolve_client_id(auth_cfg, req.tenant_id)
+        client_id = _resolve_client_id(auth_cfg, req.domain_id)
         if access:
             await token_client.revoke(
                 token=access, client_id=client_id, token_type_hint="access_token"

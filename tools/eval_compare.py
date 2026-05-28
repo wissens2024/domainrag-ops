@@ -43,7 +43,7 @@ class ScenarioRun:
 async def _run_scenario(
     orchestrator,
     *,
-    tenant_id: str,
+    domain_id: str,
     dataset_name: str,
     label: str,
     config_override: dict[str, Any],
@@ -52,17 +52,17 @@ async def _run_scenario(
     """한 시나리오에 대해 evaluation을 실행하고 완료까지 대기 후 결과 반환."""
     started = time.perf_counter()
     prepared = await orchestrator.prepare_run(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         dataset_name=dataset_name,
         actor=actor,
         config_override=config_override,
     )
     # background 의존 없이 직접 execute (caller가 await — 완료까지 sync 진행)
-    await orchestrator.execute(job_id=prepared.job_id, tenant_id=tenant_id)
+    await orchestrator.execute(job_id=prepared.job_id, domain_id=domain_id)
     elapsed = time.perf_counter() - started
 
     record = await orchestrator.repo.get(
-        tenant_id=tenant_id, job_id=prepared.job_id
+        domain_id=domain_id, job_id=prepared.job_id
     )
     return ScenarioRun(
         label=label,
@@ -164,7 +164,7 @@ async def _amain(args) -> int:
 
     run_a = await _run_scenario(
         orch,
-        tenant_id=args.tenant,
+        domain_id=args.tenant,
         dataset_name=args.dataset,
         label=args.label_a,
         config_override=override_a,
@@ -173,7 +173,7 @@ async def _amain(args) -> int:
     # (TENANT_SLM_BASE_URL_B, SHARED_LLM_BASE_URL_B)가 활성화되어 있어야 한다.
     run_b = await _run_scenario(
         orch,
-        tenant_id=args.tenant,
+        domain_id=args.tenant,
         dataset_name=args.dataset,
         label=args.label_b,
         config_override=override_b,

@@ -20,7 +20,7 @@ class MockUserConfig:
     """테스트 default user. configs/platform/auth.yaml의 mock 블록을 코드 상수로 박음."""
 
     user_id: str = "dev-user-001"
-    tenant_id: str = "security"
+    domain_id: str = "security"
     roles: list[str] = field(default_factory=lambda: ["USER", "ADMIN"])
     clearance: str = "confidential"
     department: str | None = "security"
@@ -35,19 +35,19 @@ class MockAuthAdapter:
     """Bearer token 무시하고 default UserContext 반환. 테스트 한정.
 
     `tests/conftest.py`가 `app.dependency_overrides[get_auth_adapter] = lambda: MockAuthAdapter()`
-    로 주입. path tenant_id는 그대로 mirror.
+    로 주입. path domain_id는 그대로 mirror.
     """
 
     def __init__(self, default_user: MockUserConfig | None = None) -> None:
         self._default = default_user or MockUserConfig()
 
     async def verify_and_extract(
-        self, bearer_token: str, expected_tenant_id: str
+        self, bearer_token: str, expected_domain_id: str
     ) -> UserContext:
         m = self._default
         return UserContext(
             user_id=m.user_id,
-            tenant_id=expected_tenant_id,  # path mirror
+            domain_id=expected_domain_id,  # path mirror
             roles=list(m.roles),
             clearance=m.clearance,
             department=m.department,

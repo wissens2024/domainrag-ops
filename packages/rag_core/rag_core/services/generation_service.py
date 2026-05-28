@@ -97,10 +97,10 @@ class GenerationService:
         self._temperature = temperature
         self._prompt_provider = prompt_provider
 
-    def _effective_prompt(self, tenant_id: str | None = None) -> GenerationPrompt:
+    def _effective_prompt(self, domain_id: str | None = None) -> GenerationPrompt:
         if self._prompt_provider is not None:
             try:
-                p = self._prompt_provider(tenant_id)
+                p = self._prompt_provider(domain_id)
                 if p is not None:
                     return p
             except Exception:  # noqa: BLE001 — provider 실패 시 fallback
@@ -109,9 +109,9 @@ class GenerationService:
 
     def _render(
         self, *, question: str, contexts: list[RetrievedChunk],
-        tenant_id: str | None = None,
+        domain_id: str | None = None,
     ) -> str:
-        prompt = self._effective_prompt(tenant_id)
+        prompt = self._effective_prompt(domain_id)
         system = _jinja_env.from_string(prompt.system).render()
         user = _jinja_env.from_string(prompt.user).render(
             question=question, contexts=_context_view(contexts)
@@ -127,12 +127,12 @@ class GenerationService:
         question: str,
         contexts: list[RetrievedChunk],
         lora_adapter: str | None = None,
-        tenant_id: str | None = None,
+        domain_id: str | None = None,
         model_override: str | None = None,
     ) -> GenerationResult:
-        effective = self._effective_prompt(tenant_id)
+        effective = self._effective_prompt(domain_id)
         rendered = self._render(
-            question=question, contexts=contexts, tenant_id=tenant_id,
+            question=question, contexts=contexts, domain_id=domain_id,
         )
         raw = await self._llm.generate(
             rendered,

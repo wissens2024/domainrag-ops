@@ -43,7 +43,7 @@ REPO = Path(__file__).resolve().parents[3]
 async def populated_corpus():
     store = InMemoryVectorStore()
     embedder = InMemoryEmbedder(dense_dim=64)
-    await store.create_collection(tenant_id="security", dense_dim=64)
+    await store.create_collection(domain_id="security", dense_dim=64)
     docs = [
         ("c1", "패스워드는 12자 이상이어야 합니다",
          {"approval_status": "approved", "security_level": "internal",
@@ -60,13 +60,13 @@ async def populated_corpus():
     for cid, text, payload in docs:
         d, s = await embedder.embed_query(text)
         points.append({"id": cid, "dense_vector": d, "sparse_vector": s, "payload": payload})
-    await store.upsert_chunks(tenant_id="security", points=points)
+    await store.upsert_chunks(domain_id="security", points=points)
     return store, embedder
 
 
 def _user() -> dict:
     return {
-        "user_id": "u1", "tenant_id": "security",
+        "user_id": "u1", "domain_id": "security",
         "clearance": "confidential", "department": "security",
         "domain_groups": ["group:security"], "roles": ["USER"],
     }
@@ -136,7 +136,7 @@ async def test_success_path_persists_full_chat_log(populated_corpus):
     writer = InMemoryChatLogWriter()
     deps = _build_deps(populated_corpus, InMemoryLLMClient(responses=[gen_response]), writer)
     graph = build_chat_structured_full(deps)
-    state = RAGState(request_id="r1", tenant_id="security", user_id="u1",
+    state = RAGState(request_id="r1", domain_id="security", user_id="u1",
                      question="패스워드 정책은?", user_context=_user(),
                      selected_model="qwen-7b")
     result = await graph.ainvoke(state)
@@ -144,7 +144,7 @@ async def test_success_path_persists_full_chat_log(populated_corpus):
     assert result["gate2_passed"] is True
     assert len(writer.records) == 1
     rec = writer.records[0]
-    assert rec.tenant_id == "security"
+    assert rec.domain_id == "security"
     assert rec.request_id == "r1"
     assert rec.user_id == "u1"
     assert rec.conversation_id  # 자동 발급
@@ -187,7 +187,7 @@ async def test_fallback_path_also_persists(populated_corpus):
     writer = InMemoryChatLogWriter()
     deps = _build_deps(populated_corpus, InMemoryLLMClient(responses=[gen_response]), writer)
     graph = build_chat_structured_full(deps)
-    state = RAGState(request_id="r2", tenant_id="security", user_id="u1",
+    state = RAGState(request_id="r2", domain_id="security", user_id="u1",
                      question="패스워드 정책", user_context=_user())
     result = await graph.ainvoke(state)
 
@@ -216,7 +216,7 @@ async def test_caller_supplied_conversation_id_preserved(populated_corpus):
     writer = InMemoryChatLogWriter()
     deps = _build_deps(populated_corpus, InMemoryLLMClient(responses=[gen_response]), writer)
     graph = build_chat_structured_full(deps)
-    state = RAGState(request_id="r3", tenant_id="security", user_id="u1",
+    state = RAGState(request_id="r3", domain_id="security", user_id="u1",
                      conversation_id="conv-existing-123",
                      question="패스워드 정책은?", user_context=_user())
     result = await graph.ainvoke(state)
@@ -238,7 +238,7 @@ async def test_no_writer_does_not_break_graph(populated_corpus):
     )
     deps = _build_deps(populated_corpus, InMemoryLLMClient(responses=[gen_response]), None)
     graph = build_chat_structured_full(deps)
-    state = RAGState(request_id="r4", tenant_id="security", user_id="u1",
+    state = RAGState(request_id="r4", domain_id="security", user_id="u1",
                      question="패스워드 정책은?", user_context=_user())
     result = await graph.ainvoke(state)
     # 그래프는 정상 종료. conversation_id는 입력 None 그대로.

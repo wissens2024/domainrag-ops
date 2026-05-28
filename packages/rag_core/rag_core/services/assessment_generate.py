@@ -86,7 +86,7 @@ class AssessmentGenerateService:
     async def generate(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         criteria: GenerateCriteria,
         actor: str | None = None,
         validators_config: dict[str, dict[str, Any]] | None = None,
@@ -97,7 +97,7 @@ class AssessmentGenerateService:
         from rag_core.interfaces.assessment_item_repository import ExtractCriteria
 
         refs = await self._repo.list_candidates_for_extract(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             criteria=ExtractCriteria(
                 subject=criteria.subject,
                 chapter=criteria.chapter,
@@ -106,7 +106,7 @@ class AssessmentGenerateService:
             limit=10,
         )
         refs_for_similarity = await self._repo.list_candidates_for_extract(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             criteria=ExtractCriteria(
                 subject=criteria.subject,
                 quality_status=["approved", "reviewed"],
@@ -185,7 +185,7 @@ class AssessmentGenerateService:
                 ]
                 record = AssessmentItemRecord(
                     item_id=item_id,
-                    tenant_id=tenant_id,
+                    domain_id=domain_id,
                     subject=criteria.subject,
                     chapter=criteria.chapter,
                     difficulty=str(candidate.get("difficulty") or criteria.difficulty),
@@ -215,7 +215,7 @@ class AssessmentGenerateService:
                 "max_quality_score": round(max(validator_scores), 4),
             }
         for i, item in enumerate(result.items, start=1):
-            result.citations.append(_item_to_citation(item, marker=f"[{i}]", tenant_id=tenant_id))
+            result.citations.append(_item_to_citation(item, marker=f"[{i}]", domain_id=domain_id))
         return result
 
 

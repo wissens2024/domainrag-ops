@@ -19,7 +19,7 @@ from typing import Protocol
 @dataclass(frozen=True)
 class OAuthStateEntry:
     state: str
-    tenant_id: str
+    domain_id: str
     code_verifier: str
     redirect_uri: str
     client_id: str

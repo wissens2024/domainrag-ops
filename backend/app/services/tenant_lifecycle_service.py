@@ -33,12 +33,13 @@ _TRANSITIONS = {
 
 @dataclass
 class TenantRecord:
-    tenant_id: str
+    domain_id: str
     display_name: str
     domain_type: str | None = None
     embedding_model: str = "bge-m3"
     embedding_migration_state: str = "idle"
     status: str = "active"
+    enrollment_policy: str = "assigned"  # ADR-022 §4 — open | assigned
     modules: list[str] = field(default_factory=lambda: ["rag"])
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -47,11 +48,12 @@ class TenantRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "tenant_id": self.tenant_id,
+            "domain_id": self.domain_id,
             "display_name": self.display_name,
             "domain_type": self.domain_type,
             "embedding_model": self.embedding_model,
             "status": self.status,
+            "enrollment_policy": self.enrollment_policy,
             "modules": list(self.modules),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -61,15 +63,15 @@ class TenantRecord:
 
 
 class TenantNotFoundError(Exception):
-    def __init__(self, tenant_id: str):
-        super().__init__(f"tenant not found: {tenant_id}")
-        self.tenant_id = tenant_id
+    def __init__(self, domain_id: str):
+        super().__init__(f"tenant not found: {domain_id}")
+        self.domain_id = domain_id
 
 
 class TenantConflictError(Exception):
-    def __init__(self, tenant_id: str):
-        super().__init__(f"tenant already exists: {tenant_id}")
-        self.tenant_id = tenant_id
+    def __init__(self, domain_id: str):
+        super().__init__(f"tenant already exists: {domain_id}")
+        self.domain_id = domain_id
 
 
 class InvalidStatusTransitionError(Exception):
@@ -82,11 +84,11 @@ class InvalidStatusTransitionError(Exception):
 class TenantNotArchivedError(Exception):
     """hard delete는 archived 상태만 허용."""
 
-    def __init__(self, tenant_id: str, status: str):
+    def __init__(self, domain_id: str, status: str):
         super().__init__(
             f"tenant must be in 'archived' status for hard_delete, got {status}"
         )
-        self.tenant_id = tenant_id
+        self.domain_id = domain_id
         self.status = status
 
 
@@ -98,13 +100,13 @@ class PostgresTenantLifecycleService:
         2. Postgres rows DELETE — 모든 tenant-scoped 테이블 (chunks, documents, chunks_archive,
            indexing_jobs, chat_logs[옵션], evaluation_jobs, tenant_config_overrides,
            tenant_config_change_logs, pii_storage_approvals, user_tenant_membership)
-        3. Qdrant: delete_collection(chunks_<tenant_id>)
+        3. Qdrant: delete_collection(chunks_<domain_id>)
         4. MinIO: storage prefix rm (tenant 전체)
         5. tenants.status='deleted', delete_status='completed'|'partial'
         실패한 step은 tenant_delete_failures dead-letter에 누적.
     """
 
-    # ADR-008 RLS 적용 테이블 중 tenant_id 컬럼이 있는 것 (RLS bypass 후 DELETE)
+    # ADR-008 RLS 적용 테이블 중 domain_id 컬럼이 있는 것 (RLS bypass 후 DELETE)
     _TENANT_SCOPED_TABLES = (
         "chunks_archive", "chunks", "documents", "indexing_jobs",
         "evaluation_jobs", "messages", "conversations", "chat_logs",
@@ -132,11 +134,12 @@ class PostgresTenantLifecycleService:
     async def register(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         display_name: str,
         domain_type: str | None = None,
         embedding_model: str | None = None,
         modules: list[str] | None = None,
+        enrollment_policy: str = "assigned",
         actor: str,
     ) -> TenantRecord:
         from sqlalchemy import text
@@ -152,20 +155,23 @@ class PostgresTenantLifecycleService:
                         await session.execute(
                             text(
                                 """
-                                INSERT INTO tenants (tenant_id, display_name, domain_type,
-                                                     embedding_model, modules, status)
-                                VALUES (:tenant_id, :display_name, :domain_type,
-                                        :embedding_model, CAST(:modules AS JSONB), 'active')
+                                INSERT INTO tenants (domain_id, display_name, domain_type,
+                                                     embedding_model, modules, status,
+                                                     enrollment_policy)
+                                VALUES (:domain_id, :display_name, :domain_type,
+                                        :embedding_model, CAST(:modules AS JSONB), 'active',
+                                        :enrollment_policy)
                                 RETURNING embedding_model, embedding_migration_state,
                                           created_at, updated_at
                                 """
                             ),
                             {
-                                "tenant_id": tenant_id,
+                                "domain_id": domain_id,
                                 "display_name": display_name,
                                 "domain_type": domain_type,
                                 "embedding_model": embedding_model,
                                 "modules": _json.dumps(list(modules or ["rag"])),
+                                "enrollment_policy": enrollment_policy,
                             },
                         )
                     ).first()
@@ -174,25 +180,27 @@ class PostgresTenantLifecycleService:
                         await session.execute(
                             text(
                                 """
-                                INSERT INTO tenants (tenant_id, display_name, domain_type,
-                                                     modules, status)
-                                VALUES (:tenant_id, :display_name, :domain_type,
-                                        CAST(:modules AS JSONB), 'active')
+                                INSERT INTO tenants (domain_id, display_name, domain_type,
+                                                     modules, status, enrollment_policy)
+                                VALUES (:domain_id, :display_name, :domain_type,
+                                        CAST(:modules AS JSONB), 'active',
+                                        :enrollment_policy)
                                 RETURNING embedding_model, embedding_migration_state,
                                           created_at, updated_at
                                 """
                             ),
                             {
-                                "tenant_id": tenant_id,
+                                "domain_id": domain_id,
                                 "display_name": display_name,
                                 "domain_type": domain_type,
                                 "modules": _json.dumps(list(modules or ["rag"])),
+                                "enrollment_policy": enrollment_policy,
                             },
                         )
                     ).first()
             except IntegrityError as exc:
                 await session.rollback()
-                raise TenantConflictError(tenant_id) from exc
+                raise TenantConflictError(domain_id) from exc
             await session.commit()
 
         embedding_model = row[0] if row else "bge-m3"
@@ -204,32 +212,55 @@ class PostgresTenantLifecycleService:
         if self._vector_store is not None:
             try:
                 await self._vector_store.create_collection(
-                    tenant_id=tenant_id, dense_dim=self._dim_provider()
+                    domain_id=domain_id, dense_dim=self._dim_provider()
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.debug("collection create swallow: %s", exc)
 
         record = TenantRecord(
-            tenant_id=tenant_id, display_name=display_name,
+            domain_id=domain_id, display_name=display_name,
             domain_type=domain_type,
             embedding_model=embedding_model,
             embedding_migration_state=embedding_migration_state,
             status="active", modules=list(modules or ["rag"]),
+            enrollment_policy=enrollment_policy,
             created_at=created_at, updated_at=updated_at,
         )
         await self._publish(
             actor=actor, action="tenant_registered",
-            tenant_id=tenant_id, details={"display_name": display_name},
+            domain_id=domain_id, details={"display_name": display_name},
         )
         return record
 
-    async def get(self, tenant_id: str) -> TenantRecord:
-        rec = await self._fetch(tenant_id)
+    async def get(self, domain_id: str) -> TenantRecord:
+        rec = await self._fetch(domain_id)
         if rec is None:
-            raise TenantNotFoundError(tenant_id)
+            raise TenantNotFoundError(domain_id)
         return rec
 
-    async def _fetch(self, tenant_id: str) -> TenantRecord | None:
+    async def set_enrollment_policy(
+        self, *, domain_id: str, enrollment_policy: str, actor: str
+    ) -> TenantRecord:
+        from sqlalchemy import text
+
+        rec = await self.get(domain_id)  # 없으면 TenantNotFoundError
+        async with self._sf() as session:
+            await session.execute(
+                text(
+                    "UPDATE tenants SET enrollment_policy = :p, updated_at = NOW() "
+                    "WHERE domain_id = :tid"
+                ),
+                {"p": enrollment_policy, "tid": domain_id},
+            )
+            await session.commit()
+        rec.enrollment_policy = enrollment_policy
+        await self._publish(
+            actor=actor, action="tenant_enrollment_policy_changed",
+            domain_id=domain_id, details={"enrollment_policy": enrollment_policy},
+        )
+        return rec
+
+    async def _fetch(self, domain_id: str) -> TenantRecord | None:
         from sqlalchemy import text
 
         async with self._sf() as session:
@@ -239,18 +270,19 @@ class PostgresTenantLifecycleService:
                         """
                         SELECT display_name, domain_type, embedding_model,
                                embedding_migration_state, status, modules,
-                               created_at, updated_at, delete_status, deleted_at
+                               created_at, updated_at, delete_status, deleted_at,
+                               enrollment_policy
                           FROM tenants
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                         """
                     ),
-                    {"tenant_id": tenant_id},
+                    {"domain_id": domain_id},
                 )
             ).first()
         if row is None:
             return None
         return TenantRecord(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             display_name=row[0],
             domain_type=row[1],
             embedding_model=row[2] or "bge-m3",
@@ -261,6 +293,7 @@ class PostgresTenantLifecycleService:
             updated_at=row[7] or row[6] or datetime.now(timezone.utc),
             delete_status=row[8],
             deleted_at=row[9],
+            enrollment_policy=row[10] or "assigned",
         )
 
     async def list_(
@@ -269,37 +302,39 @@ class PostgresTenantLifecycleService:
         from sqlalchemy import text
 
         sql = """
-            SELECT tenant_id, display_name, domain_type, embedding_model,
+            SELECT domain_id, display_name, domain_type, embedding_model,
                    embedding_migration_state, status, modules,
-                   created_at, updated_at, delete_status, deleted_at
+                   created_at, updated_at, delete_status, deleted_at,
+                   enrollment_policy
               FROM tenants
         """
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if status:
             sql += " WHERE status = :status"
             params["status"] = status
-        sql += " ORDER BY tenant_id LIMIT :limit OFFSET :offset"
+        sql += " ORDER BY domain_id LIMIT :limit OFFSET :offset"
         async with self._sf() as session:
             rows = (await session.execute(text(sql), params)).all()
         return [
             TenantRecord(
-                tenant_id=r[0], display_name=r[1], domain_type=r[2],
+                domain_id=r[0], display_name=r[1], domain_type=r[2],
                 embedding_model=r[3] or "bge-m3",
                 embedding_migration_state=r[4] or "idle",
                 status=r[5] or "active",
                 modules=list(r[6] or ["rag"]),
                 created_at=r[7], updated_at=r[8] or r[7],
                 delete_status=r[9], deleted_at=r[10],
+                enrollment_policy=r[11] or "assigned",
             )
             for r in rows
         ]
 
     async def update_status(
-        self, *, tenant_id: str, to_status: str, actor: str, reason: str | None = None
+        self, *, domain_id: str, to_status: str, actor: str, reason: str | None = None
     ) -> TenantRecord:
         from sqlalchemy import text
 
-        rec = await self.get(tenant_id)
+        rec = await self.get(domain_id)
         if rec.status == to_status:
             return rec
         if to_status not in _TRANSITIONS.get(rec.status, set()):
@@ -311,29 +346,29 @@ class PostgresTenantLifecycleService:
                     """
                     UPDATE tenants
                        SET status = :to_status, updated_at = NOW()
-                     WHERE tenant_id = :tenant_id
+                     WHERE domain_id = :domain_id
                     """
                 ),
-                {"to_status": to_status, "tenant_id": tenant_id},
+                {"to_status": to_status, "domain_id": domain_id},
             )
             await session.commit()
         rec.status = to_status
         rec.updated_at = datetime.now(timezone.utc)
         await self._publish(
             actor=actor, action="tenant_status_changed",
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             details={"from": rec.status if False else "(prev)", "to": to_status, "reason": reason},
         )
         return rec
 
     async def hard_delete(
-        self, *, tenant_id: str, actor: str, reason: str
+        self, *, domain_id: str, actor: str, reason: str
     ) -> TenantRecord:
         from sqlalchemy import text
 
-        rec = await self.get(tenant_id)
+        rec = await self.get(domain_id)
         if rec.status != "archived":
-            raise TenantNotArchivedError(tenant_id, rec.status)
+            raise TenantNotArchivedError(domain_id, rec.status)
 
         steps_failed: list[dict[str, Any]] = []
 
@@ -341,9 +376,9 @@ class PostgresTenantLifecycleService:
         async with self._sf() as session:
             await session.execute(
                 text(
-                    "UPDATE tenants SET delete_status='in_progress' WHERE tenant_id=:tid"
+                    "UPDATE tenants SET delete_status='in_progress' WHERE domain_id=:tid"
                 ),
-                {"tid": tenant_id},
+                {"tid": domain_id},
             )
             await session.commit()
 
@@ -352,8 +387,8 @@ class PostgresTenantLifecycleService:
             try:
                 async with self._sf() as session:
                     await session.execute(
-                        text(f"DELETE FROM {table} WHERE tenant_id = :tid"),
-                        {"tid": tenant_id},
+                        text(f"DELETE FROM {table} WHERE domain_id = :tid"),
+                        {"tid": domain_id},
                     )
                     await session.commit()
             except Exception as exc:  # noqa: BLE001
@@ -364,14 +399,14 @@ class PostgresTenantLifecycleService:
         # 3) Qdrant collection drop
         if self._vector_store is not None:
             try:
-                await self._vector_store.delete_collection(tenant_id)
+                await self._vector_store.delete_collection(domain_id)
             except Exception as exc:  # noqa: BLE001
                 steps_failed.append({"step": "qdrant", "error": str(exc)})
 
         # 4) Storage prefix rm
         if self._storage is not None:
             try:
-                await self._storage.delete(tenant_id=tenant_id, doc_id="")
+                await self._storage.delete(domain_id=domain_id, doc_id="")
             except Exception as exc:  # noqa: BLE001
                 steps_failed.append({"step": "storage", "error": str(exc)})
 
@@ -385,12 +420,12 @@ class PostgresTenantLifecycleService:
                            delete_status=:ds,
                            deleted_at=NOW(),
                            updated_at=NOW()
-                     WHERE tenant_id=:tid
+                     WHERE domain_id=:tid
                     """
                 ),
                 {
                     "ds": "completed" if not steps_failed else "partial",
-                    "tid": tenant_id,
+                    "tid": domain_id,
                 },
             )
             # dead-letter
@@ -399,11 +434,11 @@ class PostgresTenantLifecycleService:
                     text(
                         """
                         INSERT INTO tenant_delete_failures (
-                            tenant_id, failed_step, error_message
+                            domain_id, failed_step, error_message
                         ) VALUES (:tid, :step, :err)
                         """
                     ),
-                    {"tid": tenant_id, "step": f["step"], "err": f["error"]},
+                    {"tid": domain_id, "step": f["step"], "err": f["error"]},
                 )
             await session.commit()
 
@@ -414,7 +449,7 @@ class PostgresTenantLifecycleService:
 
         await self._publish(
             actor=actor, action="tenant_hard_deleted",
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             details={
                 "reason": reason,
                 "delete_status": rec.delete_status,
@@ -423,7 +458,7 @@ class PostgresTenantLifecycleService:
         )
         return rec
 
-    async def list_delete_failures(self, tenant_id: str) -> list[dict[str, Any]]:
+    async def list_delete_failures(self, domain_id: str) -> list[dict[str, Any]]:
         from sqlalchemy import text
 
         async with self._sf() as session:
@@ -434,11 +469,11 @@ class PostgresTenantLifecycleService:
                         SELECT failed_step, error_message, retry_count,
                                last_attempt_at, resolved_at, created_at
                           FROM tenant_delete_failures
-                         WHERE tenant_id = :tid
+                         WHERE domain_id = :tid
                          ORDER BY created_at DESC
                         """
                     ),
-                    {"tid": tenant_id},
+                    {"tid": domain_id},
                 )
             ).all()
         return [
@@ -454,13 +489,13 @@ class PostgresTenantLifecycleService:
         ]
 
     async def _publish(
-        self, *, actor: str, action: str, tenant_id: str, details: dict[str, Any]
+        self, *, actor: str, action: str, domain_id: str, details: dict[str, Any]
     ) -> None:
         if self._ledger is None:
             return
         try:
             await self._ledger.publish_platform_admin_action(
-                tenant_id=tenant_id, actor=actor, action=action, details=details
+                domain_id=domain_id, actor=actor, action=action, details=details
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("ledger publish failed: %s (swallow)", exc)
@@ -492,44 +527,57 @@ class InMemoryTenantLifecycleService:
     async def register(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         display_name: str,
         domain_type: str | None = None,
         embedding_model: str | None = None,
         modules: list[str] | None = None,
+        enrollment_policy: str = "assigned",
         actor: str,
     ) -> TenantRecord:
-        if tenant_id in self._tenants:
-            raise TenantConflictError(tenant_id)
+        if domain_id in self._tenants:
+            raise TenantConflictError(domain_id)
         # InMemory도 embedding_model 받지만 무시 — dim_provider만 사용 (테스트용)
         _ = embedding_model
         record = TenantRecord(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             display_name=display_name,
             domain_type=domain_type,
             modules=list(modules or ["rag"]),
+            enrollment_policy=enrollment_policy,
         )
-        self._tenants[tenant_id] = record
+        self._tenants[domain_id] = record
 
         # vector store collection — 이미 있어도 idempotent하게 swallow
         if self._vector_store is not None:
             try:
                 await self._vector_store.create_collection(
-                    tenant_id=tenant_id, dense_dim=self._dim_provider()
+                    domain_id=domain_id, dense_dim=self._dim_provider()
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.debug("collection create swallow: %s", exc)
 
         await self._publish(
             actor=actor, action="tenant_registered",
-            tenant_id=tenant_id, details={"display_name": display_name},
+            domain_id=domain_id, details={"display_name": display_name},
         )
         return record
 
-    async def get(self, tenant_id: str) -> TenantRecord:
-        rec = self._tenants.get(tenant_id)
+    async def get(self, domain_id: str) -> TenantRecord:
+        rec = self._tenants.get(domain_id)
         if rec is None:
-            raise TenantNotFoundError(tenant_id)
+            raise TenantNotFoundError(domain_id)
+        return rec
+
+    async def set_enrollment_policy(
+        self, *, domain_id: str, enrollment_policy: str, actor: str
+    ) -> TenantRecord:
+        rec = await self.get(domain_id)
+        rec.enrollment_policy = enrollment_policy
+        await self._publish(
+            actor=actor, action="tenant_enrollment_policy_changed",
+            domain_id=domain_id, details={"enrollment_policy": enrollment_policy},
+        )
         return rec
 
     async def list_(
@@ -538,13 +586,13 @@ class InMemoryTenantLifecycleService:
         out = list(self._tenants.values())
         if status:
             out = [t for t in out if t.status == status]
-        out.sort(key=lambda t: t.tenant_id)
+        out.sort(key=lambda t: t.domain_id)
         return out[offset : offset + limit]
 
     async def update_status(
-        self, *, tenant_id: str, to_status: str, actor: str, reason: str | None = None
+        self, *, domain_id: str, to_status: str, actor: str, reason: str | None = None
     ) -> TenantRecord:
-        rec = await self.get(tenant_id)
+        rec = await self.get(domain_id)
         if rec.status == to_status:
             return rec
         if to_status not in _TRANSITIONS.get(rec.status, set()):
@@ -555,17 +603,17 @@ class InMemoryTenantLifecycleService:
         await self._publish(
             actor=actor,
             action="tenant_status_changed",
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             details={"from": old, "to": to_status, "reason": reason},
         )
         return rec
 
     async def hard_delete(
-        self, *, tenant_id: str, actor: str, reason: str
+        self, *, domain_id: str, actor: str, reason: str
     ) -> TenantRecord:
-        rec = await self.get(tenant_id)
+        rec = await self.get(domain_id)
         if rec.status != "archived":
-            raise TenantNotArchivedError(tenant_id, rec.status)
+            raise TenantNotArchivedError(domain_id, rec.status)
 
         rec.delete_status = "in_progress"
         steps_failed: list[dict[str, Any]] = []
@@ -573,14 +621,14 @@ class InMemoryTenantLifecycleService:
         # Qdrant collection drop
         if self._vector_store is not None:
             try:
-                await self._vector_store.delete_collection(tenant_id)
+                await self._vector_store.delete_collection(domain_id)
             except Exception as exc:  # noqa: BLE001
                 steps_failed.append({"step": "qdrant", "error": str(exc)})
 
         # Storage prefix rm (전체 tenant)
         if self._storage is not None:
             try:
-                await self._storage.delete(tenant_id=tenant_id, doc_id="")
+                await self._storage.delete(domain_id=domain_id, doc_id="")
             except Exception as exc:  # noqa: BLE001
                 steps_failed.append({"step": "storage", "error": str(exc)})
 
@@ -594,7 +642,7 @@ class InMemoryTenantLifecycleService:
             for f in steps_failed:
                 self._delete_failures.append(
                     {
-                        "tenant_id": tenant_id,
+                        "domain_id": domain_id,
                         "failed_step": f["step"],
                         "error_message": f["error"],
                         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -604,7 +652,7 @@ class InMemoryTenantLifecycleService:
         await self._publish(
             actor=actor,
             action="tenant_hard_deleted",
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             details={
                 "reason": reason,
                 "delete_status": rec.delete_status,
@@ -613,19 +661,19 @@ class InMemoryTenantLifecycleService:
         )
         return rec
 
-    async def list_delete_failures(self, tenant_id: str) -> list[dict[str, Any]]:
+    async def list_delete_failures(self, domain_id: str) -> list[dict[str, Any]]:
         return [
-            f for f in self._delete_failures if f["tenant_id"] == tenant_id
+            f for f in self._delete_failures if f["domain_id"] == domain_id
         ]
 
     async def _publish(
-        self, *, actor: str, action: str, tenant_id: str, details: dict[str, Any]
+        self, *, actor: str, action: str, domain_id: str, details: dict[str, Any]
     ) -> None:
         if self._ledger is None:
             return
         try:
             await self._ledger.publish_platform_admin_action(
-                tenant_id=tenant_id, actor=actor, action=action, details=details
+                domain_id=domain_id, actor=actor, action=action, details=details
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("ledger publish failed: %s (swallow)", exc)

@@ -1,7 +1,7 @@
 # ============================================================================
 # Platform-level Citation 정책 (ADR-010 v2)
 # ============================================================================
-# 모든 tenant의 기본값. tenant overrides는 configs/tenants/<tenant_id>/overrides.yaml.
+# 모든 tenant의 기본값. tenant overrides는 configs/tenants/<domain_id>/overrides.yaml.
 # 변경 시 schema_version 올리고 ADR-009 §4 schema migration 절차 따름.
 
 schema_version: 1

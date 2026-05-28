@@ -1,7 +1,7 @@
-"""DELETE /api/{tenant_id}/me/chat_logs — endpoint e2e (ADR-020 §10).
+"""DELETE /api/{domain_id}/me/chat_logs — endpoint e2e (ADR-020 §10).
 
 env: AUTH_MODE=mock + RAG_BACKEND=inmemory. mock default_user는 user_id=dev-user-001,
-tenant_id=security, roles=USER/ADMIN.
+domain_id=security, roles=USER/ADMIN.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from app.main import app
 def _service_account_user() -> UserContext:
     return UserContext(
         user_id="service-001",
-        tenant_id="security",
+        domain_id="security",
         roles=["SERVICE", "INDEXER"],
         clearance="secret",
     )
@@ -70,13 +70,13 @@ def test_erase_default_mode_masks_user_logs_preserving_metrics():
     body = resp.json()
     assert body["mode"] == "mask_only"
     assert body["affected_rows"] == 2
-    assert body["tenant_id"] == "security"
+    assert body["domain_id"] == "security"
 
     # 직접 InMemoryChatLogWriter 검증
     rag = get_rag_service(get_settings())
     writer = rag._deps.chat_log_writer  # type: ignore[attr-defined]
     for r in writer.records:
-        if r.tenant_id == "security":
+        if r.domain_id == "security":
             assert r.question is None
             assert r.answer is None
             assert r.citations == []
@@ -105,7 +105,7 @@ def test_erase_hard_delete_removes_rows():
     rag = get_rag_service(get_settings())
     writer = rag._deps.chat_log_writer  # type: ignore[attr-defined]
     assert all(
-        not (r.tenant_id == "security" and r.user_id == "dev-user-001")
+        not (r.domain_id == "security" and r.user_id == "dev-user-001")
         for r in writer.records
     )
 
@@ -136,7 +136,7 @@ def test_other_users_logs_remain_after_erase():
     asyncio.new_event_loop().run_until_complete(
         writer.write(
             ChatLogPayload(
-                tenant_id="security",
+                domain_id="security",
                 request_id="req-other",
                 user_id="other-user",
                 conversation_id=None,

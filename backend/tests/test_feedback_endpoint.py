@@ -1,7 +1,7 @@
-"""POST /api/{tenant_id}/feedback — endpoint e2e (ADR-017 §5).
+"""POST /api/{domain_id}/feedback — endpoint e2e (ADR-017 §5).
 
 env: AUTH_MODE=mock + RAG_BACKEND=inmemory. mock default_user는
-user_id=dev-user-001, tenant_id=security.
+user_id=dev-user-001, domain_id=security.
 
 확인 항목:
   - 본인 message에 feedback 적용 → 204 + chat_logs.feedback 업데이트
@@ -109,7 +109,7 @@ def test_feedback_cross_user_returns_404():
     # 다른 user로 메시지 생성 (override로 user 교체)
     def _other_user() -> UserContext:
         return UserContext(
-            user_id="other-user", tenant_id="security",
+            user_id="other-user", domain_id="security",
             roles=["USER"], clearance="confidential",
         )
 

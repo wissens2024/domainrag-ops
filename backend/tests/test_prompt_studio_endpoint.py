@@ -35,7 +35,7 @@ from app.main import app
 
 def _non_admin_user() -> UserContext:
     return UserContext(
-        user_id="dev-user-001", tenant_id="security",
+        user_id="dev-user-001", domain_id="security",
         roles=["USER"], clearance="confidential",
     )
 

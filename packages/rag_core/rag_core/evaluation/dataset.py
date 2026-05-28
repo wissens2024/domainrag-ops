@@ -22,7 +22,7 @@ class EvalCase:
 
     case_id: str
     question: str
-    tenant_id: str
+    domain_id: str
     expected_chunk_ids: list[str] = field(default_factory=list)
     must_include_keywords: list[str] = field(default_factory=list)
     must_not_include_keywords: list[str] = field(default_factory=list)
@@ -36,7 +36,7 @@ class EvalCase:
 @dataclass
 class EvalDataset:
     name: str
-    tenant_id: str
+    domain_id: str
     cases: list[EvalCase]
 
 
@@ -54,7 +54,7 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 def load_dataset(
     *,
     name: str,
-    tenant_id: str,
+    domain_id: str,
     qa_path: Path,
     citation_gold_path: Path | None = None,
 ) -> EvalDataset:
@@ -72,7 +72,7 @@ def load_dataset(
             EvalCase(
                 case_id=case_id,
                 question=row["question"],
-                tenant_id=row.get("tenant_id", tenant_id),
+                domain_id=row.get("domain_id", domain_id),
                 expected_chunk_ids=gold_by_case.get(case_id, []),
                 must_include_keywords=list(row.get("must_include_keywords") or []),
                 must_not_include_keywords=list(row.get("must_not_include_keywords") or []),
@@ -83,26 +83,26 @@ def load_dataset(
                 metadata=dict(row.get("metadata") or {}),
             )
         )
-    return EvalDataset(name=name, tenant_id=tenant_id, cases=cases)
+    return EvalDataset(name=name, domain_id=domain_id, cases=cases)
 
 
 def load_platform_smoke(eval_root: Path) -> EvalDataset:
-    """data/eval/platform/smoke.jsonl 로드. tenant_id는 케이스 row에서 가져온다."""
+    """data/eval/platform/smoke.jsonl 로드. domain_id는 케이스 row에서 가져온다."""
     path = eval_root / "platform" / "smoke.jsonl"
     return load_dataset(
         name="platform_smoke",
-        tenant_id="platform",
+        domain_id="platform",
         qa_path=path,
         citation_gold_path=None,
     )
 
 
-def load_tenant_dataset(eval_root: Path, tenant_id: str) -> EvalDataset:
-    """data/eval/tenants/<tenant_id>/{qa.jsonl, citation_gold.jsonl} 로드."""
-    base = eval_root / "tenants" / tenant_id
+def load_tenant_dataset(eval_root: Path, domain_id: str) -> EvalDataset:
+    """data/eval/tenants/<domain_id>/{qa.jsonl, citation_gold.jsonl} 로드."""
+    base = eval_root / "tenants" / domain_id
     return load_dataset(
-        name=f"tenant_{tenant_id}",
-        tenant_id=tenant_id,
+        name=f"tenant_{domain_id}",
+        domain_id=domain_id,
         qa_path=base / "qa.jsonl",
         citation_gold_path=base / "citation_gold.jsonl",
     )

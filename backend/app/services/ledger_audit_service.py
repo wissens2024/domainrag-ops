@@ -55,7 +55,7 @@ class LedgerAuditService:
         self,
         *,
         event_type: str,
-        tenant_id: str,
+        domain_id: str,
         actor: str | None,
         reason: str | None,
         details: dict[str, Any] | None = None,
@@ -65,7 +65,7 @@ class LedgerAuditService:
         return await self._client.publish(
             LedgerEvent(
                 event_type=event_type,
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 actor=actor,
                 reason=reason,
                 details=dict(details or {}),
@@ -80,20 +80,20 @@ class LedgerAuditService:
     async def publish_auth_failure(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         actor: str | None,
         reason: str,
         details: dict[str, Any] | None = None,
     ) -> bool:
         return await self._publish(
             event_type="auth_failure",
-            tenant_id=tenant_id, actor=actor, reason=reason, details=details,
+            domain_id=domain_id, actor=actor, reason=reason, details=details,
         )
 
     async def publish_tenant_mismatch(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         actor: str | None,
         expected_tenant: str | None,
         token_tenant: str | None,
@@ -104,16 +104,16 @@ class LedgerAuditService:
         merged.setdefault("token_tenant", token_tenant)
         return await self._publish(
             event_type="tenant_mismatch",
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             actor=actor,
-            reason="path tenant_id mismatch with token claim",
+            reason="path domain_id mismatch with token claim",
             details=merged,
         )
 
     async def publish_hard_delete(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         actor: str,
         reason: str,
         doc_id: str,
@@ -124,7 +124,7 @@ class LedgerAuditService:
     ) -> bool:
         return await self._publish(
             event_type="hard_delete",
-            tenant_id=tenant_id, actor=actor, reason=reason,
+            domain_id=domain_id, actor=actor, reason=reason,
             details={
                 "doc_id": doc_id,
                 "version": version,
@@ -137,7 +137,7 @@ class LedgerAuditService:
     async def publish_platform_admin_action(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         actor: str,
         action: str,
         details: dict[str, Any] | None = None,
@@ -146,13 +146,13 @@ class LedgerAuditService:
         merged.setdefault("action", action)
         return await self._publish(
             event_type="platform_admin_action",
-            tenant_id=tenant_id, actor=actor, reason=action, details=merged,
+            domain_id=domain_id, actor=actor, reason=action, details=merged,
         )
 
     async def publish_config_change_breaking(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         actor: str,
         category: str,
         path: str,
@@ -162,7 +162,7 @@ class LedgerAuditService:
         merged.update({"category": category, "path": path})
         return await self._publish(
             event_type="config_change_breaking",
-            tenant_id=tenant_id, actor=actor,
+            domain_id=domain_id, actor=actor,
             reason=f"breaking config change: {category}.{path}",
             details=merged,
         )
@@ -170,7 +170,7 @@ class LedgerAuditService:
     async def publish_pii_high_severity_block(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         actor: str | None,
         categories: list[str],
         details: dict[str, Any] | None = None,
@@ -179,7 +179,7 @@ class LedgerAuditService:
         merged["blocked_categories"] = list(categories)
         return await self._publish(
             event_type="pii_high_severity_block",
-            tenant_id=tenant_id, actor=actor,
+            domain_id=domain_id, actor=actor,
             reason="high severity PII detected in user input",
             details=merged,
         )

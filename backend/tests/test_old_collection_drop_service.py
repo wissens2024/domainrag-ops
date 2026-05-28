@@ -129,12 +129,12 @@ def test_scan_candidates_publish_to_ledger_and_audit():
     )
     summary = _run(svc.scan())
     assert summary.candidate_count == 2
-    assert summary.candidates[0].tenant_id == "security"
+    assert summary.candidates[0].domain_id == "security"
     assert summary.candidates[0].days_since_swap == 44
     assert len(ledger.calls) == 1
     call = ledger.calls[0]
     assert call["action"] == "old_collection_drop_candidates"
-    assert call["tenant_id"] == "platform"
+    assert call["domain_id"] == "platform"
     assert len(call["details"]["candidates"]) == 2
     # tenant_lifecycle_logs audit 2건 (per-candidate)
     assert len(rec.audit_calls) == 2

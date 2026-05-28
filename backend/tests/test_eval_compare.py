@@ -58,7 +58,7 @@ async def test_run_scenario_returns_summary_and_gate():
 
     run = await _run_scenario(
         orch,
-        tenant_id="security",
+        domain_id="security",
         dataset_name="tenant_security",
         label="A: baseline",
         config_override={},
@@ -77,7 +77,7 @@ async def test_compare_two_scenarios_with_fallback_diff():
 
     run_a = await _run_scenario(
         orch,
-        tenant_id="security",
+        domain_id="security",
         dataset_name="tenant_security",
         label="A: 7B-AWQ + 14B-AWQ",
         config_override={},
@@ -86,7 +86,7 @@ async def test_compare_two_scenarios_with_fallback_diff():
     # 새 orchestrator 인스턴스 없이도 분리된 결과 확보 가능.
     run_b = await _run_scenario(
         orch,
-        tenant_id="security",
+        domain_id="security",
         dataset_name="tenant_security",
         label="B: min_confidence raised",
         config_override={

@@ -30,7 +30,7 @@ from app.services.ledger_client import NoopLedgerClient
 def _platform_admin() -> UserContext:
     return UserContext(
         user_id="platform-admin-001",
-        tenant_id="platform",
+        domain_id="platform",
         roles=["PLATFORM_ADMIN"],
         clearance="secret",
     )
@@ -76,7 +76,7 @@ def test_register_tenant_returns_201_and_creates_collection():
         resp = client.post(
             "/api/platform/admin/tenants",
             json={
-                "tenant_id": "legal",
+                "domain_id": "legal",
                 "display_name": "법무 도메인",
                 "domain_type": "legal",
                 "modules": ["rag"],
@@ -84,7 +84,7 @@ def test_register_tenant_returns_201_and_creates_collection():
         )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["tenant_id"] == "legal"
+    assert body["domain_id"] == "legal"
     assert body["status"] == "active"
 
     # vector store에 collection 생성됨
@@ -101,11 +101,11 @@ def test_register_duplicate_returns_409():
     with TestClient(app) as client:
         client.post(
             "/api/platform/admin/tenants",
-            json={"tenant_id": "legal", "display_name": "법무"},
+            json={"domain_id": "legal", "display_name": "법무"},
         )
         resp = client.post(
             "/api/platform/admin/tenants",
-            json={"tenant_id": "legal", "display_name": "법무 v2"},
+            json={"domain_id": "legal", "display_name": "법무 v2"},
         )
     assert resp.status_code == 409
     assert resp.json()["detail"]["error"] == "tenant_already_exists"
@@ -123,22 +123,22 @@ def test_list_tenants_filters_by_status():
     app.dependency_overrides[get_user_context] = _platform_admin
     with TestClient(app) as client:
         client.post("/api/platform/admin/tenants",
-                    json={"tenant_id": "t-a", "display_name": "A"})
+                    json={"domain_id": "t-a", "display_name": "A"})
         client.post("/api/platform/admin/tenants",
-                    json={"tenant_id": "t-b", "display_name": "B"})
+                    json={"domain_id": "t-b", "display_name": "B"})
         client.patch("/api/platform/admin/tenants/t-b",
                      json={"status": "suspended", "reason": "점검"})
         resp = client.get("/api/platform/admin/tenants?status=suspended")
     assert resp.status_code == 200
     items = resp.json()["items"]
-    assert {t["tenant_id"] for t in items} == {"t-b"}
+    assert {t["domain_id"] for t in items} == {"t-b"}
 
 
 def test_status_transition_active_to_archived_via_suspended():
     app.dependency_overrides[get_user_context] = _platform_admin
     with TestClient(app) as client:
         client.post("/api/platform/admin/tenants",
-                    json={"tenant_id": "t-1", "display_name": "T1"})
+                    json={"domain_id": "t-1", "display_name": "T1"})
 
         # active → suspended
         r1 = client.patch("/api/platform/admin/tenants/t-1",
@@ -161,7 +161,7 @@ def test_invalid_status_transition_returns_400():
     app.dependency_overrides[get_user_context] = _platform_admin
     with TestClient(app) as client:
         client.post("/api/platform/admin/tenants",
-                    json={"tenant_id": "t-2", "display_name": "T2"})
+                    json={"domain_id": "t-2", "display_name": "T2"})
         resp = client.patch("/api/platform/admin/tenants/t-2",
                             json={"status": "deleted"})
     assert resp.status_code == 400
@@ -173,7 +173,7 @@ def test_hard_delete_only_allowed_for_archived():
     app.dependency_overrides[get_user_context] = _platform_admin
     with TestClient(app) as client:
         client.post("/api/platform/admin/tenants",
-                    json={"tenant_id": "t-3", "display_name": "T3"})
+                    json={"domain_id": "t-3", "display_name": "T3"})
         resp = client.request(
             "DELETE",
             "/api/platform/admin/tenants/t-3/hard",
@@ -195,7 +195,7 @@ def test_hard_delete_succeeds_after_archived_and_drops_collection():
     app.dependency_overrides[get_user_context] = _platform_admin
     with TestClient(app) as client:
         client.post("/api/platform/admin/tenants",
-                    json={"tenant_id": "t-4", "display_name": "T4"})
+                    json={"domain_id": "t-4", "display_name": "T4"})
         client.patch("/api/platform/admin/tenants/t-4",
                      json={"status": "archived"})
         resp = client.request(
@@ -220,7 +220,7 @@ def test_hard_delete_succeeds_after_archived_and_drops_collection():
         and e.details.get("action") == "tenant_hard_deleted"
     ]
     assert len(hard) == 1
-    assert hard[0].tenant_id == "t-4"
+    assert hard[0].domain_id == "t-4"
 
 
 def test_register_publishes_platform_admin_action():
@@ -233,7 +233,7 @@ def test_register_publishes_platform_admin_action():
     app.dependency_overrides[get_user_context] = _platform_admin
     with TestClient(app) as client:
         client.post("/api/platform/admin/tenants",
-                    json={"tenant_id": "t-5", "display_name": "T5"})
+                    json={"domain_id": "t-5", "display_name": "T5"})
     actions = [
         e for e in noop.published
         if e.event_type == "platform_admin_action"
@@ -248,7 +248,7 @@ def test_non_platform_admin_cannot_register():
     def _regular_admin():
         return UserContext(
             user_id="u",
-            tenant_id="security",
+            domain_id="security",
             roles=["USER", "ADMIN"],
             clearance="confidential",
         )
@@ -257,6 +257,6 @@ def test_non_platform_admin_cannot_register():
     with TestClient(app) as client:
         resp = client.post(
             "/api/platform/admin/tenants",
-            json={"tenant_id": "x", "display_name": "X"},
+            json={"domain_id": "x", "display_name": "X"},
         )
     assert resp.status_code == 403

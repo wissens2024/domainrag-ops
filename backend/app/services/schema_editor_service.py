@@ -1,9 +1,9 @@
 """SchemaEditorService — ADR-017 §15 + ADR-015 schema 편집 orchestrator.
 
 흐름:
-  - GET admin/schema: repository.get_active(tenant_id) → record + schema_version
+  - GET admin/schema: repository.get_active(domain_id) → record + schema_version
   - PUT admin/schema: backward compat 검증 → repository.insert_new_active(base_version)
-  - GET admin/schema/history: repository.list_history(tenant_id)
+  - GET admin/schema/history: repository.list_history(domain_id)
 
 Backward compat 룰 (ADR-015 §2 보강):
   - input_types 배열이 존재해야 함 (기본 구조 검증)
@@ -54,21 +54,21 @@ class SchemaEditorService:
         self._runtime_apply = runtime_apply
 
     async def get_active(
-        self, *, tenant_id: str
+        self, *, domain_id: str
     ) -> TenantInputSchemaRecord | None:
-        return await self._repo.get_active(tenant_id=tenant_id)
+        return await self._repo.get_active(domain_id=domain_id)
 
     async def list_history(
-        self, *, tenant_id: str, limit: int = 50, offset: int = 0
+        self, *, domain_id: str, limit: int = 50, offset: int = 0
     ) -> list[TenantInputSchemaRecord]:
         return await self._repo.list_history(
-            tenant_id=tenant_id, limit=limit, offset=offset
+            domain_id=domain_id, limit=limit, offset=offset
         )
 
     async def put(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         base_version: int | None,
         schema_yaml: dict[str, Any],
         ui_schema_yaml: dict[str, Any] | None,
@@ -79,7 +79,7 @@ class SchemaEditorService:
             raise SchemaBackwardCompatError(errors)
 
         # 2. backward compat — 기존 input_type 제거 차단
-        current = await self._repo.get_active(tenant_id=tenant_id)
+        current = await self._repo.get_active(domain_id=domain_id)
         if current is not None:
             removed = _removed_input_types(current.schema_yaml, schema_yaml)
             if removed:
@@ -89,7 +89,7 @@ class SchemaEditorService:
 
         # 3. insert (optimistic lock은 repo가 검증)
         record = await self._repo.insert_new_active(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             base_version=base_version,
             schema_yaml=schema_yaml,
             ui_schema_yaml=ui_schema_yaml or {},
@@ -97,7 +97,7 @@ class SchemaEditorService:
         # 4. InputSchemaService 즉시 반영 (best-effort)
         if self._runtime_apply is not None:
             try:
-                self._runtime_apply(tenant_id, schema_yaml)
+                self._runtime_apply(domain_id, schema_yaml)
             except Exception:  # noqa: BLE001
                 pass  # validation에 반영 못해도 DB는 갱신됨 — 다음 reload 시 반영
         return SchemaPutResult(

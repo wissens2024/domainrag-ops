@@ -52,7 +52,7 @@ def test_ledger_retry_with_backoff(monkeypatch):
     )
     event = LedgerEvent(
         event_type="auth_failure",
-        tenant_id="t1",
+        domain_id="t1",
         actor="u",
         reason="bad",
         details={},
@@ -80,7 +80,7 @@ def test_ledger_success_no_metric(monkeypatch):
     )
     event = LedgerEvent(
         event_type="x",
-        tenant_id="t1",
+        domain_id="t1",
         actor=None,
         reason=None,
         details={},
@@ -98,7 +98,7 @@ def test_chat_log_writer_dead_letter_on_failure():
     from rag_core.services.chat_log_writer import ChatLogPayload
 
     payload = ChatLogPayload(
-        tenant_id="security",
+        domain_id="security",
         user_id="u1",
         conversation_id=None,
         request_id="req-1",
@@ -116,7 +116,7 @@ def test_chat_log_writer_dead_letter_on_failure():
     metrics = get_chat_log_failure_metrics()
     assert metrics["write_failures_total"] == 1
     dl = metrics["recent_dead_letters"][0]
-    assert dl["tenant_id"] == "security"
+    assert dl["domain_id"] == "security"
     assert dl["request_id"] == "req-1"
     assert dl["exc_type"] == "RuntimeError"
 
@@ -129,7 +129,7 @@ def test_chat_log_writer_success_no_metric():
     from rag_core.services.chat_log_writer import ChatLogPayload
 
     payload = ChatLogPayload(
-        tenant_id="security",
+        domain_id="security",
         user_id="u1",
         conversation_id="conv-pre",
         request_id="req-1",

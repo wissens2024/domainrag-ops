@@ -59,13 +59,13 @@ def setup(tmp_path: Path):
     return orch, registry, vllm, keyhub
 
 
-def _upload(keyhub, registry, *, tenant_id: str, adapter_id: str) -> str:
+def _upload(keyhub, registry, *, domain_id: str, adapter_id: str) -> str:
     ref = _run(
-        keyhub.put_secret(f"lora/{tenant_id}/{adapter_id}", b"WEIGHTS")
+        keyhub.put_secret(f"lora/{domain_id}/{adapter_id}", b"WEIGHTS")
     )
     rec = AdapterRecord(
         adapter_id=adapter_id,
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         version="v1",
         base_model="Qwen2.5-7B",
         keyhub_secret_ref=ref,
@@ -76,9 +76,9 @@ def _upload(keyhub, registry, *, tenant_id: str, adapter_id: str) -> str:
 
 def test_activate_loads_into_vllm_then_marks_active(setup):
     orch, registry, vllm, keyhub = setup
-    _upload(keyhub, registry, tenant_id="t1", adapter_id="A")
+    _upload(keyhub, registry, domain_id="t1", adapter_id="A")
 
-    record = _run(orch.activate(tenant_id="t1", adapter_id="A"))
+    record = _run(orch.activate(domain_id="t1", adapter_id="A"))
 
     assert record.status == "active"
     assert len(vllm.loaded) == 1
@@ -92,7 +92,7 @@ def test_activate_loads_into_vllm_then_marks_active(setup):
 def test_activate_unknown_raises_not_found(setup):
     orch, *_ = setup
     with pytest.raises(LoRANotFoundError):
-        _run(orch.activate(tenant_id="t1", adapter_id="NOPE"))
+        _run(orch.activate(domain_id="t1", adapter_id="NOPE"))
 
 
 def test_activate_keyhub_fetch_fail_raises_orchestration(setup, tmp_path):
@@ -102,25 +102,25 @@ def test_activate_keyhub_fetch_fail_raises_orchestration(setup, tmp_path):
         registry.upload(
             AdapterRecord(
                 adapter_id="X",
-                tenant_id="t1",
+                domain_id="t1",
                 keyhub_secret_ref="local://missing",
             )
         )
     )
     with pytest.raises(LoRAOrchestrationError):
-        _run(orch.activate(tenant_id="t1", adapter_id="X"))
+        _run(orch.activate(domain_id="t1", adapter_id="X"))
 
 
 def test_activate_vllm_failure_rollback(setup):
     orch, registry, vllm, keyhub = setup
-    _upload(keyhub, registry, tenant_id="t1", adapter_id="A")
+    _upload(keyhub, registry, domain_id="t1", adapter_id="A")
     vllm.next_load_raises = RuntimeError("vllm down")
 
     with pytest.raises(LoRAOrchestrationError):
-        _run(orch.activate(tenant_id="t1", adapter_id="A"))
+        _run(orch.activate(domain_id="t1", adapter_id="A"))
 
     # registry 상태는 그대로 'registered' (rollback)
-    rec = _run(registry.get(tenant_id="t1", adapter_id="A"))
+    rec = _run(registry.get(domain_id="t1", adapter_id="A"))
     assert rec.status == "registered"
     # 파일은 정리됨
     adapter_dir = orch.shared_lora_path / "t1" / "A"
@@ -129,10 +129,10 @@ def test_activate_vllm_failure_rollback(setup):
 
 def test_retire_calls_vllm_unload(setup):
     orch, registry, vllm, keyhub = setup
-    _upload(keyhub, registry, tenant_id="t1", adapter_id="A")
-    _run(orch.activate(tenant_id="t1", adapter_id="A"))
+    _upload(keyhub, registry, domain_id="t1", adapter_id="A")
+    _run(orch.activate(domain_id="t1", adapter_id="A"))
 
-    rec = _run(orch.retire(tenant_id="t1", adapter_id="A"))
+    rec = _run(orch.retire(domain_id="t1", adapter_id="A"))
 
     assert rec.status == "retired"
     assert vllm.unloaded == ["A"]
@@ -140,12 +140,12 @@ def test_retire_calls_vllm_unload(setup):
 
 def test_retire_swallows_vllm_unload_failure(setup):
     orch, registry, vllm, keyhub = setup
-    _upload(keyhub, registry, tenant_id="t1", adapter_id="A")
-    _run(orch.activate(tenant_id="t1", adapter_id="A"))
+    _upload(keyhub, registry, domain_id="t1", adapter_id="A")
+    _run(orch.activate(domain_id="t1", adapter_id="A"))
     vllm.next_unload_raises = RuntimeError("already gone")
 
     # 예외 없이 retired로 전이해야 함
-    rec = _run(orch.retire(tenant_id="t1", adapter_id="A"))
+    rec = _run(orch.retire(domain_id="t1", adapter_id="A"))
     assert rec.status == "retired"
 
 
@@ -156,9 +156,9 @@ def test_activate_without_vllm_only_transits_registry(tmp_path):
         registry=registry, keyhub=keyhub, vllm=None,
         shared_lora_path=tmp_path / "lora",
     )
-    _upload(keyhub, registry, tenant_id="t1", adapter_id="A")
+    _upload(keyhub, registry, domain_id="t1", adapter_id="A")
 
-    rec = _run(orch.activate(tenant_id="t1", adapter_id="A"))
+    rec = _run(orch.activate(domain_id="t1", adapter_id="A"))
     assert rec.status == "active"
     # 파일 쓰기·vLLM 호출 없음 — adapter_dir 미생성
     assert not (orch.shared_lora_path / "t1" / "A").exists()

@@ -1,7 +1,7 @@
 """PromptStudioService — ADR-017 §12 prompts CRUD + preview.
 
 흐름:
-  - list_tasks(tenant_id): platform prompts/*.yaml 스캔 → task name 목록
+  - list_tasks(domain_id): platform prompts/*.yaml 스캔 → task name 목록
   - get_prompt(tid, task): platform default + runtime override 합성
   - patch(tid, task, version, ab_slot, system?, user?): runtime override 저장 + history
   - preview(tid, task, system?, user?, sample_question, contexts?): Jinja2 렌더 + 선택 LLM 호출
@@ -14,7 +14,7 @@
 PATCH가 chat 흐름에 즉시 반영되는 메커니즘 (이미 결선됨):
   - `backend/app/services/rag_service.py:_build_prompt_provider`가 GenerationService의
     `prompt_provider` hook으로 주입됨.
-  - GenerationService는 매 호출에서 `prompt_provider(tenant_id)`를 통해 effective
+  - GenerationService는 매 호출에서 `prompt_provider(domain_id)`를 통해 effective
     prompt를 받는다 — PATCH 직후 다음 chat 호출이 새 system/user를 즉시 사용.
   - 테스트: backend/tests/test_runtime_connections.py
 """
@@ -50,7 +50,7 @@ class PromptRecord:
 
 @dataclass
 class PromptChangeRecord:
-    tenant_id: str
+    domain_id: str
     task: str
     version: str
     ab_slot: str
@@ -79,7 +79,7 @@ class PromptStudioService:
 
     # ---------------------------------------------------------------- listing
 
-    def list_tasks(self, tenant_id: str) -> list[PromptRecord]:
+    def list_tasks(self, domain_id: str) -> list[PromptRecord]:
         """platform/prompts/*.yaml 파일을 task 단위로 묶어 노출.
 
         같은 task의 runtime override가 있으면 그것이 우선.
@@ -96,7 +96,7 @@ class PromptStudioService:
 
         # 2) runtime override (tenant scope)
         for key, rec in self._runtime.items():
-            if key[0] == tenant_id:
+            if key[0] == domain_id:
                 records[(key[1], key[2], key[3])] = rec
 
         return sorted(
@@ -106,13 +106,13 @@ class PromptStudioService:
 
     def get_prompt(
         self,
-        tenant_id: str,
+        domain_id: str,
         task: str,
         version: str | None = None,
         ab_slot: str | None = None,
     ) -> PromptRecord | None:
         candidates = [
-            r for r in self.list_tasks(tenant_id) if r.task == task
+            r for r in self.list_tasks(domain_id) if r.task == task
         ]
         if version is not None:
             candidates = [r for r in candidates if r.version == version]
@@ -125,7 +125,7 @@ class PromptStudioService:
     def patch(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         task: str,
         version: str,
         ab_slot: str,
@@ -142,7 +142,7 @@ class PromptStudioService:
         if system is None and user is None:
             raise ValueError("empty_patch")
 
-        existing = self.get_prompt(tenant_id, task, version, ab_slot)
+        existing = self.get_prompt(domain_id, task, version, ab_slot)
         # 새 record — base는 existing(platform 또는 runtime). 없으면 빈 record로 시작.
         if existing is None:
             base = PromptRecord(
@@ -166,11 +166,11 @@ class PromptStudioService:
             reason=reason,
         )
 
-        key = (tenant_id, task, version, ab_slot)
+        key = (domain_id, task, version, ab_slot)
         self._runtime[key] = new_record
 
         change = PromptChangeRecord(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             task=task, version=version, ab_slot=ab_slot,
             old=existing,
             new=new_record,
@@ -182,10 +182,10 @@ class PromptStudioService:
         return change
 
     def list_history(
-        self, *, tenant_id: str, task: str | None = None,
+        self, *, domain_id: str, task: str | None = None,
         limit: int = 50, offset: int = 0,
     ) -> list[PromptChangeRecord]:
-        out = [h for h in self._history if h.tenant_id == tenant_id]
+        out = [h for h in self._history if h.domain_id == domain_id]
         if task is not None:
             out = [h for h in out if h.task == task]
         out.reverse()
@@ -196,7 +196,7 @@ class PromptStudioService:
     async def preview(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         task: str,
         system: str | None,
         user: str | None,
@@ -209,7 +209,7 @@ class PromptStudioService:
         system/user 미지정 시 task의 현재 effective 사용.
         sample_contexts 미지정 시 1건 dummy.
         """
-        base = self.get_prompt(tenant_id, task)
+        base = self.get_prompt(domain_id, task)
         sys_tmpl = system if system is not None else (base.system if base else "")
         user_tmpl = user if user is not None else (base.user if base else "")
         contexts = sample_contexts or [

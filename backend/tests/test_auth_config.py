@@ -24,25 +24,27 @@ def test_loader_resolves_client_tenant_map_with_tenant_overrides():
     # platform 파일의 매핑 — 내부 표현은 항상 list (single-client multi-tenant 지원)
     assert "security" in (cfg.client_tenant_map.get("client-security") or [])
     assert "legal" in (cfg.client_tenant_map.get("client-legal") or [])
-    # tenant overrides에 security가 잡혔는지
+    # tenant overrides에 security가 잡혔는지. 운영은 공용 단일 client UUID 공유 (ADR-022 §1)
+    # — security와 exam-engineer가 같은 client_id를 가리킨다.
     assert "security" in cfg.tenant_overrides
-    assert cfg.tenant_overrides["security"]["client_id"] == "client-security"
+    sec_client = cfg.tenant_overrides["security"]["client_id"]
+    assert sec_client == cfg.tenant_overrides["exam-engineer"]["client_id"]
 
 
-def test_client_id_to_tenant_id_fallback():
+def test_client_id_to_domain_id_fallback():
     cfg = AuthConfigLoader.load(get_settings())
     # 등록된 client_id
-    assert cfg.client_id_to_tenant_id("client-security") == "security"
+    assert cfg.client_id_to_domain_id("client-security") == "security"
     # 미등록 — prefix 제거
-    assert cfg.client_id_to_tenant_id("client-unknown") == "unknown"
-    assert cfg.client_id_to_tenant_id("noprefix") == "noprefix"
+    assert cfg.client_id_to_domain_id("client-unknown") == "unknown"
+    assert cfg.client_id_to_domain_id("noprefix") == "noprefix"
 
 
 def test_service_accounts_loaded():
     cfg = AuthConfigLoader.load(get_settings())
     sa = cfg.service_accounts.get("service-domainrag-indexer")
     assert sa is not None
-    assert sa.tenant_id == "platform"
+    assert sa.domain_id == "platform"
     assert "SERVICE" in sa.roles
     assert sa.clearance == "secret"
 

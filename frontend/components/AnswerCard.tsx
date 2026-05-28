@@ -20,7 +20,7 @@ import type { ChatResponse, Citation } from '@/lib/types';
 
 interface Props {
   response: ChatResponse;
-  tenantId: string;
+  domainId: string;
   onCitationClick: (c: Citation) => void;
 }
 
@@ -39,7 +39,7 @@ function citationColorClass(type: Citation['support_type']): string {
   }
 }
 
-export default function AnswerCard({ response, tenantId, onCitationClick }: Props) {
+export default function AnswerCard({ response, domainId, onCitationClick }: Props) {
   const [feedbackSent, setFeedbackSent] = useState<'good' | 'bad' | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
@@ -47,7 +47,7 @@ export default function AnswerCard({ response, tenantId, onCitationClick }: Prop
     if (response.status !== 'success' && response.status !== 'fallback') return;
     setFeedbackError(null);
     try {
-      await postFeedback(tenantId, {
+      await postFeedback(domainId, {
         message_id: response.message_id,
         feedback: verdict,
       });

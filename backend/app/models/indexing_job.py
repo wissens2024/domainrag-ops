@@ -20,7 +20,7 @@ class IndexingJob(Base):
         primary_key=True,
         server_default=func.gen_random_uuid(),
     )
-    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    domain_id: Mapped[str] = mapped_column(String(64), nullable=False)
     job_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     doc_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     doc_version: Mapped[str | None] = mapped_column(String(50), nullable=True)

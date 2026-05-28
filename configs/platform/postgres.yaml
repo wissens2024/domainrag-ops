@@ -21,7 +21,7 @@ pool:
 
 rls:
   enable: true                           # 모든 tenant-scoped 테이블에 의무 적용
-  app_role_setting: app.current_tenant   # SET LOCAL app.current_tenant = '<tenant_id>'
+  app_role_setting: app.current_domain   # SET LOCAL app.current_domain = '<domain_id>'
 
 partitioning:
   chat_logs:

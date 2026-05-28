@@ -27,7 +27,7 @@ export default function PlatformTenantsPage() {
   const [statusFilter, setStatusFilter] = useState<TenantStatus | ''>('');
   const [showRegister, setShowRegister] = useState(false);
   const [form, setForm] = useState({
-    tenant_id: '',
+    domain_id: '',
     display_name: '',
     domain_type: 'security',
     embedding_model: 'bge-m3',
@@ -44,7 +44,7 @@ export default function PlatformTenantsPage() {
     e.preventDefault();
     try {
       await registerTenant({
-        tenant_id: form.tenant_id,
+        domain_id: form.domain_id,
         display_name: form.display_name,
         domain_type: form.domain_type,
         embedding_model: form.embedding_model,
@@ -52,7 +52,7 @@ export default function PlatformTenantsPage() {
       });
       setShowRegister(false);
       setForm({
-        tenant_id: '',
+        domain_id: '',
         display_name: '',
         domain_type: 'security',
         embedding_model: 'bge-m3',
@@ -125,9 +125,9 @@ export default function PlatformTenantsPage() {
           className="border rounded p-4 mb-4 grid grid-cols-5 gap-2 text-sm"
         >
           <input
-            value={form.tenant_id}
-            onChange={(e) => setForm({ ...form, tenant_id: e.target.value })}
-            placeholder="tenant_id (lowercase)"
+            value={form.domain_id}
+            onChange={(e) => setForm({ ...form, domain_id: e.target.value })}
+            placeholder="domain_id (lowercase)"
             required
             className="px-2 py-1 border rounded"
           />
@@ -184,7 +184,7 @@ export default function PlatformTenantsPage() {
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b bg-gray-50 text-left">
-              <th className="p-2">tenant_id</th>
+              <th className="p-2">domain_id</th>
               <th className="p-2">display_name</th>
               <th className="p-2">domain</th>
               <th className="p-2">embedding</th>
@@ -195,8 +195,8 @@ export default function PlatformTenantsPage() {
           </thead>
           <tbody>
             {data.items.map((t) => (
-              <tr key={t.tenant_id} className="border-b hover:bg-gray-50">
-                <td className="p-2 font-mono text-xs">{t.tenant_id}</td>
+              <tr key={t.domain_id} className="border-b hover:bg-gray-50">
+                <td className="p-2 font-mono text-xs">{t.domain_id}</td>
                 <td className="p-2 text-xs">{t.display_name}</td>
                 <td className="p-2 text-xs">{t.domain_type}</td>
                 <td className="p-2 text-xs">{t.embedding_model}</td>
@@ -211,7 +211,7 @@ export default function PlatformTenantsPage() {
                 <td className="p-2 text-xs space-x-1">
                   {t.status === 'active' && (
                     <button
-                      onClick={() => void handlePatchStatus(t.tenant_id, 'suspended')}
+                      onClick={() => void handlePatchStatus(t.domain_id, 'suspended')}
                       className="px-1 border rounded"
                     >
                       suspend
@@ -219,7 +219,7 @@ export default function PlatformTenantsPage() {
                   )}
                   {t.status === 'suspended' && (
                     <button
-                      onClick={() => void handlePatchStatus(t.tenant_id, 'active')}
+                      onClick={() => void handlePatchStatus(t.domain_id, 'active')}
                       className="px-1 border rounded"
                     >
                       reactivate
@@ -227,7 +227,7 @@ export default function PlatformTenantsPage() {
                   )}
                   {(t.status === 'active' || t.status === 'suspended') && (
                     <button
-                      onClick={() => void handlePatchStatus(t.tenant_id, 'archived')}
+                      onClick={() => void handlePatchStatus(t.domain_id, 'archived')}
                       className="px-1 border rounded"
                     >
                       archive
@@ -236,13 +236,13 @@ export default function PlatformTenantsPage() {
                   {t.status === 'archived' && (
                     <>
                       <button
-                        onClick={() => void handlePatchStatus(t.tenant_id, 'active')}
+                        onClick={() => void handlePatchStatus(t.domain_id, 'active')}
                         className="px-1 border rounded"
                       >
                         restore
                       </button>
                       <button
-                        onClick={() => void handleHardDelete(t.tenant_id)}
+                        onClick={() => void handleHardDelete(t.domain_id)}
                         className="px-1 border rounded text-red-600"
                       >
                         hard delete

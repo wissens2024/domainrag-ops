@@ -21,7 +21,7 @@ class ServiceAccountConfig:
     """ADR-018 §7 — system call용 service account."""
 
     client_id: str
-    tenant_id: str
+    domain_id: str
     roles: list[str]
     clearance: str = "internal"
 
@@ -65,34 +65,34 @@ class AuthConfig:
     client_tenant_map: dict[str, list[str]]
     service_accounts: dict[str, ServiceAccountConfig]
 
-    # Tenant overlays (tenant_id → tenant 자체의 auth.yaml 내용)
+    # Tenant overlays (domain_id → tenant 자체의 auth.yaml 내용)
     tenant_overrides: dict[str, dict] = field(default_factory=dict)
 
     # ADR-0019 strict mode를 풀어 legacy USER/ADMIN/AUDITOR claim도 매칭 (dev/test).
     # 운영(authfusion 모드 + 다중 RP)에선 false로 강제 권장 — 다른 RP의 admin이 들어와도 차단.
     accept_legacy_global_roles: bool = True
 
-    def client_id_to_tenant_id(
-        self, client_id: str, expected_tenant_id: str | None = None
+    def client_id_to_domain_id(
+        self, client_id: str, expected_domain_id: str | None = None
     ) -> str:
         """ADR-018 §1 + single-client multi-tenant 보강.
 
-        - client_id가 map에 있고 expected_tenant_id가 list에 포함되면 expected 반환
+        - client_id가 map에 있고 expected_domain_id가 list에 포함되면 expected 반환
           (single-client 공유 시 path의 tenant 의도를 신뢰).
-        - expected_tenant_id가 None이거나 list에 없으면 list[0] 반환 — caller가 비교해
+        - expected_domain_id가 None이거나 list에 없으면 list[0] 반환 — caller가 비교해
           mismatch를 판단.
         - map에 없으면 legacy `client-<tenant>` prefix 제거 fallback (dev/test).
         """
         mapped = self.client_tenant_map.get(client_id)
         if mapped:
-            if expected_tenant_id and expected_tenant_id in mapped:
-                return expected_tenant_id
+            if expected_domain_id and expected_domain_id in mapped:
+                return expected_domain_id
             return mapped[0]
         return client_id.removeprefix("client-")
 
-    def extra_admin_roles(self, tenant_id: str) -> list[str]:
+    def extra_admin_roles(self, domain_id: str) -> list[str]:
         """tenant.auth.yaml.extra_admin_roles."""
-        ov = self.tenant_overrides.get(tenant_id, {})
+        ov = self.tenant_overrides.get(domain_id, {})
         roles = ov.get("extra_admin_roles") or []
         return list(roles)
 
@@ -225,7 +225,7 @@ class AuthConfigLoader:
         for cid, body in (af.get("service_accounts") or {}).items():
             service_accounts[cid] = ServiceAccountConfig(
                 client_id=cid,
-                tenant_id=body.get("tenant_id", "platform"),
+                domain_id=body.get("domain_id", "platform"),
                 roles=list(body.get("roles") or []),
                 clearance=body.get("clearance", "internal"),
             )

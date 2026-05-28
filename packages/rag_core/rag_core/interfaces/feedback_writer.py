@@ -1,6 +1,6 @@
 """FeedbackWriter — ADR-017 §5 POST /feedback의 chat_logs UPDATE 진입점.
 
-Protocol은 rag_core, Postgres 구현은 backend. tenant_id 격리는 구현체 책임(RLS).
+Protocol은 rag_core, Postgres 구현은 backend. domain_id 격리는 구현체 책임(RLS).
 
 본인 message만 UPDATE 가능 — caller가 user_id를 함께 전달해 service-level에서 검증.
 """
@@ -13,7 +13,7 @@ from typing import Protocol
 
 @dataclass
 class FeedbackResult:
-    tenant_id: str
+    domain_id: str
     message_id: str
     user_id: str | None
     feedback: str  # 'good' | 'bad'
@@ -24,7 +24,7 @@ class FeedbackWriter(Protocol):
     async def record(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         message_id: str,
         user_id: str | None,
         feedback: str,
@@ -50,7 +50,7 @@ class InMemoryFeedbackWriter:
     async def record(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         message_id: str,
         user_id: str | None,
         feedback: str,
@@ -58,7 +58,7 @@ class InMemoryFeedbackWriter:
     ) -> FeedbackResult:
         affected = 0
         for rec in self._writer.records:
-            if rec.tenant_id != tenant_id:
+            if rec.domain_id != domain_id:
                 continue
             if rec.request_id != message_id:
                 continue
@@ -69,7 +69,7 @@ class InMemoryFeedbackWriter:
             rec.feedback_comment = comment
             affected += 1
         return FeedbackResult(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             message_id=message_id,
             user_id=user_id,
             feedback=feedback,

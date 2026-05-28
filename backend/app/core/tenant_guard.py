@@ -1,4 +1,4 @@
-"""TenantGuard — URL path tenant_id ↔ UserContext.tenant_id 검증 통일.
+"""TenantGuard — URL path domain_id ↔ UserContext.domain_id 검증 통일.
 
 ADR-008 §2 격리 3중 방어의 두 번째 layer (JWT claim·URL path mirror — mismatch 시 403).
 tenant_admin / tenant_chat / tenant_me 모든 endpoint가 같은 함수를 호출하도록 통일하고,
@@ -18,35 +18,25 @@ logger = logging.getLogger(__name__)
 
 
 async def ensure_tenant_match(
-    tenant_id: str,
+    domain_id: str,
     user: UserContext,
     *,
     ledger: Any | None = None,
 ) -> None:
-    """ADR-008 §2 — URL path tenant_id가 token의 tenant_id와 다르면 403.
+    """ADR-008 §2 — URL path domain_id가 token의 domain_id와 다르면 403.
 
     platform_admin role은 모든 tenant 호출 허용 (cross-tenant 운영 메뉴).
     mismatch 발생 시 ledger가 주입되어 있으면 publish_tenant_mismatch.
     """
-    print(
-        f"[DIAG] ensure_tenant_match called — path_tenant={tenant_id!r} "
-        f"user_tenant={user.tenant_id!r} user_id={user.user_id!r} roles={user.roles!r} "
-        f"is_platform_admin={user.is_platform_admin}",
-        flush=True,
-    )
     if user.is_platform_admin:
         return
-    if user.tenant_id == tenant_id:
+    if user.domain_id == domain_id:
         return
 
-    print(
-        f"[DIAG] ensure_tenant_match 403 — path={tenant_id!r} != user={user.tenant_id!r}",
-        flush=True,
-    )
     logger.warning(
         "ensure_tenant_match 403 — path_tenant=%s user_tenant=%s user_id=%s roles=%s",
-        tenant_id,
-        user.tenant_id,
+        domain_id,
+        user.domain_id,
         user.user_id,
         user.roles,
     )
@@ -55,10 +45,10 @@ async def ensure_tenant_match(
     if ledger is not None:
         try:
             await ledger.publish_tenant_mismatch(
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 actor=user.user_id,
-                expected_tenant=tenant_id,
-                token_tenant=user.tenant_id,
+                expected_tenant=domain_id,
+                token_tenant=user.domain_id,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("ledger publish_tenant_mismatch failed: %s", exc)
@@ -67,7 +57,7 @@ async def ensure_tenant_match(
         status_code=403,
         detail={
             "error": "tenant_mismatch",
-            "expected_tenant_id": tenant_id,
-            "token_tenant_id": user.tenant_id,
+            "expected_domain_id": domain_id,
+            "token_domain_id": user.domain_id,
         },
     )

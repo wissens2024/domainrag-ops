@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
+import DomainSwitcher from '@/components/DomainSwitcher';
 import { getCurrentUser, logout, swrFetcher } from '@/lib/api';
 import type { UserContext } from '@/lib/types';
 
@@ -25,8 +26,8 @@ interface MenuGroup {
   items: MenuItem[];
 }
 
-function tenantMenuGroups(tenantId: string): MenuGroup[] {
-  const base = `/${tenantId}/admin`;
+function tenantMenuGroups(domainId: string): MenuGroup[] {
+  const base = `/${domainId}/admin`;
   return [
     {
       label: '',
@@ -69,7 +70,10 @@ function tenantMenuGroups(tenantId: string): MenuGroup[] {
     },
     {
       label: '설정',
-      items: [{ label: 'Tenant Configs', href: `${base}/configs` }],
+      items: [
+        { label: '도메인 관리', href: `${base}/domains` },
+        { label: 'Tenant Configs', href: `${base}/configs` },
+      ],
     },
   ];
 }
@@ -91,10 +95,10 @@ function platformMenuGroups(): MenuGroup[] {
 }
 
 interface Props {
-  tenantId: string;
+  domainId: string;
 }
 
-export default function AdminSidebar({ tenantId }: Props) {
+export default function AdminSidebar({ domainId }: Props) {
   const pathname = usePathname();
   const [showPlatform, setShowPlatform] = useState(false);
 
@@ -105,7 +109,7 @@ export default function AdminSidebar({ tenantId }: Props) {
 
   const groups = showPlatform && isPlatformAdmin
     ? platformMenuGroups()
-    : tenantMenuGroups(tenantId);
+    : tenantMenuGroups(domainId);
 
   return (
     <aside className="w-64 border-r border-gray-200 bg-white flex flex-col font-sans">
@@ -113,10 +117,10 @@ export default function AdminSidebar({ tenantId }: Props) {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${showPlatform ? 'bg-brand-600 text-white' : 'bg-gray-900 text-white'}`}>
-              {showPlatform ? '🌐' : tenantId.charAt(0).toUpperCase()}
+              {showPlatform ? '🌐' : domainId.charAt(0).toUpperCase()}
             </div>
             <p className="font-semibold text-sm text-gray-900 truncate">
-              {showPlatform ? 'Platform' : tenantId}
+              {showPlatform ? 'Platform' : domainId}
             </p>
           </div>
           {isPlatformAdmin && (
@@ -136,6 +140,11 @@ export default function AdminSidebar({ tenantId }: Props) {
             <span className="text-gray-300">·</span>
             <span className="truncate">{user.roles.join(',')}</span>
           </p>
+        )}
+        {!showPlatform && (
+          <div className="mt-2">
+            <DomainSwitcher domainId={domainId} section="admin" />
+          </div>
         )}
       </div>
 
@@ -171,7 +180,7 @@ export default function AdminSidebar({ tenantId }: Props) {
 
       <div className="p-2 border-t border-gray-200 space-y-0.5">
         <Link
-          href={`/${tenantId}/chat`}
+          href={`/${domainId}/chat`}
           className="block w-full px-3 py-1.5 rounded-md text-xs text-gray-700 hover:bg-gray-100 transition-colors"
         >
           ← 채팅으로 돌아가기
@@ -185,7 +194,7 @@ export default function AdminSidebar({ tenantId }: Props) {
         {user && (
           <button
             onClick={async () => {
-              await logout(tenantId);
+              await logout(domainId);
               window.location.href = '/';
             }}
             className="block w-full text-left px-3 py-1.5 rounded-md text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700"

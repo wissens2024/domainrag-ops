@@ -42,7 +42,7 @@ class DashboardSnapshot:
 
 
 class DashboardAnalytics(Protocol):
-    async def get_snapshot(self, *, tenant_id: str) -> DashboardSnapshot: ...
+    async def get_snapshot(self, *, domain_id: str) -> DashboardSnapshot: ...
 
 
 # --------------------------------------------------------------------------- #
@@ -80,12 +80,12 @@ class InMemoryDashboardAnalytics:
         self._jobs = indexing_job_repo
         self._clock = clock
 
-    async def get_snapshot(self, *, tenant_id: str) -> DashboardSnapshot:
+    async def get_snapshot(self, *, domain_id: str) -> DashboardSnapshot:
         snap = DashboardSnapshot()
 
         # documents
         doc_records = [
-            d for (tid, _did, _ver), d in self._docs._docs.items() if tid == tenant_id
+            d for (tid, _did, _ver), d in self._docs._docs.items() if tid == domain_id
         ]
         snap.total_documents = len(doc_records)
         snap.uploaded_today = len(doc_records)  # InMemory: 모두 today
@@ -93,7 +93,7 @@ class InMemoryDashboardAnalytics:
         # chunks (archived 제외 — retrieval default 정합)
         chunk_total = 0
         for (tid, _did, _ver, _pv), chunks in self._chunks._chunks.items():
-            if tid != tenant_id:
+            if tid != domain_id:
                 continue
             chunk_total += sum(
                 1 for c in chunks if not getattr(c, "archived_at", None)
@@ -102,7 +102,7 @@ class InMemoryDashboardAnalytics:
 
         # indexing jobs
         for j in self._jobs._jobs.values():
-            if j.tenant_id != tenant_id:
+            if j.domain_id != domain_id:
                 continue
             if j.status == "completed":
                 snap.indexing_completed_today += 1
@@ -111,7 +111,7 @@ class InMemoryDashboardAnalytics:
 
         # chat_logs aggregate
         chat_records = [
-            r for r in self._writer.records if r.tenant_id == tenant_id
+            r for r in self._writer.records if r.domain_id == domain_id
         ]
         snap.questions_today = len(chat_records)
         if chat_records:

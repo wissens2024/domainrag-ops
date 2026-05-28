@@ -20,7 +20,7 @@ class Document(Base):
         primary_key=True,
         server_default=func.gen_random_uuid(),
     )
-    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    domain_id: Mapped[str] = mapped_column(String(64), nullable=False)
     doc_id: Mapped[str] = mapped_column(String(255), nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     input_type: Mapped[str | None] = mapped_column(String(100), nullable=True)

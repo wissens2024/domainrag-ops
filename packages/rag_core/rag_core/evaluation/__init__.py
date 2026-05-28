@@ -5,7 +5,7 @@
 운영 디렉토리 구조:
     data/eval/
       platform/smoke.jsonl
-      tenants/<tenant_id>/
+      tenants/<domain_id>/
         qa.jsonl
         citation_gold.jsonl
         promotion_gate.yaml

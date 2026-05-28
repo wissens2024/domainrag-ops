@@ -6,7 +6,7 @@
   3. UPSERT into tenant_config_overrides
   4. INSERT into tenant_config_change_logs (old/new/who/when/reason)
   5. config_change_breaking 이면 Ledger publish_config_change_breaking
-  6. TenantConfigService.invalidate(tenant_id) → 다음 chat 요청에 즉시 반영
+  6. TenantConfigService.invalidate(domain_id) → 다음 chat 요청에 즉시 반영
 
 restricted_to / breaking 키 정의:
   본 service에 명시적 set으로 보관. ADR-009 §8 권고에 따라 model.tenant_slm.endpoint 등 운영
@@ -70,7 +70,7 @@ BREAKING_KEYS: frozenset[str] = frozenset(
 
 @dataclass(frozen=True)
 class ConfigChangeRecord:
-    tenant_id: str
+    domain_id: str
     category: str
     key: str
     old_value: Any
@@ -115,7 +115,7 @@ class TenantConfigOverrideService:
     async def patch(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         category: str,
         key: str,
         value: Any,
@@ -132,7 +132,7 @@ class TenantConfigOverrideService:
             raise ConfigKeyRestrictedError(full)
 
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
 
             # 1) old_value (없으면 None)
             existing = (
@@ -140,12 +140,12 @@ class TenantConfigOverrideService:
                     text(
                         """
                         SELECT value FROM tenant_config_overrides
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                            AND category = :category
                            AND path = :path
                         """
                     ),
-                    {"tenant_id": tenant_id, "category": category, "path": key},
+                    {"domain_id": domain_id, "category": category, "path": key},
                 )
             ).first()
             old_value = existing[0] if existing else None
@@ -156,20 +156,20 @@ class TenantConfigOverrideService:
                 text(
                     """
                     INSERT INTO tenant_config_overrides (
-                        tenant_id, category, path, value, reason, author
+                        domain_id, category, path, value, reason, author
                     )
                     VALUES (
-                        :tenant_id, :category, :path,
+                        :domain_id, :category, :path,
                         CAST(:value AS JSONB), :reason, :author
                     )
-                    ON CONFLICT (tenant_id, category, path) DO UPDATE SET
+                    ON CONFLICT (domain_id, category, path) DO UPDATE SET
                         value = EXCLUDED.value,
                         reason = EXCLUDED.reason,
                         author = EXCLUDED.author
                     """
                 ),
                 {
-                    "tenant_id": tenant_id, "category": category, "path": key,
+                    "domain_id": domain_id, "category": category, "path": key,
                     "value": new_json,
                     "reason": reason,
                     "author": actor,
@@ -182,11 +182,11 @@ class TenantConfigOverrideService:
                     text(
                         """
                         INSERT INTO tenant_config_change_logs (
-                            tenant_id, category, path, old_value, new_value,
+                            domain_id, category, path, old_value, new_value,
                             author, reason
                         )
                         VALUES (
-                            :tenant_id, :category, :path,
+                            :domain_id, :category, :path,
                             CAST(:old_value AS JSONB), CAST(:new_value AS JSONB),
                             :author, :reason
                         )
@@ -194,7 +194,7 @@ class TenantConfigOverrideService:
                         """
                     ),
                     {
-                        "tenant_id": tenant_id, "category": category, "path": key,
+                        "domain_id": domain_id, "category": category, "path": key,
                         "old_value": json.dumps(old_value, ensure_ascii=False, default=str)
                                      if old_value is not None else None,
                         "new_value": new_json,
@@ -212,7 +212,7 @@ class TenantConfigOverrideService:
                 {
                     "payload": json.dumps(
                         {
-                            "tenant_id": tenant_id,
+                            "domain_id": domain_id,
                             "category": category,
                             "key": key,
                         },
@@ -227,7 +227,7 @@ class TenantConfigOverrideService:
         if self.is_breaking(category, key) and self._ledger is not None:
             try:
                 await self._ledger.publish_config_change_breaking(
-                    tenant_id=tenant_id, actor=actor,
+                    domain_id=domain_id, actor=actor,
                     category=category, path=key,
                     details={
                         "old_value": old_value,
@@ -239,22 +239,22 @@ class TenantConfigOverrideService:
                 logger.warning("ledger publish_config_change_breaking failed: %s", exc)
 
         # 5) cache invalidate
-        TenantConfigService.invalidate(tenant_id)
+        TenantConfigService.invalidate(domain_id)
 
         return ConfigChangeRecord(
-            tenant_id=tenant_id, category=category, key=key,
+            domain_id=domain_id, category=category, key=key,
             old_value=old_value, new_value=value,
             changed_by=actor, changed_at=changed_at, reason=reason,
         )
 
-    async def reload(self, *, tenant_id: str) -> None:
+    async def reload(self, *, domain_id: str) -> None:
         """수동 cache invalidate (POST /configs/reload)."""
-        TenantConfigService.invalidate(tenant_id)
+        TenantConfigService.invalidate(domain_id)
 
     async def list_history(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         category: str | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -262,16 +262,16 @@ class TenantConfigOverrideService:
         sql = """
             SELECT category, path, old_value, new_value, author, reason, created_at
               FROM tenant_config_change_logs
-             WHERE tenant_id = :tenant_id
+             WHERE domain_id = :domain_id
         """
-        params: dict[str, Any] = {"tenant_id": tenant_id, "limit": limit, "offset": offset}
+        params: dict[str, Any] = {"domain_id": domain_id, "limit": limit, "offset": offset}
         if category:
             sql += " AND category = :category"
             params["category"] = category
         sql += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
 
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             rows = (await session.execute(text(sql), params)).all()
             return [
                 {
@@ -296,7 +296,7 @@ class InMemoryTenantConfigOverrideService:
     """DB 없이 동작 — overrides는 dict, history는 list. ledger publish는 동일."""
 
     def __init__(self, *, ledger_audit=None) -> None:
-        # (tenant_id, category, path) → value
+        # (domain_id, category, path) → value
         self._overrides: dict[tuple[str, str, str], Any] = {}
         self._history: list[dict[str, Any]] = []
         self._ledger = ledger_audit
@@ -312,7 +312,7 @@ class InMemoryTenantConfigOverrideService:
     async def patch(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         category: str,
         key: str,
         value: Any,
@@ -325,16 +325,16 @@ class InMemoryTenantConfigOverrideService:
             and not is_platform_admin
         ):
             raise ConfigKeyRestrictedError(f"{category}.{key}")
-        old_value = self._overrides.get((tenant_id, category, key))
-        self._overrides[(tenant_id, category, key)] = value
+        old_value = self._overrides.get((domain_id, category, key))
+        self._overrides[(domain_id, category, key)] = value
         record = ConfigChangeRecord(
-            tenant_id=tenant_id, category=category, key=key,
+            domain_id=domain_id, category=category, key=key,
             old_value=old_value, new_value=value,
             changed_by=actor, changed_at=datetime.utcnow(), reason=reason,
         )
         self._history.append(
             {
-                "tenant_id": tenant_id, "category": category, "path": key,
+                "domain_id": domain_id, "category": category, "path": key,
                 "old_value": old_value, "new_value": value,
                 "author": actor, "reason": reason,
                 "changed_at": record.changed_at.isoformat(),
@@ -343,27 +343,27 @@ class InMemoryTenantConfigOverrideService:
         if self.is_breaking(category, key) and self._ledger is not None:
             try:
                 await self._ledger.publish_config_change_breaking(
-                    tenant_id=tenant_id, actor=actor,
+                    domain_id=domain_id, actor=actor,
                     category=category, path=key,
                     details={"old_value": old_value, "new_value": value, "reason": reason},
                 )
             except Exception:  # noqa: BLE001
                 pass
-        TenantConfigService.invalidate(tenant_id)
+        TenantConfigService.invalidate(domain_id)
         return record
 
-    async def reload(self, *, tenant_id: str) -> None:
-        TenantConfigService.invalidate(tenant_id)
+    async def reload(self, *, domain_id: str) -> None:
+        TenantConfigService.invalidate(domain_id)
 
     async def list_history(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         category: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        out = [h for h in self._history if h["tenant_id"] == tenant_id]
+        out = [h for h in self._history if h["domain_id"] == domain_id]
         if category:
             out = [h for h in out if h["category"] == category]
         out.reverse()

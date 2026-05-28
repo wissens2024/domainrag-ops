@@ -28,7 +28,7 @@ from app.core.rls import set_tenant_context
 
 
 _SELECT_COLUMNS = """
-    id, tenant_id, request_id, user_id, conversation_id,
+    id, domain_id, request_id, user_id, conversation_id,
     question, rewritten_query, answer,
     retrieved_chunks, citations, citation_types,
     verifier_metrics, routing_decision, classifier_decision,
@@ -47,7 +47,7 @@ class PostgresChatLogReader:
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         filters: ChatLogListFilters,
         page: int = 1,
         page_size: int = 20,
@@ -56,11 +56,11 @@ class PostgresChatLogReader:
         page_size = max(1, min(page_size, 100))
         offset = (page - 1) * page_size
 
-        where, params = _build_where(tenant_id, filters)
+        where, params = _build_where(domain_id, filters)
         params.update({"limit": page_size, "offset": offset})
 
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
 
             total_row = (
                 await session.execute(
@@ -91,32 +91,32 @@ class PostgresChatLogReader:
         )
 
     async def get(
-        self, *, tenant_id: str, request_id: str
+        self, *, domain_id: str, request_id: str
     ) -> ChatLogRecord | None:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             row = (
                 await session.execute(
                     text(
                         f"""
                         SELECT {_SELECT_COLUMNS}
                           FROM chat_logs
-                         WHERE tenant_id = :tenant_id AND request_id = :request_id
+                         WHERE domain_id = :domain_id AND request_id = :request_id
                          ORDER BY created_at DESC
                          LIMIT 1
                         """
                     ),
-                    {"tenant_id": tenant_id, "request_id": request_id},
+                    {"domain_id": domain_id, "request_id": request_id},
                 )
             ).first()
         return _row_to_record(row) if row else None
 
 
 def _build_where(
-    tenant_id: str, f: ChatLogListFilters
+    domain_id: str, f: ChatLogListFilters
 ) -> tuple[str, dict[str, Any]]:
-    clauses = ["tenant_id = :tenant_id"]
-    params: dict[str, Any] = {"tenant_id": tenant_id}
+    clauses = ["domain_id = :domain_id"]
+    params: dict[str, Any] = {"domain_id": domain_id}
     if f.user_id is not None:
         clauses.append("user_id = :user_id")
         params["user_id"] = f.user_id
@@ -157,7 +157,7 @@ def _build_where(
 def _row_to_record(r) -> ChatLogRecord:
     return ChatLogRecord(
         id=str(r[0]),
-        tenant_id=str(r[1]),
+        domain_id=str(r[1]),
         request_id=str(r[2]),
         user_id=r[3],
         conversation_id=str(r[4]) if r[4] is not None else None,

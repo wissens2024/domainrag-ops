@@ -42,7 +42,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
         <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
-              href={`/${user.tenant_id}/chat`}
+              href={`/${user.domain_id}/chat`}
               className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
             >
               ← 채팅
@@ -52,7 +52,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
           </div>
           <button
             onClick={async () => {
-              await logout(user.tenant_id);
+              await logout(user.domain_id);
               window.location.href = '/';
             }}
             className="text-xs text-gray-500 hover:text-gray-900"
@@ -72,7 +72,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
               {user.preferred_username ?? user.email ?? user.user_id}
             </div>
             <div className="text-xs text-gray-500 mt-0.5">
-              {user.email ?? '(이메일 없음)'} · {user.tenant_id} ·{' '}
+              {user.email ?? '(이메일 없음)'} · {user.domain_id} ·{' '}
               {user.roles.join(', ') || 'USER'}
             </div>
           </div>

@@ -1,4 +1,4 @@
-"""User-self API — `/api/{tenant_id}/me/*` (ADR-020 §10, ADR-017 §17 보강).
+"""User-self API — `/api/{domain_id}/me/*` (ADR-020 §10, ADR-017 §17 보강).
 
 사용자 본인 데이터에 대한 권한. tenant_admin/platform_admin도 본 경로로는 타인 logs를
 지울 수 없다 (admin endpoint는 별도 ADR에서 정의됨). service account는 erase 호출 차단.
@@ -23,7 +23,7 @@ router = APIRouter()
 
 @router.get("")
 async def get_me(
-    tenant_id: str,
+    domain_id: str,
     user: UserContext = Depends(get_user_context),
 ):
     """현재 로그인 사용자 정보 — frontend RBAC 결정용 (ADR-016 §3 Y9).
@@ -33,7 +33,7 @@ async def get_me(
     """
     return {
         "user_id": user.user_id,
-        "tenant_id": user.tenant_id,
+        "domain_id": user.domain_id,
         "roles": user.roles,
         "is_admin": user.is_admin,
         "is_platform_admin": user.is_platform_admin,
@@ -53,7 +53,7 @@ class EraseChatLogsRequest(BaseModel):
 
 @router.delete("/chat_logs")
 async def erase_my_chat_logs(
-    tenant_id: str,
+    domain_id: str,
     req: EraseChatLogsRequest,
     user: UserContext = Depends(get_user_context),
     eraser=Depends(get_chat_log_eraser),
@@ -61,7 +61,7 @@ async def erase_my_chat_logs(
     """본인 chat_logs 삭제/마스킹 (ADR-020 §10).
 
     - service_account는 본 endpoint 호출 차단 (사용자 권한 대리 행위 금지)
-    - JWT의 tenant_id와 path tenant_id가 일치하지 않으면 403 (get_user_context에서
+    - JWT의 domain_id와 path domain_id가 일치하지 않으면 403 (get_user_context에서
       AuthFusionAdapter가 검증; mock에서는 default_user 매핑)
     - mode=mask_only(기본): chat_logs 컬럼 단위 마스킹, 운영 지표 보존
     - mode=hard_delete: row 자체 DELETE
@@ -71,17 +71,17 @@ async def erase_my_chat_logs(
             status_code=403, detail={"error": "service_account_cannot_erase"}
         )
     await ensure_tenant_match(
-        tenant_id, user, ledger=get_ledger_audit_service(get_settings())
+        domain_id, user, ledger=get_ledger_audit_service(get_settings())
     )
 
     result = await eraser.erase_my_logs(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         user_id=user.user_id,
         mode=ErasureMode(req.mode),
         reason=req.reason,
     )
     return {
-        "tenant_id": result.tenant_id,
+        "domain_id": result.domain_id,
         "user_id": result.user_id,
         "mode": result.mode.value,
         "affected_rows": result.affected_rows,

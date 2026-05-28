@@ -69,7 +69,7 @@ class PostgresChatLogWriter:
 
     async def write(self, payload: ChatLogPayload) -> str:
         async with self._session_factory() as session:
-            await set_tenant_context(session, payload.tenant_id)
+            await set_tenant_context(session, payload.domain_id)
 
             conversation_id = payload.conversation_id
             if conversation_id is None:
@@ -81,13 +81,13 @@ class PostgresChatLogWriter:
                     await session.execute(
                         text(
                             """
-                            INSERT INTO conversations (tenant_id, user_id, title)
-                            VALUES (:tenant_id, :user_id, :title)
+                            INSERT INTO conversations (domain_id, user_id, title)
+                            VALUES (:domain_id, :user_id, :title)
                             RETURNING id
                             """
                         ),
                         {
-                            "tenant_id": payload.tenant_id,
+                            "domain_id": payload.domain_id,
                             "user_id": payload.user_id,
                             "title": (payload.question or "")[:80],
                         },
@@ -101,14 +101,14 @@ class PostgresChatLogWriter:
                 await session.execute(
                     text(
                         """
-                        INSERT INTO conversations (id, tenant_id, user_id, title)
-                        VALUES (CAST(:cid AS UUID), :tenant_id, :user_id, :title)
+                        INSERT INTO conversations (id, domain_id, user_id, title)
+                        VALUES (CAST(:cid AS UUID), :domain_id, :user_id, :title)
                         ON CONFLICT (id) DO NOTHING
                         """
                     ),
                     {
                         "cid": conversation_id,
-                        "tenant_id": payload.tenant_id,
+                        "domain_id": payload.domain_id,
                         "user_id": payload.user_id,
                         "title": (payload.question or "")[:80],
                     },
@@ -118,7 +118,7 @@ class PostgresChatLogWriter:
                 text(
                     """
                     INSERT INTO chat_logs (
-                        tenant_id, request_id, user_id, conversation_id,
+                        domain_id, request_id, user_id, conversation_id,
                         question, rewritten_query, answer,
                         retrieved_chunks, citations, citation_types,
                         llm_model, embedding_model, reranker_model, prompt_version,
@@ -129,7 +129,7 @@ class PostgresChatLogWriter:
                         input_pii_found, output_pii_masked, pii_storage_policy
                     )
                     VALUES (
-                        :tenant_id, :request_id, :user_id, :conversation_id,
+                        :domain_id, :request_id, :user_id, :conversation_id,
                         :question, :rewritten_query, :answer,
                         CAST(:retrieved_chunks AS JSONB),
                         CAST(:citations AS JSONB),
@@ -150,7 +150,7 @@ class PostgresChatLogWriter:
                     """
                 ),
                 {
-                    "tenant_id": payload.tenant_id,
+                    "domain_id": payload.domain_id,
                     "request_id": payload.request_id,
                     "user_id": payload.user_id,
                     "conversation_id": conversation_id,
@@ -202,7 +202,7 @@ class _BestEffortChatLogWriter:
             CHAT_LOG_WRITE_FAILURES_TOTAL += 1
             CHAT_LOG_WRITE_DEAD_LETTERS.append(
                 {
-                    "tenant_id": payload.tenant_id,
+                    "domain_id": payload.domain_id,
                     "request_id": payload.request_id,
                     "user_id": payload.user_id,
                     "ui_mode": getattr(payload, "ui_mode", None),
@@ -213,7 +213,7 @@ class _BestEffortChatLogWriter:
             )
             logger.error(
                 "chat_log_write_failed",
-                tenant_id=payload.tenant_id,
+                domain_id=payload.domain_id,
                 request_id=payload.request_id,
                 exc_type=type(e).__name__,
                 exc_msg=str(e),

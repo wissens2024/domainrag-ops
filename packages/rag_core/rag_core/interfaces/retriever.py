@@ -27,7 +27,7 @@ class Retriever(Protocol):
     async def retrieve(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         question: str,
         acl_filter: dict,            # ADR-004 + ADR-018에서 빌드
         top_k: int = 50,

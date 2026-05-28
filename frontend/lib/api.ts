@@ -21,6 +21,7 @@ import type {
   ConversationDetail,
   ConversationListResult,
   DashboardSnapshot,
+  DomainMember,
   DocumentDetail,
   DocumentListResult,
   DryrunResult,
@@ -34,6 +35,7 @@ import type {
   InputSchemaRecord,
   InputTypeSchemaJson,
   LoRAStatus,
+  MyDomainsResult,
   PlatformUsageRow,
   PromptListResult,
   PromptPreviewResult,
@@ -69,7 +71,7 @@ export class ApiError extends Error {
 
 // ADR-018 §6 — Token refresh interceptor (httpOnly cookie only).
 // 401 응답 시 단일 mutex로 refresh 1회 시도 + 원 요청 재시도. refresh 실패는
-// /api/auth/authorize/{tenantId} redirect.
+// /api/auth/authorize/{domainId} redirect.
 // XSS 노출면 최소화 — access_token을 localStorage에 두지 않는다. 모든 인증은
 // httpOnly cookie(`domainrag_access`/`domainrag_refresh`)로만 이루어진다.
 let _refreshInflight: Promise<boolean> | null = null;
@@ -78,8 +80,8 @@ async function _attemptRefresh(): Promise<boolean> {
   if (_refreshInflight) return _refreshInflight;
   _refreshInflight = (async () => {
     try {
-      // tenant_id는 URL path에서 결정. SSR safe-guard.
-      const tenantId =
+      // domain_id는 URL path에서 결정. SSR safe-guard.
+      const domainId =
         typeof window !== 'undefined'
           ? (window.location.pathname.split('/')[1] || '')
           : '';
@@ -87,7 +89,7 @@ async function _attemptRefresh(): Promise<boolean> {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenant_id: tenantId }),
+        body: JSON.stringify({ domain_id: domainId }),
       });
       return res.ok;
     } catch {
@@ -119,10 +121,10 @@ function _redirectToLogin(): void {
   ) {
     return;
   }
-  const tenantId = pathname.split('/')[1] || '';
-  if (tenantId && !_NON_TENANT_SEGMENTS.has(tenantId)) {
+  const domainId = pathname.split('/')[1] || '';
+  if (domainId && !_NON_TENANT_SEGMENTS.has(domainId)) {
     // `?redirect=1`이면 backend가 IdP authorize URL로 302를 이어 준다 (ADR-018 §2).
-    window.location.href = `${API_BASE}/api/auth/authorize/${tenantId}?redirect=1`;
+    window.location.href = `${API_BASE}/api/auth/authorize/${domainId}?redirect=1`;
   }
 }
 
@@ -167,13 +169,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function requestForm<T>(path: string, formData: FormData): Promise<T> {
-  const headers: Record<string, string> = {};
-  const auth = _authHeader();
-  if (auth) headers.Authorization = auth;
+  // 인증은 httpOnly cookie로만 (credentials: 'include'). Content-Type은 브라우저가
+  // multipart boundary와 함께 자동 설정하므로 지정하지 않는다.
   const res = await _fetchWithRefresh(`${API_BASE}${path}`, {
     method: 'POST',
     credentials: 'include',
-    headers,
     body: formData,
   });
   if (!res.ok) {
@@ -191,62 +191,62 @@ export const swrFetcher = <T = unknown>(path: string) => request<T>(path);
 // ============================================================================
 
 export async function chat(
-  tenantId: string,
+  domainId: string,
   body: {
     question: string;
     conversation_id?: string;
     ui_mode_request?: 'structured' | 'streaming';
   },
 ): Promise<ChatResponse> {
-  return request<ChatResponse>(`/api/${tenantId}/chat`, {
+  return request<ChatResponse>(`/api/${domainId}/chat`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 export async function postFeedback(
-  tenantId: string,
+  domainId: string,
   body: { message_id: string; feedback: 'good' | 'bad'; comment?: string },
 ): Promise<void> {
-  await request(`/api/${tenantId}/feedback`, {
+  await request(`/api/${domainId}/feedback`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 export async function listConversations(
-  tenantId: string,
+  domainId: string,
   params: { page?: number; page_size?: number } = {},
 ): Promise<ConversationListResult> {
   const qs = new URLSearchParams();
   if (params.page) qs.set('page', String(params.page));
   if (params.page_size) qs.set('page_size', String(params.page_size));
-  return request<ConversationListResult>(`/api/${tenantId}/conversations?${qs}`);
+  return request<ConversationListResult>(`/api/${domainId}/conversations?${qs}`);
 }
 
 export async function getConversation(
-  tenantId: string,
+  domainId: string,
   conversationId: string,
 ): Promise<ConversationDetail> {
-  return request(`/api/${tenantId}/conversations/${conversationId}`);
+  return request(`/api/${domainId}/conversations/${conversationId}`);
 }
 
 export async function updateConversationTitle(
-  tenantId: string,
+  domainId: string,
   conversationId: string,
   title: string,
 ): Promise<Conversation> {
-  return request(`/api/${tenantId}/conversations/${conversationId}`, {
+  return request(`/api/${domainId}/conversations/${conversationId}`, {
     method: 'PATCH',
     body: JSON.stringify({ title }),
   });
 }
 
 export async function deleteConversation(
-  tenantId: string,
+  domainId: string,
   conversationId: string,
 ): Promise<void> {
-  await request(`/api/${tenantId}/conversations/${conversationId}`, {
+  await request(`/api/${domainId}/conversations/${conversationId}`, {
     method: 'DELETE',
   });
 }
@@ -259,6 +259,11 @@ export async function getCurrentUser(): Promise<UserContext> {
   // ADR-016 §3 Y9 — cross-tenant /api/auth/me 단일 진입점. tenant path mirror
   // 검증 없이 token만으로 roles 추출.
   return request<UserContext>(`/api/auth/me`);
+}
+
+export async function getMyDomains(): Promise<MyDomainsResult> {
+  // ADR-022 §7 — 내가 접근 가능한 도메인 목록 (도메인 switcher).
+  return request<MyDomainsResult>(`/api/auth/me/domains`);
 }
 
 // ============================================================================
@@ -353,14 +358,14 @@ export const account = {
 
 /**
  * Logout — backend가 access/refresh 쿠키의 token을 revoke + 쿠키 삭제 (ADR-018 §6).
- * 호출자가 navigation은 직접. tenant_id는 backend가 client_id resolve에 필요.
+ * 호출자가 navigation은 직접. domain_id는 backend가 client_id resolve에 필요.
  */
-export async function logout(tenantId: string): Promise<void> {
+export async function logout(domainId: string): Promise<void> {
   await fetch(`${API_BASE}/api/auth/logout`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tenant_id: tenantId }),
+    body: JSON.stringify({ domain_id: domainId }),
   });
 }
 
@@ -380,11 +385,11 @@ export interface StreamingChatHandlers {
  * 정상 전송. EventSource는 credentials 미지원이라 사용 안 함.
  */
 export async function chatStream(
-  tenantId: string,
+  domainId: string,
   body: { question: string; conversation_id?: string },
   handlers: StreamingChatHandlers,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/${tenantId}/chat/stream`, {
+  const res = await fetch(`${API_BASE}/api/${domainId}/chat/stream`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -428,10 +433,10 @@ export async function chatStream(
 }
 
 export async function eraseMyChatLogs(
-  tenantId: string,
+  domainId: string,
   body: { mode: 'mask_only' | 'hard_delete'; reason: string },
 ): Promise<void> {
-  await request(`/api/${tenantId}/me/chat_logs`, {
+  await request(`/api/${domainId}/me/chat_logs`, {
     method: 'DELETE',
     body: JSON.stringify(body),
   });
@@ -441,8 +446,8 @@ export async function eraseMyChatLogs(
 // Admin — Dashboard (ADR-017 §10)
 // ============================================================================
 
-export async function getDashboard(tenantId: string): Promise<DashboardSnapshot> {
-  return request(`/api/${tenantId}/admin/dashboard`);
+export async function getDashboard(domainId: string): Promise<DashboardSnapshot> {
+  return request(`/api/${domainId}/admin/dashboard`);
 }
 
 // ============================================================================
@@ -450,7 +455,7 @@ export async function getDashboard(tenantId: string): Promise<DashboardSnapshot>
 // ============================================================================
 
 export async function listDocuments(
-  tenantId: string,
+  domainId: string,
   params: {
     keyword?: string;
     approval_status?: string;
@@ -463,19 +468,19 @@ export async function listDocuments(
   if (params.approval_status) qs.set('approval_status', params.approval_status);
   if (params.page) qs.set('page', String(params.page));
   if (params.page_size) qs.set('page_size', String(params.page_size));
-  return request(`/api/${tenantId}/admin/documents?${qs}`);
+  return request(`/api/${domainId}/admin/documents?${qs}`);
 }
 
 export async function getDocument(
-  tenantId: string,
+  domainId: string,
   docId: string,
   version = 'v1',
 ): Promise<DocumentDetail> {
-  return request(`/api/${tenantId}/admin/documents/${docId}?version=${version}`);
+  return request(`/api/${domainId}/admin/documents/${docId}?version=${version}`);
 }
 
 export async function uploadDocument(
-  tenantId: string,
+  domainId: string,
   file: File,
   metadata: Record<string, unknown>,
   inputType?: string,
@@ -484,45 +489,45 @@ export async function uploadDocument(
   fd.append('file', file);
   fd.append('metadata', JSON.stringify(metadata));
   if (inputType) fd.append('input_type', inputType);
-  return requestForm(`/api/${tenantId}/admin/documents/upload`, fd);
+  return requestForm(`/api/${domainId}/admin/documents/upload`, fd);
 }
 
 export async function reindexDocument(
-  tenantId: string,
+  domainId: string,
   docId: string,
   mode: ReindexMode,
   version = 'v1',
 ): Promise<{ job_id: string; doc_id: string; status: string }> {
-  return request(`/api/${tenantId}/admin/documents/${docId}/reindex?version=${version}`, {
+  return request(`/api/${domainId}/admin/documents/${docId}/reindex?version=${version}`, {
     method: 'POST',
     body: JSON.stringify({ mode }),
   });
 }
 
 export async function patchDocumentApproval(
-  tenantId: string,
+  domainId: string,
   docId: string,
   body: { status: 'pending' | 'approved' | 'archived'; reason?: string; version?: string },
 ): Promise<{ doc_id: string; affected_chunks: number }> {
-  return request(`/api/${tenantId}/admin/documents/${docId}/approval`, {
+  return request(`/api/${domainId}/admin/documents/${docId}/approval`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
 }
 
 export async function patchDocumentMetadata(
-  tenantId: string,
+  domainId: string,
   docId: string,
   body: { patch: Record<string, unknown>; version?: string; reason?: string },
 ): Promise<{ doc_id: string; affected_chunks: number; synced_keys: string[] }> {
-  return request(`/api/${tenantId}/admin/documents/${docId}`, {
+  return request(`/api/${domainId}/admin/documents/${docId}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
 }
 
 export async function hardDeleteDocument(
-  tenantId: string,
+  domainId: string,
   docId: string,
   body: {
     reason: string;
@@ -536,7 +541,7 @@ export async function hardDeleteDocument(
   affected_chat_logs: number;
   dead_letters: unknown[];
 }> {
-  return request(`/api/${tenantId}/admin/documents/${docId}/hard`, {
+  return request(`/api/${domainId}/admin/documents/${docId}/hard`, {
     method: 'DELETE',
     body: JSON.stringify(body),
   });
@@ -547,28 +552,28 @@ export async function hardDeleteDocument(
 // ============================================================================
 
 export async function listIndexingJobs(
-  tenantId: string,
+  domainId: string,
   params: { page?: number; page_size?: number; status?: string } = {},
 ): Promise<IndexingJobListResult> {
   const qs = new URLSearchParams();
   if (params.page) qs.set('page', String(params.page));
   if (params.page_size) qs.set('page_size', String(params.page_size));
   if (params.status) qs.set('status', params.status);
-  return request(`/api/${tenantId}/admin/indexing/jobs?${qs}`);
+  return request(`/api/${domainId}/admin/indexing/jobs?${qs}`);
 }
 
 export async function getIndexingJob(
-  tenantId: string,
+  domainId: string,
   jobId: string,
 ): Promise<IndexingJob> {
-  return request(`/api/${tenantId}/admin/indexing/jobs/${jobId}`);
+  return request(`/api/${domainId}/admin/indexing/jobs/${jobId}`);
 }
 
 export async function retryIndexingJob(
-  tenantId: string,
+  domainId: string,
   jobId: string,
 ): Promise<{ job_id: string; doc_id: string; status: string }> {
-  return request(`/api/${tenantId}/admin/indexing/jobs/${jobId}/retry`, {
+  return request(`/api/${domainId}/admin/indexing/jobs/${jobId}/retry`, {
     method: 'POST',
   });
 }
@@ -578,37 +583,37 @@ export async function retryIndexingJob(
 // ============================================================================
 
 export async function listInputSchemas(
-  tenantId: string,
+  domainId: string,
 ): Promise<{ items: Array<{ name: string; json_schema: InputTypeSchemaJson }> }> {
-  return request(`/api/${tenantId}/admin/input_schemas`);
+  return request(`/api/${domainId}/admin/input_schemas`);
 }
 
-export async function getSchema(tenantId: string): Promise<InputSchemaRecord> {
-  return request(`/api/${tenantId}/admin/schema`);
+export async function getSchema(domainId: string): Promise<InputSchemaRecord> {
+  return request(`/api/${domainId}/admin/schema`);
 }
 
 export async function putSchema(
-  tenantId: string,
+  domainId: string,
   body: {
     schema_yaml: Record<string, unknown>;
     ui_schema_yaml?: Record<string, unknown>;
     base_version?: string;
   },
 ): Promise<{ record: InputSchemaRecord; deprecated_version: string | null }> {
-  return request(`/api/${tenantId}/admin/schema`, {
+  return request(`/api/${domainId}/admin/schema`, {
     method: 'PUT',
     body: JSON.stringify(body),
   });
 }
 
 export async function getSchemaHistory(
-  tenantId: string,
+  domainId: string,
   params: { page?: number; page_size?: number } = {},
 ): Promise<InputSchemaHistory> {
   const qs = new URLSearchParams();
   if (params.page) qs.set('page', String(params.page));
   if (params.page_size) qs.set('page_size', String(params.page_size));
-  return request(`/api/${tenantId}/admin/schema/history?${qs}`);
+  return request(`/api/${domainId}/admin/schema/history?${qs}`);
 }
 
 // ============================================================================
@@ -631,21 +636,21 @@ export interface ChatLogListFilters {
 }
 
 export async function listChatLogs(
-  tenantId: string,
+  domainId: string,
   filters: ChatLogListFilters = {},
 ): Promise<ChatLogListResult> {
   const qs = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
   });
-  return request(`/api/${tenantId}/admin/logs/chat?${qs}`);
+  return request(`/api/${domainId}/admin/logs/chat?${qs}`);
 }
 
 export async function getChatLog(
-  tenantId: string,
+  domainId: string,
   requestId: string,
 ): Promise<ChatLogRow> {
-  return request(`/api/${tenantId}/admin/logs/chat/${requestId}`);
+  return request(`/api/${domainId}/admin/logs/chat/${requestId}`);
 }
 
 // ============================================================================
@@ -653,18 +658,18 @@ export async function getChatLog(
 // ============================================================================
 
 export async function getCitationDistribution(
-  tenantId: string,
+  domainId: string,
   params: { from_date?: string; to_date?: string; group_by?: 'day' | 'hour' } = {},
 ): Promise<CitationDistributionResult> {
   const qs = new URLSearchParams();
   if (params.from_date) qs.set('from_date', params.from_date);
   if (params.to_date) qs.set('to_date', params.to_date);
   if (params.group_by) qs.set('group_by', params.group_by);
-  return request(`/api/${tenantId}/admin/citation-inspector/distribution?${qs}`);
+  return request(`/api/${domainId}/admin/citation-inspector/distribution?${qs}`);
 }
 
 export async function getCitationSegments(
-  tenantId: string,
+  domainId: string,
   messageId: string,
 ): Promise<{
   request_id: string;
@@ -673,14 +678,14 @@ export async function getCitationSegments(
   inference_judge_results: unknown[];
   conflict_groups: unknown;
 }> {
-  return request(`/api/${tenantId}/admin/citation-inspector/segments/${messageId}`);
+  return request(`/api/${domainId}/admin/citation-inspector/segments/${messageId}`);
 }
 
 export async function reverifyCitations(
-  tenantId: string,
+  domainId: string,
   body: { from_date?: string; to_date?: string; max_records?: number },
 ): Promise<CitationReverifyResult> {
-  return request(`/api/${tenantId}/admin/citation-inspector/reverify`, {
+  return request(`/api/${domainId}/admin/citation-inspector/reverify`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -690,23 +695,23 @@ export async function reverifyCitations(
 // Admin — Routing (ADR-017 §13)
 // ============================================================================
 
-export async function getRouting(tenantId: string): Promise<RoutingConfig> {
-  return request(`/api/${tenantId}/admin/routing`);
+export async function getRouting(domainId: string): Promise<RoutingConfig> {
+  return request(`/api/${domainId}/admin/routing`);
 }
 
 export async function putRouting(
-  tenantId: string,
+  domainId: string,
   value: RoutingConfig,
   reason?: string,
-): Promise<{ tenant_id: string; routing: RoutingConfig }> {
-  return request(`/api/${tenantId}/admin/routing`, {
+): Promise<{ domain_id: string; routing: RoutingConfig }> {
+  return request(`/api/${domainId}/admin/routing`, {
     method: 'PUT',
     body: JSON.stringify({ value, reason }),
   });
 }
 
 export async function dryrunRouting(
-  tenantId: string,
+  domainId: string,
   body: {
     classifier_decision: Record<string, unknown>;
     sample_query?: string;
@@ -714,7 +719,7 @@ export async function dryrunRouting(
     retrieval_confidence?: number;
   },
 ): Promise<DryrunResult> {
-  return request(`/api/${tenantId}/admin/routing/dryrun`, {
+  return request(`/api/${domainId}/admin/routing/dryrun`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -724,12 +729,12 @@ export async function dryrunRouting(
 // Admin — Prompts (ADR-017 §12)
 // ============================================================================
 
-export async function listPrompts(tenantId: string): Promise<PromptListResult> {
-  return request(`/api/${tenantId}/admin/prompts`);
+export async function listPrompts(domainId: string): Promise<PromptListResult> {
+  return request(`/api/${domainId}/admin/prompts`);
 }
 
 export async function getPrompt(
-  tenantId: string,
+  domainId: string,
   task: string,
   version?: string,
   abSlot?: string,
@@ -737,24 +742,24 @@ export async function getPrompt(
   const qs = new URLSearchParams();
   if (version) qs.set('version', version);
   if (abSlot) qs.set('ab_slot', abSlot);
-  return request(`/api/${tenantId}/admin/prompts/${task}?${qs}`);
+  return request(`/api/${domainId}/admin/prompts/${task}?${qs}`);
 }
 
 export async function patchPrompt(
-  tenantId: string,
+  domainId: string,
   task: string,
   version: string,
   abSlot: string,
   body: { system?: string; user?: string; reason?: string },
 ): Promise<PromptRecord> {
-  return request(`/api/${tenantId}/admin/prompts/${task}/${version}/${abSlot}`, {
+  return request(`/api/${domainId}/admin/prompts/${task}/${version}/${abSlot}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
 }
 
 export async function previewPrompt(
-  tenantId: string,
+  domainId: string,
   task: string,
   body: {
     system?: string;
@@ -764,7 +769,7 @@ export async function previewPrompt(
     invoke_llm?: boolean;
   },
 ): Promise<PromptPreviewResult> {
-  return request(`/api/${tenantId}/admin/prompts/${task}/preview`, {
+  return request(`/api/${domainId}/admin/prompts/${task}/preview`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -775,16 +780,16 @@ export async function previewPrompt(
 // ============================================================================
 
 export async function listLoRA(
-  tenantId: string,
+  domainId: string,
   status?: LoRAStatus,
 ): Promise<{ items: AdapterRecord[]; total: number }> {
   const qs = new URLSearchParams();
   if (status) qs.set('status', status);
-  return request(`/api/${tenantId}/admin/lora?${qs}`);
+  return request(`/api/${domainId}/admin/lora?${qs}`);
 }
 
 export async function uploadLoRA(
-  tenantId: string,
+  domainId: string,
   file: File,
   metadata: {
     adapter_id: string;
@@ -796,19 +801,19 @@ export async function uploadLoRA(
   const fd = new FormData();
   fd.append('weights', file);
   fd.append('metadata', JSON.stringify(metadata));
-  return requestForm(`/api/${tenantId}/admin/lora/upload`, fd);
+  return requestForm(`/api/${domainId}/admin/lora/upload`, fd);
 }
 
-export async function activateLoRA(tenantId: string, adapterId: string): Promise<AdapterRecord> {
-  return request(`/api/${tenantId}/admin/lora/${adapterId}/activate`, { method: 'POST' });
+export async function activateLoRA(domainId: string, adapterId: string): Promise<AdapterRecord> {
+  return request(`/api/${domainId}/admin/lora/${adapterId}/activate`, { method: 'POST' });
 }
 
-export async function retireLoRA(tenantId: string, adapterId: string): Promise<AdapterRecord> {
-  return request(`/api/${tenantId}/admin/lora/${adapterId}/retire`, { method: 'POST' });
+export async function retireLoRA(domainId: string, adapterId: string): Promise<AdapterRecord> {
+  return request(`/api/${domainId}/admin/lora/${adapterId}/retire`, { method: 'POST' });
 }
 
-export async function deleteLoRA(tenantId: string, adapterId: string): Promise<void> {
-  await request(`/api/${tenantId}/admin/lora/${adapterId}`, { method: 'DELETE' });
+export async function deleteLoRA(domainId: string, adapterId: string): Promise<void> {
+  await request(`/api/${domainId}/admin/lora/${adapterId}`, { method: 'DELETE' });
 }
 
 // ============================================================================
@@ -816,41 +821,41 @@ export async function deleteLoRA(tenantId: string, adapterId: string): Promise<v
 // ============================================================================
 
 export async function listEvalDatasets(
-  tenantId: string,
+  domainId: string,
 ): Promise<{ items: EvalDataset[] }> {
-  return request(`/api/${tenantId}/admin/evaluation/datasets`);
+  return request(`/api/${domainId}/admin/evaluation/datasets`);
 }
 
 export async function runEvalJob(
-  tenantId: string,
+  domainId: string,
   body: { dataset_name: string; config_override?: Record<string, unknown> },
 ): Promise<{ job_id: string; status: string }> {
-  return request(`/api/${tenantId}/admin/evaluation/run`, {
+  return request(`/api/${domainId}/admin/evaluation/run`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 export async function listEvalJobs(
-  tenantId: string,
+  domainId: string,
   params: { page?: number; page_size?: number } = {},
 ): Promise<EvalJobListResult> {
   const qs = new URLSearchParams();
   if (params.page) qs.set('page', String(params.page));
   if (params.page_size) qs.set('page_size', String(params.page_size));
-  return request(`/api/${tenantId}/admin/evaluation/jobs?${qs}`);
+  return request(`/api/${domainId}/admin/evaluation/jobs?${qs}`);
 }
 
-export async function getEvalJob(tenantId: string, jobId: string): Promise<EvalJob> {
-  return request(`/api/${tenantId}/admin/evaluation/jobs/${jobId}`);
+export async function getEvalJob(domainId: string, jobId: string): Promise<EvalJob> {
+  return request(`/api/${domainId}/admin/evaluation/jobs/${jobId}`);
 }
 
 export async function promoteEvalJob(
-  tenantId: string,
+  domainId: string,
   jobId: string,
   body: { target: string; version: string; reason?: string },
 ): Promise<EvalJob> {
-  return request(`/api/${tenantId}/admin/evaluation/jobs/${jobId}/promote`, {
+  return request(`/api/${domainId}/admin/evaluation/jobs/${jobId}/promote`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -860,34 +865,34 @@ export async function promoteEvalJob(
 // Admin — Configs (ADR-017 §11)
 // ============================================================================
 
-export async function getConfigs(tenantId: string): Promise<Record<string, unknown>> {
-  return request(`/api/${tenantId}/admin/configs`);
+export async function getConfigs(domainId: string): Promise<Record<string, unknown>> {
+  return request(`/api/${domainId}/admin/configs`);
 }
 
 export async function getConfigCategory(
-  tenantId: string,
+  domainId: string,
   category: string,
 ): Promise<Record<string, unknown>> {
-  return request(`/api/${tenantId}/admin/configs/${category}`);
+  return request(`/api/${domainId}/admin/configs/${category}`);
 }
 
 export async function patchConfig(
-  tenantId: string,
+  domainId: string,
   category: string,
   body: { key: string; value: unknown; reason?: string },
 ): Promise<{ category: string; key: string; old_value: unknown; new_value: unknown }> {
-  return request(`/api/${tenantId}/admin/configs/${category}`, {
+  return request(`/api/${domainId}/admin/configs/${category}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
 }
 
-export async function reloadConfig(tenantId: string): Promise<void> {
-  await request(`/api/${tenantId}/admin/configs/reload`, { method: 'POST' });
+export async function reloadConfig(domainId: string): Promise<void> {
+  await request(`/api/${domainId}/admin/configs/reload`, { method: 'POST' });
 }
 
 export async function getConfigHistory(
-  tenantId: string,
+  domainId: string,
   params: { category: string; page?: number; page_size?: number },
 ): Promise<{ items: ConfigChangeRow[]; total: number; page: number; page_size: number }> {
   const qs = new URLSearchParams();
@@ -895,7 +900,7 @@ export async function getConfigHistory(
   if (params.page_size) qs.set('page_size', String(params.page_size));
   const suffix = qs.toString() ? `?${qs}` : '';
   return request(
-    `/api/${tenantId}/admin/configs/${encodeURIComponent(params.category)}/history${suffix}`,
+    `/api/${domainId}/admin/configs/${encodeURIComponent(params.category)}/history${suffix}`,
   );
 }
 
@@ -904,7 +909,7 @@ export async function getConfigHistory(
 // ============================================================================
 
 export async function listAssessmentItems(
-  tenantId: string,
+  domainId: string,
   params: {
     keyword?: string;
     subject?: string;
@@ -918,57 +923,57 @@ export async function listAssessmentItems(
   Object.entries(params).forEach(([k, v]) => {
     if (v !== undefined && v !== null) qs.set(k, String(v));
   });
-  return request(`/api/${tenantId}/admin/assessment/items?${qs}`);
+  return request(`/api/${domainId}/admin/assessment/items?${qs}`);
 }
 
 export async function createAssessmentItem(
-  tenantId: string,
+  domainId: string,
   body: Partial<AssessmentItem>,
 ): Promise<AssessmentItem> {
-  return request(`/api/${tenantId}/admin/assessment/items`, {
+  return request(`/api/${domainId}/admin/assessment/items`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 export async function patchAssessmentItem(
-  tenantId: string,
+  domainId: string,
   itemId: string,
   body: Partial<AssessmentItem>,
 ): Promise<AssessmentItem> {
-  return request(`/api/${tenantId}/admin/assessment/items/${itemId}`, {
+  return request(`/api/${domainId}/admin/assessment/items/${itemId}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
 }
 
 export async function approveAssessmentItem(
-  tenantId: string,
+  domainId: string,
   itemId: string,
 ): Promise<AssessmentItem> {
-  return request(`/api/${tenantId}/admin/assessment/items/${itemId}/approve`, {
+  return request(`/api/${domainId}/admin/assessment/items/${itemId}/approve`, {
     method: 'POST',
   });
 }
 
 export async function getReviewQueue(
-  tenantId: string,
+  domainId: string,
   params: { page?: number; page_size?: number } = {},
 ): Promise<AssessmentListResult> {
   const qs = new URLSearchParams();
   if (params.page) qs.set('page', String(params.page));
   if (params.page_size) qs.set('page_size', String(params.page_size));
-  return request(`/api/${tenantId}/admin/assessment/review-queue?${qs}`);
+  return request(`/api/${domainId}/admin/assessment/review-queue?${qs}`);
 }
 
 export async function getAssessmentAnalytics(
-  tenantId: string,
+  domainId: string,
 ): Promise<AssessmentAnalytics> {
-  return request(`/api/${tenantId}/admin/assessment/analytics`);
+  return request(`/api/${domainId}/admin/assessment/analytics`);
 }
 
 export async function extractAssessment(
-  tenantId: string,
+  domainId: string,
   body: {
     subject?: string;
     chapter?: string;
@@ -978,24 +983,24 @@ export async function extractAssessment(
     tags_any?: string[];
   },
 ): Promise<AssessmentExtractResult> {
-  return request(`/api/${tenantId}/assessment/extract`, {
+  return request(`/api/${domainId}/assessment/extract`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 export async function generateAssessment(
-  tenantId: string,
+  domainId: string,
   body: { subject: string; chapter?: string; count: number; difficulty?: string },
 ): Promise<AssessmentExtractResult> {
-  return request(`/api/${tenantId}/assessment/generate`, {
+  return request(`/api/${domainId}/assessment/generate`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 export async function hybridAssessment(
-  tenantId: string,
+  domainId: string,
   body: {
     extract: {
       subject?: string;
@@ -1013,7 +1018,7 @@ export async function hybridAssessment(
     };
   },
 ): Promise<AssessmentExtractResult> {
-  return request(`/api/${tenantId}/assessment/hybrid`, {
+  return request(`/api/${domainId}/assessment/hybrid`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -1034,7 +1039,7 @@ export async function listTenants(
 }
 
 export async function registerTenant(body: {
-  tenant_id: string;
+  domain_id: string;
   display_name: string;
   domain_type: string;
   embedding_model?: string;
@@ -1046,26 +1051,26 @@ export async function registerTenant(body: {
   });
 }
 
-export async function getTenant(tenantId: string): Promise<TenantRow> {
-  return request(`/api/platform/admin/tenants/${tenantId}`);
+export async function getTenant(domainId: string): Promise<TenantRow> {
+  return request(`/api/platform/admin/tenants/${domainId}`);
 }
 
 export async function patchTenantStatus(
-  tenantId: string,
+  domainId: string,
   status: TenantStatus,
   reason?: string,
 ): Promise<TenantRow> {
-  return request(`/api/platform/admin/tenants/${tenantId}`, {
+  return request(`/api/platform/admin/tenants/${domainId}`, {
     method: 'PATCH',
     body: JSON.stringify({ status, reason }),
   });
 }
 
 export async function hardDeleteTenant(
-  tenantId: string,
+  domainId: string,
   reason: string,
-): Promise<{ tenant_id: string; status: string; partial: boolean }> {
-  return request(`/api/platform/admin/tenants/${tenantId}/hard`, {
+): Promise<{ domain_id: string; status: string; partial: boolean }> {
+  return request(`/api/platform/admin/tenants/${domainId}/hard`, {
     method: 'DELETE',
     body: JSON.stringify({ reason }),
   });
@@ -1073,6 +1078,49 @@ export async function hardDeleteTenant(
 
 export async function listPlatformEndpoints(): Promise<{ items: EndpointHealthRow[] }> {
   return request('/api/platform/admin/endpoints');
+}
+
+// ADR-022 §3·§4 — 도메인 멤버십 관리 (admin/platform_admin 전역).
+
+export async function listDomainMembers(
+  domainId: string,
+): Promise<{ domain_id: string; members: DomainMember[] }> {
+  return request(`/api/platform/admin/domains/${domainId}/members`);
+}
+
+export async function assignDomainMember(
+  domainId: string,
+  body: {
+    user_id: string;
+    clearance?: string;
+    department?: string | null;
+    domain_groups?: string[];
+  },
+): Promise<DomainMember> {
+  return request(`/api/platform/admin/domains/${domainId}/members`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function revokeDomainMember(
+  domainId: string,
+  userId: string,
+): Promise<{ revoked: boolean }> {
+  return request(
+    `/api/platform/admin/domains/${domainId}/members/${encodeURIComponent(userId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export async function setDomainEnrollmentPolicy(
+  domainId: string,
+  enrollmentPolicy: 'open' | 'assigned',
+): Promise<{ domain_id: string; enrollment_policy: string }> {
+  return request(`/api/platform/admin/domains/${domainId}/enrollment-policy`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enrollment_policy: enrollmentPolicy }),
+  });
 }
 
 export async function getPlatformUsage(): Promise<{ items: PlatformUsageRow[]; total: number }> {

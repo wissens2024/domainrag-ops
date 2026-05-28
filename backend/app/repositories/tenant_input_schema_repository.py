@@ -1,6 +1,6 @@
 """PostgresTenantInputSchemaRepository — tenant_input_schemas CRUD (ADR-015 + ADR-017 §15).
 
-UNIQUE(tenant_id, schema_version) → race 시 IntegrityError → SchemaVersionConflictError.
+UNIQUE(domain_id, schema_version) → race 시 IntegrityError → SchemaVersionConflictError.
 status 전이는 두 SQL 한 트랜잭션:
   UPDATE old active → deprecated
   INSERT new active
@@ -31,10 +31,10 @@ class PostgresTenantInputSchemaRepository:
         self._sf = session_factory
 
     async def get_active(
-        self, *, tenant_id: str
+        self, *, domain_id: str
     ) -> TenantInputSchemaRecord | None:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             row = (
                 await session.execute(
                     text(
@@ -43,25 +43,25 @@ class PostgresTenantInputSchemaRepository:
                                schema_yaml, ui_schema_yaml,
                                created_at, deprecated_at
                           FROM tenant_input_schemas
-                         WHERE tenant_id = :tenant_id AND status = 'active'
+                         WHERE domain_id = :domain_id AND status = 'active'
                          ORDER BY schema_version DESC
                          LIMIT 1
                         """
                     ),
-                    {"tenant_id": tenant_id},
+                    {"domain_id": domain_id},
                 )
             ).first()
-        return _row_to_record(tenant_id, row) if row else None
+        return _row_to_record(domain_id, row) if row else None
 
     async def list_history(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         limit: int = 50,
         offset: int = 0,
     ) -> list[TenantInputSchemaRecord]:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             rows = (
                 await session.execute(
                     text(
@@ -70,26 +70,26 @@ class PostgresTenantInputSchemaRepository:
                                schema_yaml, ui_schema_yaml,
                                created_at, deprecated_at
                           FROM tenant_input_schemas
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                          ORDER BY schema_version DESC
                          LIMIT :limit OFFSET :offset
                         """
                     ),
-                    {"tenant_id": tenant_id, "limit": limit, "offset": offset},
+                    {"domain_id": domain_id, "limit": limit, "offset": offset},
                 )
             ).all()
-        return [_row_to_record(tenant_id, r) for r in rows]
+        return [_row_to_record(domain_id, r) for r in rows]
 
     async def insert_new_active(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         base_version: int | None,
         schema_yaml: dict[str, Any],
         ui_schema_yaml: dict[str, Any],
     ) -> TenantInputSchemaRecord:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
 
             # 1. current active를 FOR UPDATE — 동시 PUT race 차단
             current_row = (
@@ -98,13 +98,13 @@ class PostgresTenantInputSchemaRepository:
                         """
                         SELECT id, schema_version
                           FROM tenant_input_schemas
-                         WHERE tenant_id = :tenant_id AND status = 'active'
+                         WHERE domain_id = :domain_id AND status = 'active'
                          ORDER BY schema_version DESC
                          LIMIT 1
                          FOR UPDATE
                         """
                     ),
-                    {"tenant_id": tenant_id},
+                    {"domain_id": domain_id},
                 )
             ).first()
             current_version = int(current_row[1]) if current_row else None
@@ -135,11 +135,11 @@ class PostgresTenantInputSchemaRepository:
                         text(
                             """
                             INSERT INTO tenant_input_schemas (
-                                tenant_id, schema_version, status,
+                                domain_id, schema_version, status,
                                 schema_yaml, ui_schema_yaml
                             )
                             VALUES (
-                                :tenant_id, :schema_version, 'active',
+                                :domain_id, :schema_version, 'active',
                                 CAST(:schema_yaml AS JSONB),
                                 CAST(:ui_schema_yaml AS JSONB)
                             )
@@ -147,7 +147,7 @@ class PostgresTenantInputSchemaRepository:
                             """
                         ),
                         {
-                            "tenant_id": tenant_id,
+                            "domain_id": domain_id,
                             "schema_version": new_version,
                             "schema_yaml": json.dumps(
                                 schema_yaml, ensure_ascii=False, default=str
@@ -168,7 +168,7 @@ class PostgresTenantInputSchemaRepository:
 
         return TenantInputSchemaRecord(
             schema_id=str(inserted_id[0]),
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             schema_version=new_version,
             status="active",
             schema_yaml=dict(schema_yaml or {}),
@@ -177,10 +177,10 @@ class PostgresTenantInputSchemaRepository:
         )
 
 
-def _row_to_record(tenant_id: str, row) -> TenantInputSchemaRecord:
+def _row_to_record(domain_id: str, row) -> TenantInputSchemaRecord:
     return TenantInputSchemaRecord(
         schema_id=str(row[0]),
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         schema_version=int(row[1]),
         status=row[2],
         schema_yaml=dict(row[3] or {}),

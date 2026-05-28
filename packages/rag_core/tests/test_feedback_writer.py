@@ -8,9 +8,9 @@ from rag_core.interfaces.feedback_writer import InMemoryFeedbackWriter
 from rag_core.services.chat_log_writer import ChatLogPayload, InMemoryChatLogWriter
 
 
-def _payload(*, tenant_id: str, request_id: str, user_id: str | None) -> ChatLogPayload:
+def _payload(*, domain_id: str, request_id: str, user_id: str | None) -> ChatLogPayload:
     return ChatLogPayload(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         request_id=request_id,
         user_id=user_id,
         conversation_id="c1",
@@ -20,9 +20,9 @@ def _payload(*, tenant_id: str, request_id: str, user_id: str | None) -> ChatLog
 
 
 async def _seed(writer: InMemoryChatLogWriter) -> None:
-    await writer.write(_payload(tenant_id="t1", request_id="m1", user_id="u-alice"))
-    await writer.write(_payload(tenant_id="t1", request_id="m2", user_id="u-bob"))
-    await writer.write(_payload(tenant_id="t2", request_id="m3", user_id="u-alice"))
+    await writer.write(_payload(domain_id="t1", request_id="m1", user_id="u-alice"))
+    await writer.write(_payload(domain_id="t1", request_id="m2", user_id="u-bob"))
+    await writer.write(_payload(domain_id="t2", request_id="m3", user_id="u-alice"))
 
 
 async def test_record_updates_owner_message():
@@ -31,7 +31,7 @@ async def test_record_updates_owner_message():
     fb = InMemoryFeedbackWriter(writer=writer)
 
     result = await fb.record(
-        tenant_id="t1", message_id="m1", user_id="u-alice",
+        domain_id="t1", message_id="m1", user_id="u-alice",
         feedback="good", comment="helpful",
     )
     assert result.affected == 1
@@ -47,7 +47,7 @@ async def test_record_cross_user_returns_zero_affected():
     fb = InMemoryFeedbackWriter(writer=writer)
 
     result = await fb.record(
-        tenant_id="t1", message_id="m2", user_id="u-alice",  # m2의 owner는 u-bob
+        domain_id="t1", message_id="m2", user_id="u-alice",  # m2의 owner는 u-bob
         feedback="bad", comment=None,
     )
     assert result.affected == 0
@@ -62,7 +62,7 @@ async def test_record_cross_tenant_returns_zero():
     fb = InMemoryFeedbackWriter(writer=writer)
     # m3은 tenant t2 — t1 scope에서 못 찾는다
     result = await fb.record(
-        tenant_id="t1", message_id="m3", user_id="u-alice",
+        domain_id="t1", message_id="m3", user_id="u-alice",
         feedback="bad", comment=None,
     )
     assert result.affected == 0
@@ -73,7 +73,7 @@ async def test_record_unknown_message_returns_zero():
     await _seed(writer)
     fb = InMemoryFeedbackWriter(writer=writer)
     result = await fb.record(
-        tenant_id="t1", message_id="nope", user_id="u-alice",
+        domain_id="t1", message_id="nope", user_id="u-alice",
         feedback="good", comment=None,
     )
     assert result.affected == 0
@@ -84,11 +84,11 @@ async def test_record_idempotent_overwrites_previous():
     await _seed(writer)
     fb = InMemoryFeedbackWriter(writer=writer)
     await fb.record(
-        tenant_id="t1", message_id="m1", user_id="u-alice",
+        domain_id="t1", message_id="m1", user_id="u-alice",
         feedback="good", comment="first",
     )
     await fb.record(
-        tenant_id="t1", message_id="m1", user_id="u-alice",
+        domain_id="t1", message_id="m1", user_id="u-alice",
         feedback="bad", comment="reconsidered",
     )
     target = next(r for r in writer.records if r.request_id == "m1")

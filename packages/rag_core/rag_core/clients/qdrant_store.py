@@ -1,7 +1,7 @@
 """QdrantVectorStore — collection-per-tenant + named dense/sparse + DBSF fusion.
 
 ADR-008·011 정합:
-  - collection name pattern: chunks_{tenant_id}
+  - collection name pattern: chunks_{domain_id}
   - named vectors: "dense" (cosine) + "sparse"
   - hybrid_query: prefetch dense + sparse → DBSF fusion (한 호출)
   - acl_filter는 Qdrant payload filter dict (caller가 build_acl_filter로 생성)
@@ -16,8 +16,8 @@ from qdrant_client import AsyncQdrantClient, models
 from ..interfaces.retriever import RetrievedChunk
 
 
-def _collection_name(tenant_id: str) -> str:
-    return f"chunks_{tenant_id}"
+def _collection_name(domain_id: str) -> str:
+    return f"chunks_{domain_id}"
 
 
 def _to_filter(acl_filter: dict | None) -> models.Filter | None:
@@ -50,7 +50,7 @@ class QdrantVectorStore:
         self._distance = distance
 
     async def create_collection(
-        self, *, tenant_id: str, dense_dim: int, with_sparse: bool = True
+        self, *, domain_id: str, dense_dim: int, with_sparse: bool = True
     ) -> None:
         vectors_config = {
             "dense": models.VectorParams(size=dense_dim, distance=self._distance),
@@ -61,7 +61,7 @@ class QdrantVectorStore:
             else None
         )
         await self._client.create_collection(
-            collection_name=_collection_name(tenant_id),
+            collection_name=_collection_name(domain_id),
             vectors_config=vectors_config,
             sparse_vectors_config=sparse_vectors_config,
         )
@@ -69,7 +69,7 @@ class QdrantVectorStore:
     async def upsert_chunks(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         points: list[dict[str, Any]],
     ) -> None:
         """points = [{id, dense_vector, sparse_vector, payload}, ...]
@@ -90,7 +90,7 @@ class QdrantVectorStore:
                 )
             )
         await self._client.upsert(
-            collection_name=_collection_name(tenant_id),
+            collection_name=_collection_name(domain_id),
             points=qdrant_points,
             wait=True,
         )
@@ -98,7 +98,7 @@ class QdrantVectorStore:
     async def hybrid_query(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         dense_query: list[float],
         sparse_query: dict[int, float],
         acl_filter: dict,
@@ -108,7 +108,7 @@ class QdrantVectorStore:
         (호출측에서 dense/sparse top_k를 따로 제어할 수 있도록 추후 확장 여지)."""
         qfilter = _to_filter(acl_filter)
         result = await self._client.query_points(
-            collection_name=_collection_name(tenant_id),
+            collection_name=_collection_name(domain_id),
             prefetch=[
                 models.Prefetch(
                     query=dense_query,
@@ -140,29 +140,29 @@ class QdrantVectorStore:
     async def set_payload(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         chunk_ids: list[str],
         payload: dict,
     ) -> None:
         """ADR-007/012 metadata-only 갱신 (vector는 보존, payload만 partial update)."""
         await self._client.set_payload(
-            collection_name=_collection_name(tenant_id),
+            collection_name=_collection_name(domain_id),
             payload=payload,
             points=chunk_ids,
             wait=True,
         )
 
-    async def delete_collection(self, tenant_id: str) -> None:
-        await self._client.delete_collection(_collection_name(tenant_id))
+    async def delete_collection(self, domain_id: str) -> None:
+        await self._client.delete_collection(_collection_name(domain_id))
 
     async def delete_points(
-        self, *, tenant_id: str, chunk_ids: list[str]
+        self, *, domain_id: str, chunk_ids: list[str]
     ) -> None:
         """ADR-007/012 hard delete — collection은 유지하고 특정 chunk만 제거."""
         if not chunk_ids:
             return
         await self._client.delete(
-            collection_name=_collection_name(tenant_id),
+            collection_name=_collection_name(domain_id),
             points_selector=list(chunk_ids),
             wait=True,
         )

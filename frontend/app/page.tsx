@@ -11,7 +11,7 @@ import type { UserContext } from '@/lib/types';
  *
  * 동작:
  *   - SSR 통과 후 client에서 /api/auth/me 조회
- *   - 인증되었으면 자기 tenant chat(/{tenant_id}/chat)으로 즉시 redirect
+ *   - 인증되었으면 자기 tenant chat(/{domain_id}/chat)으로 즉시 redirect
  *   - 미인증 (401) — SWR error → 랜딩 본문 노출. 단 admin/platform 링크는
  *     role 검증 후만 표시 (RBAC 메뉴 필터링, ADR-016 Y9).
  *
@@ -34,7 +34,7 @@ export default function Home() {
         if (res.ok) {
           const body = (await res.json()) as UserContext;
           setUser(body);
-          router.replace(`/${body.tenant_id}/chat`);
+          router.replace(`/${body.domain_id}/chat`);
         }
       })
       .catch(() => {
@@ -58,7 +58,7 @@ export default function Home() {
   if (user) {
     return (
       <main className="min-h-screen flex items-center justify-center p-8 text-sm text-gray-500">
-        {user.tenant_id} 채팅으로 이동 중…
+        {user.domain_id} 채팅으로 이동 중…
       </main>
     );
   }

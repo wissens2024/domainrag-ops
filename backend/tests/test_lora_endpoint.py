@@ -41,7 +41,7 @@ from app.main import app
 
 def _non_admin_user() -> UserContext:
     return UserContext(
-        user_id="dev-user-001", tenant_id="security",
+        user_id="dev-user-001", domain_id="security",
         roles=["USER"], clearance="confidential",
     )
 
@@ -108,7 +108,7 @@ def test_upload_creates_adapter_and_records_metadata():
     body = resp.json()
     assert body["adapter_id"] == "sec-lora-v1"
     assert body["status"] == "registered"
-    assert body["tenant_id"] == "security"
+    assert body["domain_id"] == "security"
     # weights size + filename 자동 저장
     assert body["training_metadata"]["weights_size_bytes"] == len(b"weights blob")
     assert body["training_metadata"]["filename"] == "sec-lora-v1.bin"

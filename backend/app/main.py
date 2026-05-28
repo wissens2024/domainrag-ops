@@ -2,7 +2,7 @@
 DomainRAG Ops Backend — FastAPI Application
 
 멀티테넌트 RAG 플랫폼 (ADR-008/017/018).
-URL: /api/{tenant_id}/..., /api/platform/admin/..., /api/auth/...
+URL: /api/{domain_id}/..., /api/platform/admin/..., /api/auth/...
 
 lifespan 책임 (ADR-021 §1):
   1. structured logging
@@ -43,35 +43,35 @@ settings = get_settings()
 
 
 async def _on_config_changed(payload: dict) -> None:
-    tid = payload.get("tenant_id")
+    tid = payload.get("domain_id")
     if not tid:
         return
     await reload_tenant_config(
-        admin_session_factory=AdminSessionLocal, tenant_id=str(tid)
+        admin_session_factory=AdminSessionLocal, domain_id=str(tid)
     )
-    logger.info("config_listener.applied", tenant_id=str(tid))
+    logger.info("config_listener.applied", domain_id=str(tid))
 
 
 async def _on_schema_changed(payload: dict) -> None:
-    tid = payload.get("tenant_id")
+    tid = payload.get("domain_id")
     if not tid:
         return
     await reload_tenant_schema(
-        admin_session_factory=AdminSessionLocal, tenant_id=str(tid)
+        admin_session_factory=AdminSessionLocal, domain_id=str(tid)
     )
-    logger.info("schema_listener.applied", tenant_id=str(tid))
+    logger.info("schema_listener.applied", domain_id=str(tid))
 
 
 async def _on_lifecycle_changed(payload: dict) -> None:
     # tenant register / status 전이 / hard delete 직후. 캐시 invalidate 위주.
-    tid = payload.get("tenant_id")
+    tid = payload.get("domain_id")
     if not tid:
         return
     from app.core.tenant_config_service import TenantConfigService
     TenantConfigService.invalidate(str(tid))
     logger.info(
         "lifecycle_listener.applied",
-        tenant_id=str(tid),
+        domain_id=str(tid),
         old=payload.get("old_status"),
         new=payload.get("new_status"),
     )
@@ -215,10 +215,10 @@ app.add_middleware(
 )
 
 # 라우터 등록 (ADR-017 URL 컨벤션) — platform prefix를 tenant{id}보다 먼저 등록해
-# `/api/platform/admin/...` 경로가 tenant_id="platform"로 흡수되지 않도록 한다.
+# `/api/platform/admin/...` 경로가 domain_id="platform"로 흡수되지 않도록 한다.
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(platform_router, prefix="/api/platform/admin", tags=["platform"])
-app.include_router(tenant_router, prefix="/api/{tenant_id}", tags=["tenant"])
+app.include_router(tenant_router, prefix="/api/{domain_id}", tags=["tenant"])
 
 
 @app.get("/api/health", tags=["health"])

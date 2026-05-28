@@ -53,7 +53,7 @@ def reset_ledger_failure_metrics() -> None:
 @dataclass
 class LedgerEvent:
     event_type: str  # auth_failure | tenant_mismatch | hard_delete | platform_admin_action | ...
-    tenant_id: str
+    domain_id: str
     actor: str | None
     reason: str | None
     details: dict[str, Any]
@@ -63,7 +63,7 @@ class LedgerEvent:
         return {
             "event_type": self.event_type,
             "source_system": "domainrag",
-            "tenant_id": self.tenant_id,
+            "domain_id": self.domain_id,
             "actor": self.actor,
             "reason": self.reason,
             "details": self.details,
@@ -144,7 +144,7 @@ class HttpxLedgerClient:
         LEDGER_DEAD_LETTERS.append(
             {
                 "event_type": event.event_type,
-                "tenant_id": event.tenant_id,
+                "domain_id": event.domain_id,
                 "timestamp": event.timestamp,
                 "error": str(last_err),
                 "attempts": attempts,
@@ -153,7 +153,7 @@ class HttpxLedgerClient:
         logger.warning(
             "ledger publish failed (dead-letter): event_type=%s tenant=%s err=%s",
             event.event_type,
-            event.tenant_id,
+            event.domain_id,
             last_err,
         )
         return False

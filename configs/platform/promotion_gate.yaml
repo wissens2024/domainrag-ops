@@ -30,5 +30,5 @@ manual_approval_required: true           # 자동 promote 금지, 운영자 명�
 approval_role: PLATFORM_ADMIN
 
 evaluation_dataset:
-  default_path: data/eval/tenants/{tenant_id}/domain_qa.jsonl
+  default_path: data/eval/tenants/{domain_id}/domain_qa.jsonl
   min_samples: 50                        # 최소 50개 이상의 평가 샘플 의무

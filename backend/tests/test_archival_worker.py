@@ -19,9 +19,9 @@ from rag_core.services.chunks_archiver import (
 from app.services.archival_worker import ArchivalWorker
 
 
-def _chunk(*, tenant_id, chunk_id, valid_until):
+def _chunk(*, domain_id, chunk_id, valid_until):
     return ChunkRecord(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         chunk_id=chunk_id,
         doc_id="d1",
         doc_version="v1",
@@ -51,11 +51,11 @@ def _chunk(*, tenant_id, chunk_id, valid_until):
 async def _populate(repo, chunks):
     by_key: dict[tuple, list] = {}
     for c in chunks:
-        key = (c.tenant_id, c.doc_id, c.doc_version, c.parser_version)
+        key = (c.domain_id, c.doc_id, c.doc_version, c.parser_version)
         by_key.setdefault(key, []).append(c)
     for (tid, did, ver, parser), batch in by_key.items():
         await repo.replace_chunks(
-            tenant_id=tid, doc_id=did, doc_version=ver,
+            domain_id=tid, doc_id=did, doc_version=ver,
             parser_version=parser, chunks=batch,
         )
 
@@ -127,15 +127,15 @@ async def test_worker_archives_only_threshold_chunks_and_calls_set_payload(world
     await _populate(
         repo,
         [
-            _chunk(tenant_id="t1", chunk_id="old", valid_until="2026-01-01"),
-            _chunk(tenant_id="t1", chunk_id="fresh", valid_until="2026-06-01"),
+            _chunk(domain_id="t1", chunk_id="old", valid_until="2026-01-01"),
+            _chunk(domain_id="t1", chunk_id="fresh", valid_until="2026-06-01"),
         ],
     )
     archiver = InMemoryChunksArchiver(chunk_repo=repo)
     vs = InMemoryVectorStore()
-    await vs.create_collection(tenant_id="t1", dense_dim=4)
+    await vs.create_collection(domain_id="t1", dense_dim=4)
     await vs.upsert_chunks(
-        tenant_id="t1",
+        domain_id="t1",
         points=[
             {"id": "old", "dense_vector": [0.1, 0.2, 0.3, 0.4], "sparse_vector": {}, "payload": {}},
             {"id": "fresh", "dense_vector": [0.5, 0.5, 0.5, 0.5], "sparse_vector": {}, "payload": {}},
@@ -160,7 +160,7 @@ async def test_worker_archives_only_threshold_chunks_and_calls_set_payload(world
     # audit row 1건 (chunk_archival_executed)
     assert len(rec.audit_payloads) == 1
     audit = rec.audit_payloads[0]
-    assert audit["tenant_id"] == "t1"
+    assert audit["domain_id"] == "t1"
 
 
 async def test_worker_run_all_tenants_iterates_active_tenants(world):
@@ -168,16 +168,16 @@ async def test_worker_run_all_tenants_iterates_active_tenants(world):
     await _populate(
         repo,
         [
-            _chunk(tenant_id="t1", chunk_id="t1-old", valid_until="2026-01-01"),
-            _chunk(tenant_id="t2", chunk_id="t2-old", valid_until="2026-01-01"),
+            _chunk(domain_id="t1", chunk_id="t1-old", valid_until="2026-01-01"),
+            _chunk(domain_id="t2", chunk_id="t2-old", valid_until="2026-01-01"),
         ],
     )
     archiver = InMemoryChunksArchiver(chunk_repo=repo)
     vs = InMemoryVectorStore()
     for tid in ("t1", "t2"):
-        await vs.create_collection(tenant_id=tid, dense_dim=4)
+        await vs.create_collection(domain_id=tid, dense_dim=4)
         await vs.upsert_chunks(
-            tenant_id=tid,
+            domain_id=tid,
             points=[
                 {"id": f"{tid}-old", "dense_vector": [0.1, 0.2, 0.3, 0.4],
                  "sparse_vector": {}, "payload": {}}
@@ -192,8 +192,8 @@ async def test_worker_run_all_tenants_iterates_active_tenants(world):
     )
     summary = await worker.run_all_tenants()
     assert summary.total_archived == 2
-    tenant_ids = {r.tenant_id for r in summary.tenant_results}
-    assert tenant_ids == {"t1", "t2"}
+    domain_ids = {r.domain_id for r in summary.tenant_results}
+    assert domain_ids == {"t1", "t2"}
 
 
 async def test_worker_handles_no_candidates_gracefully(world):
@@ -201,11 +201,11 @@ async def test_worker_handles_no_candidates_gracefully(world):
     repo = world["repo"]
     await _populate(
         repo,
-        [_chunk(tenant_id="t1", chunk_id="fresh", valid_until="2026-06-01")],
+        [_chunk(domain_id="t1", chunk_id="fresh", valid_until="2026-06-01")],
     )
     archiver = InMemoryChunksArchiver(chunk_repo=repo)
     vs = InMemoryVectorStore()
-    await vs.create_collection(tenant_id="t1", dense_dim=4)
+    await vs.create_collection(domain_id="t1", dense_dim=4)
     rec = _AuditRecorder(tenants=["t1"])
     worker = ArchivalWorker(
         archiver=archiver,
@@ -226,16 +226,16 @@ async def test_worker_uses_threshold_provider_per_tenant(world):
     await _populate(
         repo,
         [
-            _chunk(tenant_id="t1", chunk_id="t1-medium", valid_until="2026-04-01"),
-            _chunk(tenant_id="t2", chunk_id="t2-medium", valid_until="2026-04-01"),
+            _chunk(domain_id="t1", chunk_id="t1-medium", valid_until="2026-04-01"),
+            _chunk(domain_id="t2", chunk_id="t2-medium", valid_until="2026-04-01"),
         ],
     )
     archiver = InMemoryChunksArchiver(chunk_repo=repo)
     vs = InMemoryVectorStore()
     for tid in ("t1", "t2"):
-        await vs.create_collection(tenant_id=tid, dense_dim=4)
+        await vs.create_collection(domain_id=tid, dense_dim=4)
         await vs.upsert_chunks(
-            tenant_id=tid,
+            domain_id=tid,
             points=[
                 {"id": f"{tid}-medium", "dense_vector": [0.1, 0.2, 0.3, 0.4],
                  "sparse_vector": {}, "payload": {}}

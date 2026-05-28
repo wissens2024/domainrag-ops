@@ -36,7 +36,7 @@ DomainRAG Ops는 **테넌트별 입력 스키마**로 도메인 지식을 구조
 ## 절대 원칙
 
 1. **멀티테넌트 first-class**: 모든 데이터·정책·검색·로그에 `tenant_id` 1차 분기. cross-tenant 검색은 본 시스템에서 지원하지 않는다.
-2. **격리 3중 방어**: collection-per-tenant + PostgreSQL Row-Level Security + JWT claim·URL path mirror (mismatch 시 403).
+2. **격리 3중 방어** (ADR-022 갱신): collection-per-tenant + PostgreSQL Row-Level Security + **membership/path 게이트** (URL path가 활성 도메인 결정 → RLS context; 전역역할 admin/auditor/platform_admin은 membership 우회, 일반 user는 membership 없으면 403). 공용 client라 client_id↔path mirror는 실효 → 제거. cross-tenant(도메인) 검색은 본 시스템에서 지원하지 않는다.
 3. **4-type citation**: direct / synthesis / inference / conflict. 마커 syntax는 `[1]` / `[종합: 1,2,3]` / `[추론: 1,2,3] 🔍` / `[충돌: 1 vs 2]` (ADR-010).
 4. **검증된 인용만 노출** (chat_structured 모드 한정): `support_level`/`verified` 필드는 ADR-010 산출 규칙으로 계산. weak는 응답에서 제거, medium은 ⚠ 호버. **chat_streaming 모드는 RAG 미사용 자유 대화 모드로 citation 책임 없음** (`citation_disabled: true`, ADR-013 §6).
 5. **원칙 8 (재해석)**: 근거 없는 추측은 금지한다. 다만 (a) 직접 인용, (b) 검증된 종합, (c) **명시적 추론 + LLM-as-judge 통과 + 강한 caveat**, (d) 명시적 충돌 표시는 허용. 그 외는 "확인 불가" fallback.
@@ -77,6 +77,7 @@ DomainRAG Ops는 **테넌트별 입력 스키마**로 도메인 지식을 구조
 | [ADR-019](docs/adr/019-infrastructure-sharing.md) | Infrastructure Sharing & Resource Allocation | Accepted (RLS·임베딩 마이그레이션 절차 흡수) |
 | [ADR-020](docs/adr/020-pii-and-audit-integration.md) | PII Detection & Audit Integration | Accepted (M1 PII 공백 해결) |
 | [ADR-021](docs/adr/021-operational-bootstrap.md) | Operational Bootstrap (lifespan·LISTEN/NOTIFY·cron·Docker) | Accepted |
+| [ADR-022](docs/adr/022-domain-terminology-and-access-model.md) | **Domain 용어 + User/Domain 접근 모델** (admin/auditor 전역·user 도메인-스코프·enrollment) | Accepted (ADR-018 §1·§8 supersede) |
 
 작업 시작 전에 **관련 ADR을 먼저 읽는다**. 다중 ADR이 관련되면 *최신·미-supersede ADR*을 단일 진실 소스로 따른다.
 

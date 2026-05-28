@@ -3,7 +3,7 @@
 쿼리:
   SELECT date_trunc(:gran, created_at) AS bucket, ct, COUNT(DISTINCT id) AS cnt
     FROM chat_logs cl, LATERAL jsonb_array_elements_text(cl.citation_types) ct
-   WHERE tenant_id = :tid
+   WHERE domain_id = :tid
      AND (created_at >= :from_date OR :from_date IS NULL)
      AND (created_at <  :to_date OR :to_date IS NULL)
    GROUP BY bucket, ct
@@ -36,20 +36,20 @@ class PostgresCitationDistributionAnalytics:
     async def distribution(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         from_date: datetime | None,
         to_date: datetime | None,
         group_by: Literal["day", "hour"],
     ) -> CitationDistributionResult:
         params: dict = {
-            "tenant_id": tenant_id,
+            "domain_id": domain_id,
             "from_date": from_date,
             "to_date": to_date,
             "gran": group_by,
         }
 
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
 
             total_row = (
                 await session.execute(

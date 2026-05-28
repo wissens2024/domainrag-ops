@@ -6,7 +6,7 @@ schema_version: 1
 
 # 공통 필수 필드
 common_required:
-  - tenant_id           # 자동 주입 (사용자 입력 아님)
+  - domain_id           # 자동 주입 (사용자 입력 아님)
   - input_type
   - title
   - security_level
@@ -24,7 +24,7 @@ common_optional:
 
 # 필드별 도메인 / validation
 common_field_definitions:
-  tenant_id:
+  domain_id:
     type: string
     immutable: true
   input_type:

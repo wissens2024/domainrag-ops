@@ -36,7 +36,7 @@ REPO = Path(__file__).resolve().parents[3]
 async def populated_corpus():
     store = InMemoryVectorStore()
     embedder = InMemoryEmbedder(dense_dim=8)
-    await store.create_collection(tenant_id="security", dense_dim=8)
+    await store.create_collection(domain_id="security", dense_dim=8)
 
     # 보안 도메인 4문서 (모두 approved + group:security)
     docs = [
@@ -67,14 +67,14 @@ async def populated_corpus():
         points.append(
             {"id": cid, "dense_vector": dense, "sparse_vector": sparse, "payload": payload}
         )
-    await store.upsert_chunks(tenant_id="security", points=points)
+    await store.upsert_chunks(domain_id="security", points=points)
     return store, embedder
 
 
 def _user_context() -> dict:
     return {
         "user_id": "u1",
-        "tenant_id": "security",
+        "domain_id": "security",
         "clearance": "confidential",
         "department": "security",
         "domain_groups": ["group:security"],
@@ -83,7 +83,7 @@ def _user_context() -> dict:
 
 
 def _config_loader_factory(min_top1: float = 0.0, min_strong: int = 0):
-    def loader(tenant_id: str) -> dict:
+    def loader(domain_id: str) -> dict:
         return {
             "retrieval": {"top_k": {"fused": 50, "rerank": 10, "context": 5}},
             "citation": {
@@ -136,7 +136,7 @@ async def test_happy_path_returns_structured_answer(populated_corpus):
     graph = build_chat_structured_slice(deps)
     state = RAGState(
         request_id="r1",
-        tenant_id="security",
+        domain_id="security",
         user_id="u1",
         question="패스워드 정책은?",
         user_context=_user_context(),
@@ -163,7 +163,7 @@ async def test_gate1_fail_routes_to_fallback(populated_corpus):
     graph = build_chat_structured_slice(deps)
     state = RAGState(
         request_id="r2",
-        tenant_id="security",
+        domain_id="security",
         user_id="u1",
         question="패스워드 정책",
         user_context=_user_context(),
@@ -188,7 +188,7 @@ async def test_acl_blocks_unauthorized_user(populated_corpus):
     graph = build_chat_structured_slice(deps)
     foreign_user = {
         "user_id": "u9",
-        "tenant_id": "security",
+        "domain_id": "security",
         "clearance": "internal",
         "department": "hr",
         "domain_groups": ["group:hr"],  # security 문서 접근 불가
@@ -196,7 +196,7 @@ async def test_acl_blocks_unauthorized_user(populated_corpus):
     }
     state = RAGState(
         request_id="r3",
-        tenant_id="security",
+        domain_id="security",
         user_id="u9",
         question="패스워드 정책",
         user_context=foreign_user,
@@ -219,7 +219,7 @@ async def test_invalid_llm_response_routes_to_parse_error(populated_corpus):
     graph = build_chat_structured_slice(deps)
     state = RAGState(
         request_id="r4",
-        tenant_id="security",
+        domain_id="security",
         user_id="u1",
         question="패스워드?",
         user_context=_user_context(),

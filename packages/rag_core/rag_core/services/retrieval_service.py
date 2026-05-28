@@ -64,7 +64,7 @@ class RetrievalService:
     async def retrieve(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         question: str,
         acl_filter: dict,
         config: RetrievalConfig | None = None,
@@ -73,7 +73,7 @@ class RetrievalService:
 
         dense_query, sparse_query = await self._embedder.embed_query(question)
         hits = await self._vector_store.hybrid_query(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             dense_query=dense_query,
             sparse_query=sparse_query,
             acl_filter=acl_filter,

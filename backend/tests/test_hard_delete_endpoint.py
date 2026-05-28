@@ -1,4 +1,4 @@
-"""DELETE /api/{tenant_id}/admin/documents/{doc_id}/hard — cross-system 일관성 검증.
+"""DELETE /api/{domain_id}/admin/documents/{doc_id}/hard — cross-system 일관성 검증.
 
 ADR-007/012:
   - Postgres chunks/documents 삭제
@@ -111,7 +111,7 @@ def test_hard_delete_removes_chunks_qdrant_storage_documents():
 
     doc = asyncio.new_event_loop().run_until_complete(
         orch.service.document_repo.get(
-            tenant_id="security", doc_id="DOC-HD-1", version="v1"
+            domain_id="security", doc_id="DOC-HD-1", version="v1"
         )
     )
     assert doc is None
@@ -146,7 +146,7 @@ def test_hard_delete_keep_excerpts_does_not_touch_chat_logs():
     asyncio.new_event_loop().run_until_complete(
         writer.write(
             ChatLogPayload(
-                tenant_id="security",
+                domain_id="security",
                 request_id="r-prep",
                 user_id="dev-user-001",
                 conversation_id=None,
@@ -187,7 +187,7 @@ def test_hard_delete_mask_excerpts_masks_only_target_doc():
     asyncio.new_event_loop().run_until_complete(
         writer.write(
             ChatLogPayload(
-                tenant_id="security",
+                domain_id="security",
                 request_id="r-mix",
                 user_id="dev-user-001",
                 conversation_id=None,
@@ -230,7 +230,7 @@ def test_hard_delete_delete_logs_removes_referencing_rows():
     asyncio.new_event_loop().run_until_complete(
         writer.write(
             ChatLogPayload(
-                tenant_id="security", request_id="r-del", user_id="u1",
+                domain_id="security", request_id="r-del", user_id="u1",
                 conversation_id=None, question="q", answer="a",
                 citations=[{"chunk_id": "c", "doc_id": "DOC-HD-4"}],
             )
@@ -239,7 +239,7 @@ def test_hard_delete_delete_logs_removes_referencing_rows():
     asyncio.new_event_loop().run_until_complete(
         writer.write(
             ChatLogPayload(
-                tenant_id="security", request_id="r-keep", user_id="u1",
+                domain_id="security", request_id="r-keep", user_id="u1",
                 conversation_id=None, question="q2", answer="a2",
                 citations=[{"chunk_id": "c", "doc_id": "DOC-OTHER"}],
             )

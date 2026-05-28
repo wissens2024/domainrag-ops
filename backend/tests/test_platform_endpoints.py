@@ -32,7 +32,7 @@ from app.main import app
 
 def _platform_admin() -> UserContext:
     return UserContext(
-        user_id="platform-001", tenant_id="platform",
+        user_id="platform-001", domain_id="platform",
         roles=["SERVICE", "PLATFORM_ADMIN"], clearance="top_secret",
     )
 
@@ -79,7 +79,7 @@ def test_endpoints_requires_platform_admin():
     """일반 admin은 403."""
     def _tenant_admin() -> UserContext:
         return UserContext(
-            user_id="t1-admin", tenant_id="security",
+            user_id="t1-admin", domain_id="security",
             roles=["USER", "ADMIN"], clearance="confidential",
         )
 
@@ -94,7 +94,7 @@ def test_analytics_usage_aggregates_cross_tenant():
     # 사용자가 chat 호출하려면 일반 user context 필요. dependency_override 교체.
     def _security_user() -> UserContext:
         return UserContext(
-            user_id="dev-user-001", tenant_id="security",
+            user_id="dev-user-001", domain_id="security",
             roles=["USER"], clearance="confidential",
         )
 
@@ -114,7 +114,7 @@ def test_analytics_usage_aggregates_cross_tenant():
         resp = client.get("/api/platform/admin/analytics/usage")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    secs = [t for t in body["items"] if t["tenant_id"] == "security"]
+    secs = [t for t in body["items"] if t["domain_id"] == "security"]
     assert len(secs) == 1
     assert secs[0]["messages"] >= 2
 

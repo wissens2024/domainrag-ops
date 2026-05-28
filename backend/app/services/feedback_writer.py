@@ -3,7 +3,7 @@
 흐름:
   1. set_tenant_context (RLS — cross-tenant 보호)
   2. UPDATE chat_logs SET feedback=:fb, feedback_comment=:cmt
-        WHERE tenant_id=:tid AND request_id=:mid
+        WHERE domain_id=:tid AND request_id=:mid
           AND (user_id IS NOT DISTINCT FROM :uid)
   3. RETURNING으로 영향 rowcount 산출 — 0이면 caller가 404 변환
 
@@ -28,21 +28,21 @@ class PostgresFeedbackWriter:
     async def record(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         message_id: str,
         user_id: str | None,
         feedback: str,
         comment: str | None,
     ) -> FeedbackResult:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             result = await session.execute(
                 text(
                     """
                     UPDATE chat_logs
                        SET feedback = :feedback,
                            feedback_comment = :comment
-                     WHERE tenant_id = :tenant_id
+                     WHERE domain_id = :domain_id
                        AND request_id = :message_id
                        AND user_id IS NOT DISTINCT FROM :user_id
                     """
@@ -50,14 +50,14 @@ class PostgresFeedbackWriter:
                 {
                     "feedback": feedback,
                     "comment": comment,
-                    "tenant_id": tenant_id,
+                    "domain_id": domain_id,
                     "message_id": message_id,
                     "user_id": user_id,
                 },
             )
             await session.commit()
         return FeedbackResult(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             message_id=message_id,
             user_id=user_id,
             feedback=feedback,

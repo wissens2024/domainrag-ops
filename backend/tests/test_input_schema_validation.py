@@ -87,7 +87,7 @@ VALID_POLICY_META = {
 def test_validate_passes_for_complete_metadata():
     """필수 + domain 필드 모두 충족 → 예외 없음."""
     _service().validate(
-        tenant_id="security",
+        domain_id="security",
         input_type="policy_document",
         metadata=VALID_POLICY_META,
     )
@@ -98,7 +98,7 @@ def test_validate_returns_missing_for_required_field():
     del bad["policy_id"]
     with pytest.raises(InputSchemaValidationError) as exc:
         _service().validate(
-            tenant_id="security", input_type="policy_document", metadata=bad
+            domain_id="security", input_type="policy_document", metadata=bad
         )
     paths = [e.path for e in exc.value.errors]
     codes = [e.code for e in exc.value.errors]
@@ -110,7 +110,7 @@ def test_validate_enforces_pattern_on_policy_id():
     bad = {**VALID_POLICY_META, "policy_id": "WRONG-ID"}
     with pytest.raises(InputSchemaValidationError) as exc:
         _service().validate(
-            tenant_id="security", input_type="policy_document", metadata=bad
+            domain_id="security", input_type="policy_document", metadata=bad
         )
     assert any(
         e.code == "pattern" and e.path == "metadata.policy_id"
@@ -122,7 +122,7 @@ def test_validate_enforces_enum_on_policy_type():
     bad = {**VALID_POLICY_META, "policy_type": "not_a_valid_policy_type"}
     with pytest.raises(InputSchemaValidationError) as exc:
         _service().validate(
-            tenant_id="security", input_type="policy_document", metadata=bad
+            domain_id="security", input_type="policy_document", metadata=bad
         )
     assert any(
         e.code == "enum" and e.path == "metadata.policy_type"
@@ -134,7 +134,7 @@ def test_validate_enforces_integer_range_on_authority_rank():
     bad = {**VALID_POLICY_META, "authority_rank": 150}
     with pytest.raises(InputSchemaValidationError) as exc:
         _service().validate(
-            tenant_id="security", input_type="policy_document", metadata=bad
+            domain_id="security", input_type="policy_document", metadata=bad
         )
     assert any(e.code == "range" for e in exc.value.errors)
 
@@ -143,7 +143,7 @@ def test_validate_enforces_date_format_on_effective_date():
     bad = {**VALID_POLICY_META, "effective_date": "not-a-date"}
     with pytest.raises(InputSchemaValidationError) as exc:
         _service().validate(
-            tenant_id="security", input_type="policy_document", metadata=bad
+            domain_id="security", input_type="policy_document", metadata=bad
         )
     assert any(e.code == "format" for e in exc.value.errors)
 
@@ -151,7 +151,7 @@ def test_validate_enforces_date_format_on_effective_date():
 def test_validate_unknown_input_type_raises():
     with pytest.raises(InputSchemaValidationError) as exc:
         _service().validate(
-            tenant_id="security",
+            domain_id="security",
             input_type="ghost_type",
             metadata=VALID_POLICY_META,
         )
@@ -161,7 +161,7 @@ def test_validate_unknown_input_type_raises():
 def test_validate_skips_when_input_type_none():
     """input_type=None이면 skip — 기존 upload 흐름 회귀 방지."""
     _service().validate(
-        tenant_id="security", input_type=None, metadata={}
+        domain_id="security", input_type=None, metadata={}
     )
 
 

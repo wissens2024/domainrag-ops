@@ -35,7 +35,7 @@ from rag_core.services.assessment_validator import AssessmentValidator
 
 def _item(item_id, **kw):
     base = dict(
-        item_id=item_id, tenant_id=kw.pop("tenant_id", "t1"),
+        item_id=item_id, domain_id=kw.pop("domain_id", "t1"),
         subject="정보보안", chapter="접근통제",
         difficulty=kw.pop("difficulty", "medium"),
         question_type="multiple_choice",
@@ -77,7 +77,7 @@ async def test_extract_distribution_samples_required_difficulties():
         repository=repo, rng=random.Random(42),
     )
     result = await service.extract(
-        tenant_id="t1",
+        domain_id="t1",
         criteria=ExtractCriteria(
             difficulty_distribution={"easy": 3, "medium": 2, "hard": 1},
         ),
@@ -89,7 +89,7 @@ async def test_extract_distribution_samples_required_difficulties():
     assert diffs.count("hard") == 1
     # used_count 갱신
     for r in result.items:
-        rec = await repo.get(tenant_id="t1", item_id=r.item_id)
+        rec = await repo.get(domain_id="t1", item_id=r.item_id)
         assert rec.used_count == 1
 
 
@@ -98,7 +98,7 @@ async def test_extract_reports_insufficient_pool():
     await repo.upsert(_item("Q-E1", difficulty="easy"))
     service = AssessmentExtractService(repository=repo)
     result = await service.extract(
-        tenant_id="t1",
+        domain_id="t1",
         criteria=ExtractCriteria(
             difficulty_distribution={"easy": 3},
         ),
@@ -112,7 +112,7 @@ async def test_extract_emits_citations():
     await repo.upsert(_item("Q-1"))
     service = AssessmentExtractService(repository=repo)
     result = await service.extract(
-        tenant_id="t1", criteria=ExtractCriteria(),
+        domain_id="t1", criteria=ExtractCriteria(),
     )
     assert result.citations[0]["item_id"] == "Q-1"
     assert result.citations[0]["support_type"] == "direct"
@@ -254,13 +254,13 @@ async def test_generate_produces_items_with_citations():
         max_retries=1,
     )
     result = await service.generate(
-        tenant_id="t1",
+        domain_id="t1",
         criteria=GenerateCriteria(subject="정보보안", count=2),
     )
     assert result.generated_count == 2
     assert len(result.citations) == 2
     # repository에 저장됨
-    items, total = await repo.list_by_tenant(tenant_id="t1")
+    items, total = await repo.list_by_tenant(domain_id="t1")
     assert total >= 3  # Q-REF + 2 신규
     new_ones = [r for r in items if r.source == "generated"]
     assert len(new_ones) == 2
@@ -322,7 +322,7 @@ async def test_generate_rejects_duplicates_and_retries():
         max_retries=2,
     )
     result = await service.generate(
-        tenant_id="t1",
+        domain_id="t1",
         criteria=GenerateCriteria(subject="정보보안", count=1),
     )
     assert result.rejected_duplicates == 1

@@ -24,10 +24,10 @@ class PostgresAssessmentItemRepository:
         self._sf = session_factory
 
     async def get(
-        self, *, tenant_id: str, item_id: str
+        self, *, domain_id: str, item_id: str
     ) -> AssessmentItemRecord | None:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             row = (
                 await session.execute(
                     text(
@@ -38,32 +38,32 @@ class PostgresAssessmentItemRepository:
                                used_count, last_used_at, source, reference_item_ids,
                                embedding_model, vector_id, created_at, updated_at
                           FROM assessment_items
-                         WHERE tenant_id = :tenant_id AND item_id = :item_id
+                         WHERE domain_id = :domain_id AND item_id = :item_id
                         """
                     ),
-                    {"tenant_id": tenant_id, "item_id": item_id},
+                    {"domain_id": domain_id, "item_id": item_id},
                 )
             ).first()
-        return _row_to_record(tenant_id, row) if row else None
+        return _row_to_record(domain_id, row) if row else None
 
     async def upsert(
         self, record: AssessmentItemRecord
     ) -> AssessmentItemRecord:
         async with self._sf() as session:
-            await set_tenant_context(session, record.tenant_id)
+            await set_tenant_context(session, record.domain_id)
             try:
                 await session.execute(
                     text(
                         """
                         INSERT INTO assessment_items (
-                            tenant_id, item_id, subject, chapter, difficulty,
+                            domain_id, item_id, subject, chapter, difficulty,
                             question_type, question_text, choices, answer,
                             explanation, tags, quality_status, quality_score,
                             validator_results, used_count, source,
                             reference_item_ids, embedding_model, vector_id
                         )
                         VALUES (
-                            :tenant_id, :item_id, :subject, :chapter, :difficulty,
+                            :domain_id, :item_id, :subject, :chapter, :difficulty,
                             :question_type, :question_text,
                             CAST(:choices AS JSONB), :answer,
                             :explanation, CAST(:tags AS JSONB),
@@ -73,7 +73,7 @@ class PostgresAssessmentItemRepository:
                             CAST(:reference_item_ids AS JSONB),
                             :embedding_model, :vector_id
                         )
-                        ON CONFLICT (tenant_id, item_id) DO UPDATE SET
+                        ON CONFLICT (domain_id, item_id) DO UPDATE SET
                             subject = EXCLUDED.subject,
                             chapter = EXCLUDED.chapter,
                             difficulty = EXCLUDED.difficulty,
@@ -101,7 +101,7 @@ class PostgresAssessmentItemRepository:
                 raise AssessmentItemConflictError(record.item_id) from exc
 
         loaded = await self.get(
-            tenant_id=record.tenant_id, item_id=record.item_id
+            domain_id=record.domain_id, item_id=record.item_id
         )
         assert loaded is not None
         return loaded
@@ -109,7 +109,7 @@ class PostgresAssessmentItemRepository:
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         keyword: str | None = None,
         subject: str | None = None,
         chapter: str | None = None,
@@ -118,8 +118,8 @@ class PostgresAssessmentItemRepository:
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[AssessmentItemRecord], int]:
-        clauses = ["tenant_id = :tenant_id"]
-        params: dict[str, Any] = {"tenant_id": tenant_id}
+        clauses = ["domain_id = :domain_id"]
+        params: dict[str, Any] = {"domain_id": domain_id}
         if subject is not None:
             clauses.append("subject = :subject")
             params["subject"] = subject
@@ -138,7 +138,7 @@ class PostgresAssessmentItemRepository:
         where = " AND ".join(clauses)
 
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             total = int(
                 (
                     await session.execute(
@@ -169,14 +169,14 @@ class PostgresAssessmentItemRepository:
                     params2,
                 )
             ).all()
-        items = [_row_to_record(tenant_id, r) for r in rows]
+        items = [_row_to_record(domain_id, r) for r in rows]
         return items, total
 
     async def list_candidates_for_extract(
-        self, *, tenant_id: str, criteria: ExtractCriteria, limit: int = 200
+        self, *, domain_id: str, criteria: ExtractCriteria, limit: int = 200
     ) -> list[AssessmentItemRecord]:
-        clauses = ["tenant_id = :tenant_id"]
-        params: dict[str, Any] = {"tenant_id": tenant_id, "limit": limit}
+        clauses = ["domain_id = :domain_id"]
+        params: dict[str, Any] = {"domain_id": domain_id, "limit": limit}
         if criteria.subject is not None:
             clauses.append("subject = :subject")
             params["subject"] = criteria.subject
@@ -199,7 +199,7 @@ class PostgresAssessmentItemRepository:
         where = " AND ".join(clauses)
 
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             rows = (
                 await session.execute(
                     text(
@@ -217,19 +217,19 @@ class PostgresAssessmentItemRepository:
                     params,
                 )
             ).all()
-        return [_row_to_record(tenant_id, r) for r in rows]
+        return [_row_to_record(domain_id, r) for r in rows]
 
     async def update_quality(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         item_id: str,
         quality_status: str | None = None,
         quality_score: float | None = None,
         validator_results: dict[str, Any] | None = None,
     ) -> AssessmentItemRecord | None:
         set_clauses: list[str] = []
-        params: dict[str, Any] = {"tenant_id": tenant_id, "item_id": item_id}
+        params: dict[str, Any] = {"domain_id": domain_id, "item_id": item_id}
         if quality_status is not None:
             set_clauses.append("quality_status = :quality_status")
             params["quality_status"] = quality_status
@@ -242,15 +242,15 @@ class PostgresAssessmentItemRepository:
                 validator_results, ensure_ascii=False, default=str,
             )
         if not set_clauses:
-            return await self.get(tenant_id=tenant_id, item_id=item_id)
+            return await self.get(domain_id=domain_id, item_id=item_id)
         set_clauses.append("updated_at = NOW()")
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             result = await session.execute(
                 text(
                     f"""
                     UPDATE assessment_items SET {', '.join(set_clauses)}
-                     WHERE tenant_id = :tenant_id AND item_id = :item_id
+                     WHERE domain_id = :domain_id AND item_id = :item_id
                     """
                 ),
                 params,
@@ -258,25 +258,25 @@ class PostgresAssessmentItemRepository:
             await session.commit()
             if result.rowcount == 0:
                 return None
-        return await self.get(tenant_id=tenant_id, item_id=item_id)
+        return await self.get(domain_id=domain_id, item_id=item_id)
 
     async def touch_used(
-        self, *, tenant_id: str, item_ids: list[str]
+        self, *, domain_id: str, item_ids: list[str]
     ) -> int:
         if not item_ids:
             return 0
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             result = await session.execute(
                 text(
                     """
                     UPDATE assessment_items
                        SET used_count = used_count + 1, last_used_at = NOW()
-                     WHERE tenant_id = :tenant_id
+                     WHERE domain_id = :domain_id
                        AND item_id = ANY(:item_ids)
                     """
                 ),
-                {"tenant_id": tenant_id, "item_ids": list(item_ids)},
+                {"domain_id": domain_id, "item_ids": list(item_ids)},
             )
             await session.commit()
         return result.rowcount or 0
@@ -284,23 +284,23 @@ class PostgresAssessmentItemRepository:
     async def list_review_queue(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[AssessmentItemRecord], int]:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             total = int(
                 (
                     await session.execute(
                         text(
                             """
                             SELECT COUNT(*) FROM assessment_items
-                             WHERE tenant_id = :tenant_id
+                             WHERE domain_id = :domain_id
                                AND quality_status IN ('draft', 'reviewed')
                             """
                         ),
-                        {"tenant_id": tenant_id},
+                        {"domain_id": domain_id},
                     )
                 ).scalar()
                 or 0
@@ -315,33 +315,33 @@ class PostgresAssessmentItemRepository:
                                used_count, last_used_at, source, reference_item_ids,
                                embedding_model, vector_id, created_at, updated_at
                           FROM assessment_items
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                            AND quality_status IN ('draft', 'reviewed')
                          ORDER BY created_at ASC
                          LIMIT :limit OFFSET :offset
                         """
                     ),
                     {
-                        "tenant_id": tenant_id,
+                        "domain_id": domain_id,
                         "limit": page_size,
                         "offset": (page - 1) * page_size,
                     },
                 )
             ).all()
-        return [_row_to_record(tenant_id, r) for r in rows], total
+        return [_row_to_record(domain_id, r) for r in rows], total
 
     async def analytics_summary(
-        self, *, tenant_id: str
+        self, *, domain_id: str
     ) -> dict[str, Any]:
         async with self._sf() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             total = int(
                 (
                     await session.execute(
                         text(
-                            "SELECT COUNT(*) FROM assessment_items WHERE tenant_id = :t"
+                            "SELECT COUNT(*) FROM assessment_items WHERE domain_id = :t"
                         ),
-                        {"t": tenant_id},
+                        {"t": domain_id},
                     )
                 ).scalar()
                 or 0
@@ -352,11 +352,11 @@ class PostgresAssessmentItemRepository:
                     text(
                         """
                         SELECT quality_status, COUNT(*) FROM assessment_items
-                         WHERE tenant_id = :t
+                         WHERE domain_id = :t
                          GROUP BY quality_status
                         """
                     ),
-                    {"t": tenant_id},
+                    {"t": domain_id},
                 )
             ).all()
             diff_rows = (
@@ -364,11 +364,11 @@ class PostgresAssessmentItemRepository:
                     text(
                         """
                         SELECT difficulty, COUNT(*) FROM assessment_items
-                         WHERE tenant_id = :t AND difficulty IS NOT NULL
+                         WHERE domain_id = :t AND difficulty IS NOT NULL
                          GROUP BY difficulty
                         """
                     ),
-                    {"t": tenant_id},
+                    {"t": domain_id},
                 )
             ).all()
             subj_rows = (
@@ -376,11 +376,11 @@ class PostgresAssessmentItemRepository:
                     text(
                         """
                         SELECT subject, COUNT(*) FROM assessment_items
-                         WHERE tenant_id = :t AND subject IS NOT NULL
+                         WHERE domain_id = :t AND subject IS NOT NULL
                          GROUP BY subject
                         """
                     ),
-                    {"t": tenant_id},
+                    {"t": domain_id},
                 )
             ).all()
             unused = int(
@@ -389,10 +389,10 @@ class PostgresAssessmentItemRepository:
                         text(
                             """
                             SELECT COUNT(*) FROM assessment_items
-                             WHERE tenant_id = :t AND used_count = 0
+                             WHERE domain_id = :t AND used_count = 0
                             """
                         ),
-                        {"t": tenant_id},
+                        {"t": domain_id},
                     )
                 ).scalar()
                 or 0
@@ -408,7 +408,7 @@ class PostgresAssessmentItemRepository:
 
 def _record_to_params(rec: AssessmentItemRecord) -> dict[str, Any]:
     return {
-        "tenant_id": rec.tenant_id,
+        "domain_id": rec.domain_id,
         "item_id": rec.item_id,
         "subject": rec.subject,
         "chapter": rec.chapter,
@@ -434,10 +434,10 @@ def _record_to_params(rec: AssessmentItemRecord) -> dict[str, Any]:
     }
 
 
-def _row_to_record(tenant_id: str, row) -> AssessmentItemRecord:
+def _row_to_record(domain_id: str, row) -> AssessmentItemRecord:
     return AssessmentItemRecord(
         item_id=row[0],
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         subject=row[1],
         chapter=row[2],
         difficulty=row[3],

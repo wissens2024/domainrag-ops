@@ -13,7 +13,7 @@ from typing import Any, Protocol
 
 @dataclass
 class AssessmentLogPayload:
-    tenant_id: str
+    domain_id: str
     request_id: str
     action: str  # 'extract' | 'generate' | 'hybrid'
     actor: str | None = None

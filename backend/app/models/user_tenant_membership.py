@@ -25,7 +25,7 @@ class UserTenantMembership(Base):
         server_default=func.gen_random_uuid(),
     )
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    domain_id: Mapped[str] = mapped_column(String(64), nullable=False)
     clearance: Mapped[str] = mapped_column(
         String(50), nullable=False, default="internal"
     )

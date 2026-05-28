@@ -9,7 +9,7 @@ ADR-013 §10 chat_logs 4 컬럼 + ADR-019 partitioning + ADR-020 PII 컬럼 + AD
 
 Protocol 계약:
   - write(payload) → conversation_id (auto-create 또는 caller가 미리 발급한 값)
-  - tenant_id 격리(RLS) 책임은 구현체에 있다
+  - domain_id 격리(RLS) 책임은 구현체에 있다
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ class ChatLogPayload:
     SQL DEFAULT를 활용한다.
     """
 
-    tenant_id: str
+    domain_id: str
     request_id: str
     user_id: str | None
     conversation_id: str | None  # None → writer가 conversations row를 자동 생성

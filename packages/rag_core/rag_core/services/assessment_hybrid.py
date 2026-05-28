@@ -47,17 +47,17 @@ class AssessmentHybridService:
     async def run(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         extract_criteria: ExtractCriteria,
         generate_criteria: GenerateCriteria,
         validators_config: dict[str, dict[str, Any]] | None = None,
         actor: str | None = None,
     ) -> HybridResult:
         ex_result = await self._extract.extract(
-            tenant_id=tenant_id, criteria=extract_criteria,
+            domain_id=domain_id, criteria=extract_criteria,
         )
         gen_result = await self._generate.generate(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             criteria=generate_criteria,
             actor=actor,
             validators_config=validators_config,
@@ -73,6 +73,6 @@ class AssessmentHybridService:
         # citation marker 통합 — 1..N
         for i, item in enumerate(result.items, start=1):
             result.citations.append(
-                _item_to_citation(item, marker=f"[{i}]", tenant_id=tenant_id)
+                _item_to_citation(item, marker=f"[{i}]", domain_id=domain_id)
             )
         return result

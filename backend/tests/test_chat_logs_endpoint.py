@@ -1,7 +1,7 @@
-"""GET /api/{tenant_id}/admin/logs/chat — endpoint e2e (ADR-017 §8).
+"""GET /api/{domain_id}/admin/logs/chat — endpoint e2e (ADR-017 §8).
 
 env: AUTH_MODE=mock + RAG_BACKEND=inmemory. mock default_user는
-user_id=dev-user-001, tenant_id=security, roles=USER/ADMIN.
+user_id=dev-user-001, domain_id=security, roles=USER/ADMIN.
 
 InMemory backend라 실제 chat 호출로 chat_logs을 시드한 뒤 admin endpoint를 검증한다.
 """
@@ -29,7 +29,7 @@ from app.main import app
 def _non_admin_user() -> UserContext:
     return UserContext(
         user_id="dev-user-001",
-        tenant_id="security",
+        domain_id="security",
         roles=["USER"],
         clearance="confidential",
     )
@@ -39,7 +39,7 @@ def _other_tenant_admin() -> UserContext:
     """legal tenant admin — security tenant 호출 시 tenant_mismatch 403 검증용."""
     return UserContext(
         user_id="legal-admin-001",
-        tenant_id="legal",
+        domain_id="legal",
         roles=["USER", "ADMIN"],
         clearance="confidential",
     )
@@ -108,7 +108,7 @@ def test_list_chat_logs_returns_seeded_items():
     # ADR-019 §2 컬럼이 dict로 노출되는지 spot check
     item = body["items"][0]
     for key in (
-        "request_id", "tenant_id", "citations", "citation_types",
+        "request_id", "domain_id", "citations", "citation_types",
         "verifier_metrics", "routing_decision", "classifier_decision",
         "ui_mode", "confidence",
     ):
@@ -164,7 +164,7 @@ def test_list_chat_logs_filters_user_id():
         asyncio.new_event_loop().run_until_complete(
             writer.write(
                 ChatLogPayload(
-                    tenant_id="security",
+                    domain_id="security",
                     request_id="req-other",
                     user_id="other-user",
                     conversation_id=None,
@@ -196,7 +196,7 @@ def test_get_chat_log_detail_returns_all_columns():
     body = resp.json()
     assert body["request_id"] == rid
     assert body["question"] == "감사 로그 정책"
-    assert body["tenant_id"] == "security"
+    assert body["domain_id"] == "security"
     assert isinstance(body["citations"], list)
     assert isinstance(body["citation_types"], list)
     # ADR-013 §10 운영 메타 컬럼 노출 확인
@@ -245,6 +245,6 @@ def test_list_rejects_tenant_mismatch():
         assert resp.status_code == 403
         assert resp.json()["detail"]["error"] == "tenant_mismatch"
         # Ledger publish 흔적 확인 (ADR-020 §8)
-        assert any(c.get("tenant_id") == "security" for c in captured)
+        assert any(c.get("domain_id") == "security" for c in captured)
     finally:
         reset_ledger_audit_service()

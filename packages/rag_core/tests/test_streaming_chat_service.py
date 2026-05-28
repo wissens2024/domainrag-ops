@@ -82,7 +82,7 @@ async def test_stream_yields_tokens_then_complete() -> None:
     svc, llm, writer = _build(stream_chunks=["A", "B", "C"])
     events = await _collect(
         svc.stream(
-            tenant_id="t1",
+            domain_id="t1",
             user_id="u1",
             question="안녕",
             tenant_config={"pii": _pii_config()},
@@ -117,7 +117,7 @@ async def test_input_pii_blocks_stream() -> None:
     svc, llm, writer = _build(stream_chunks=["never", "yielded"])
     events = await _collect(
         svc.stream(
-            tenant_id="t1",
+            domain_id="t1",
             user_id="u1",
             question="제 주민번호 901231-1234567",
             tenant_config={"pii": _pii_config()},
@@ -153,7 +153,7 @@ async def test_output_pii_masked_in_chat_logs() -> None:
     )
     events = await _collect(
         svc.stream(
-            tenant_id="t1",
+            domain_id="t1",
             user_id="u1",
             question="안녕",
             tenant_config={"pii": _pii_config()},
@@ -182,7 +182,7 @@ async def test_llm_error_emits_error_event_with_partial_log() -> None:
     svc, _, writer = _build(raise_in_stream=True)
     events = await _collect(
         svc.stream(
-            tenant_id="t1",
+            domain_id="t1",
             user_id="u1",
             question="안녕",
             tenant_config={"pii": _pii_config()},
@@ -208,7 +208,7 @@ async def test_layer2_streaming_chat_log_masks_question_under_default() -> None:
     svc, _, writer = _build(stream_chunks=["답변", "입니다"])
     await _collect(
         svc.stream(
-            tenant_id="t1",
+            domain_id="t1",
             user_id="u1",
             question="문의는 user@example.com 으로 보내주세요",
             tenant_config={"pii": _pii_config()},
@@ -227,7 +227,7 @@ async def test_layer2_streaming_plain_keeps_raw_question_only_with_approval() ->
     cfg["storage"] = {"pii_storage_policy": "plain", "plain_approved": True}
     await _collect(
         svc.stream(
-            tenant_id="t1",
+            domain_id="t1",
             user_id="u1",
             question="문의는 user@example.com 으로",
             tenant_config={"pii": cfg, "compliance_mode": "standard"},
@@ -246,7 +246,7 @@ async def test_layer2_streaming_plain_without_approval_falls_back_to_mask() -> N
     cfg["storage"] = {"pii_storage_policy": "plain"}  # plain_approved 누락
     await _collect(
         svc.stream(
-            tenant_id="t1",
+            domain_id="t1",
             user_id="u1",
             question="문의는 user@example.com 으로",
             tenant_config={"pii": cfg, "compliance_mode": "standard"},
@@ -264,7 +264,7 @@ async def test_layer2_streaming_gdpr_strict_forces_mask() -> None:
     cfg["storage"] = {"pii_storage_policy": "plain"}
     await _collect(
         svc.stream(
-            tenant_id="t1",
+            domain_id="t1",
             user_id="u1",
             question="문의는 user@example.com 으로",
             tenant_config={"pii": cfg, "compliance_mode": "gdpr_strict"},
@@ -323,7 +323,7 @@ async def test_routing_decision_recorded_when_router_wired() -> None:
 
     events = await _collect(
         svc.stream(
-            tenant_id="t1",
+            domain_id="t1",
             user_id="u1",
             question="안녕하세요",
             tenant_config=tenant_cfg,
@@ -379,7 +379,7 @@ async def test_routing_fallback_refusal_short_circuits_stream() -> None:
 
     events = await _collect(
         svc.stream(
-            tenant_id="t1",
+            domain_id="t1",
             user_id="u1",
             question="질문",
             tenant_config=tenant_cfg,
@@ -405,7 +405,7 @@ async def test_works_without_pii_or_chat_log_writer() -> None:
     )
     events = await _collect(
         svc.stream(
-            tenant_id="t1",
+            domain_id="t1",
             user_id="u1",
             question="q",
             tenant_config=None,

@@ -106,9 +106,9 @@ async def test_reranker_jaccard_orders_candidates():
 @pytest.mark.asyncio
 async def test_vector_store_create_upsert_query_filter():
     store = InMemoryVectorStore()
-    await store.create_collection(tenant_id="t1", dense_dim=4)
+    await store.create_collection(domain_id="t1", dense_dim=4)
     await store.upsert_chunks(
-        tenant_id="t1",
+        domain_id="t1",
         points=[
             {
                 "id": "a",
@@ -132,7 +132,7 @@ async def test_vector_store_create_upsert_query_filter():
     )
     # ACL: approved + tag=x → a만 매치
     hits = await store.hybrid_query(
-        tenant_id="t1",
+        domain_id="t1",
         dense_query=[1.0, 0.0, 0.0, 0.0],
         sparse_query={1: 1.0},
         acl_filter={
@@ -149,9 +149,9 @@ async def test_vector_store_create_upsert_query_filter():
 @pytest.mark.asyncio
 async def test_vector_store_set_payload_updates_in_place():
     store = InMemoryVectorStore()
-    await store.create_collection(tenant_id="t1", dense_dim=2)
+    await store.create_collection(domain_id="t1", dense_dim=2)
     await store.upsert_chunks(
-        tenant_id="t1",
+        domain_id="t1",
         points=[
             {
                 "id": "a",
@@ -162,12 +162,12 @@ async def test_vector_store_set_payload_updates_in_place():
         ],
     )
     await store.set_payload(
-        tenant_id="t1",
+        domain_id="t1",
         chunk_ids=["a"],
         payload={"approval_status": "archived"},
     )
     hits = await store.hybrid_query(
-        tenant_id="t1",
+        domain_id="t1",
         dense_query=[1.0, 0.0],
         sparse_query={},
         acl_filter={
@@ -181,11 +181,11 @@ async def test_vector_store_set_payload_updates_in_place():
 @pytest.mark.asyncio
 async def test_vector_store_delete_collection_removes_data():
     store = InMemoryVectorStore()
-    await store.create_collection(tenant_id="t1", dense_dim=2)
+    await store.create_collection(domain_id="t1", dense_dim=2)
     await store.delete_collection("t1")
     with pytest.raises(KeyError):
         await store.hybrid_query(
-            tenant_id="t1",
+            domain_id="t1",
             dense_query=[0.0, 0.0],
             sparse_query={},
             acl_filter={},

@@ -69,10 +69,10 @@ async def test_parser_only_reindex_calls_vector_store_set_payload():
     svc, vector_store, chunk_repo = _build_service(
         parser_v1=parser_v1, parser_v2=parser_v2
     )
-    await vector_store.create_collection(tenant_id="t1", dense_dim=64)
+    await vector_store.create_collection(domain_id="t1", dense_dim=64)
 
     request = IndexingRequest(
-        tenant_id="t1",
+        domain_id="t1",
         doc_id="doc-1",
         doc_version="v1",
         file_path="doc.txt",
@@ -101,7 +101,7 @@ async def test_parser_only_reindex_calls_vector_store_set_payload():
     svc.parser = parser_v2
 
     reindex_req = IndexingRequest(
-        tenant_id="t1",
+        domain_id="t1",
         doc_id="doc-1",
         doc_version="v1",
         file_path="doc.txt",

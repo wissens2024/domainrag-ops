@@ -1,4 +1,4 @@
-"""POST /api/{tenant_id}/admin/documents/upload + reindex + indexing/jobs 통합 테스트.
+"""POST /api/{domain_id}/admin/documents/upload + reindex + indexing/jobs 통합 테스트.
 
 env: AUTH_MODE=mock + RAG_BACKEND=inmemory (conftest.py).
 InMemory backend로 storage→parse→chunk→embed→upsert→DB write 전체 흐름을 검증한다.
@@ -106,7 +106,7 @@ def test_upload_returns_409_on_active_job_conflict():
         await repo.create(
             IndexingJobRecord(
                 job_id="IDX-EXISTING-001",
-                tenant_id="security",
+                domain_id="security",
                 doc_id="DOC-FIX-001",
                 doc_version="v1",
                 status="parsing",

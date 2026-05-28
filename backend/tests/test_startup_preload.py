@@ -102,7 +102,7 @@ class _FakeSession:
         self.queries.append(sql)
         for key, rows in self._map.items():
             if key in sql:
-                # SELECT가 tenant_id를 컬럼으로 포함하지 않는 (3-tuple) reload path는
+                # SELECT가 domain_id를 컬럼으로 포함하지 않는 (3-tuple) reload path는
                 # 테스트가 사전 필터링한다고 가정.
                 return _FakeResult(rows)
         return _FakeResult([])
@@ -192,7 +192,7 @@ def test_reload_tenant_config_replaces_existing_runtime():
     factory = _fake_session_factory({"tenant_config_overrides": rows})
 
     asyncio.run(
-        reload_tenant_config(admin_session_factory=factory, tenant_id="security")
+        reload_tenant_config(admin_session_factory=factory, domain_id="security")
     )
 
     cfg = TenantConfigService._runtime_overrides.get("security") or {}
@@ -205,6 +205,6 @@ def test_reload_tenant_schema_clears_when_no_active_row():
     )
     factory = _fake_session_factory({"tenant_input_schemas": []})
     asyncio.run(
-        reload_tenant_schema(admin_session_factory=factory, tenant_id="security")
+        reload_tenant_schema(admin_session_factory=factory, domain_id="security")
     )
     assert "security" not in InputSchemaLoader._runtime_yaml

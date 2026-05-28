@@ -1,7 +1,7 @@
 """EvaluationOrchestrator — backend가 rag_core EvalRunner를 호출하는 진입점 (ADR-009 §7).
 
 흐름:
-  prepare_run(tenant_id, dataset_name, override) → DB에 job(pending) 생성 + Pending request 큐 적재
+  prepare_run(domain_id, dataset_name, override) → DB에 job(pending) 생성 + Pending request 큐 적재
   → caller가 BackgroundTask로 execute(job_id) 호출
   → execute가 EvalRunner.run → summary/gate_result를 DB update + status=completed/failed
 
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PreparedEvaluation:
     job_id: str
-    tenant_id: str
+    domain_id: str
     dataset_name: str
 
 
@@ -77,7 +77,7 @@ class EvaluationOrchestrator:
     # datasets
     # ------------------------------------------------------------------ #
 
-    def list_datasets(self, tenant_id: str) -> list[dict[str, Any]]:
+    def list_datasets(self, domain_id: str) -> list[dict[str, Any]]:
         """data/eval 디렉토리에서 사용 가능한 dataset 메타 반환.
 
         반환 형식: [{name, kind, case_count}]. dataset.cases 길이로 case_count 산정.
@@ -94,9 +94,9 @@ class EvaluationOrchestrator:
             )
 
         # tenants/<tid>/qa.jsonl
-        tenant_qa = self._eval_root / "tenants" / tenant_id / "qa.jsonl"
+        tenant_qa = self._eval_root / "tenants" / domain_id / "qa.jsonl"
         if tenant_qa.exists():
-            ds = load_tenant_dataset(self._eval_root, tenant_id)
+            ds = load_tenant_dataset(self._eval_root, domain_id)
             out.append(
                 {"name": ds.name, "kind": "tenant_qa",
                  "case_count": len(ds.cases)}
@@ -111,21 +111,21 @@ class EvaluationOrchestrator:
     async def prepare_run(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         dataset_name: str,
         actor: str,
         config_override: dict[str, Any] | None = None,
     ) -> PreparedEvaluation:
         """job row(pending) 생성. 호출자가 BackgroundTask로 execute(job_id) 호출."""
         # dataset 검증 — 존재하지 않는 dataset은 즉시 reject
-        if not self._resolve_dataset(tenant_id, dataset_name).qa_path.exists():
+        if not self._resolve_dataset(domain_id, dataset_name).qa_path.exists():
             raise FileNotFoundError(dataset_name)
 
         job_id = f"EVAL-{uuid.uuid4().hex[:16].upper()}"
         await self._repo.create(
             EvaluationJobRecord(
                 job_id=job_id,
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 dataset_name=dataset_name,
                 status="pending",
                 actor=actor,
@@ -134,10 +134,10 @@ class EvaluationOrchestrator:
         )
         self._pending[job_id] = (dataset_name, dict(config_override or {}))
         return PreparedEvaluation(
-            job_id=job_id, tenant_id=tenant_id, dataset_name=dataset_name
+            job_id=job_id, domain_id=domain_id, dataset_name=dataset_name
         )
 
-    async def execute(self, *, job_id: str, tenant_id: str) -> None:
+    async def execute(self, *, job_id: str, domain_id: str) -> None:
         """BackgroundTask 진입. _pending에서 dataset+override를 꺼내 EvalRunner 실행."""
         pending = self._pending.pop(job_id, None)
         if pending is None:
@@ -157,7 +157,7 @@ class EvaluationOrchestrator:
         )
 
         try:
-            spec = self._resolve_dataset(tenant_id, dataset_name)
+            spec = self._resolve_dataset(domain_id, dataset_name)
             dataset = spec.load()
             runner = EvalRunner(deps=self._deps)
             summary, _per_case = await runner.run(
@@ -192,14 +192,14 @@ class EvaluationOrchestrator:
     async def promote(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         job_id: str,
         actor: str,
         target: str,
         version: str,
     ) -> EvaluationJobRecord:
         """job을 promoted 상태로 전이. gate를 통과한 경우에만 허용."""
-        record = await self._repo.get(tenant_id=tenant_id, job_id=job_id)
+        record = await self._repo.get(domain_id=domain_id, job_id=job_id)
         if record is None:
             raise FileNotFoundError(job_id)
         if record.status not in {"completed", "promoted"}:
@@ -222,7 +222,7 @@ class EvaluationOrchestrator:
         if self._ledger is not None:
             try:
                 await self._ledger.publish_platform_admin_action(
-                    tenant_id=tenant_id, actor=actor,
+                    domain_id=domain_id, actor=actor,
                     action="evaluation_promoted",
                     details={
                         "job_id": job_id,
@@ -234,7 +234,7 @@ class EvaluationOrchestrator:
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("ledger publish (evaluation_promoted) failed: %s", exc)
-        return await self._repo.get(tenant_id=tenant_id, job_id=job_id)  # type: ignore[return-value]
+        return await self._repo.get(domain_id=domain_id, job_id=job_id)  # type: ignore[return-value]
 
     # ------------------------------------------------------------------ #
     # internals
@@ -248,7 +248,7 @@ class EvaluationOrchestrator:
         load: callable  # () -> EvalDataset
 
     def _resolve_dataset(
-        self, tenant_id: str, dataset_name: str
+        self, domain_id: str, dataset_name: str
     ) -> "_DatasetSpec":
         """name → loader / paths 매핑.
 

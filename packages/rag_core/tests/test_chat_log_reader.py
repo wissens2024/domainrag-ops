@@ -17,7 +17,7 @@ from rag_core.services.chat_log_writer import ChatLogPayload, InMemoryChatLogWri
 
 def _payload(
     *,
-    tenant_id: str,
+    domain_id: str,
     request_id: str,
     user_id: str | None = "u-alice",
     question: str = "기본 질문",
@@ -29,7 +29,7 @@ def _payload(
     conversation_id: str | None = "conv-1",
 ) -> ChatLogPayload:
     return ChatLogPayload(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         request_id=request_id,
         user_id=user_id,
         conversation_id=conversation_id,
@@ -52,31 +52,31 @@ def _payload(
 async def reader() -> InMemoryChatLogReader:
     writer = InMemoryChatLogWriter()
     # 시간순 (오래된 → 최신) — list_by_tenant는 reverse하여 최신순 반환
-    await writer.write(_payload(tenant_id="t1", request_id="r1", question="비밀번호 정책"))
+    await writer.write(_payload(domain_id="t1", request_id="r1", question="비밀번호 정책"))
     await writer.write(
-        _payload(tenant_id="t1", request_id="r2", question="VPN 설정",
+        _payload(domain_id="t1", request_id="r2", question="VPN 설정",
                  citation_types=["direct"])
     )
     await writer.write(
-        _payload(tenant_id="t1", request_id="r3", question="암호화 절차",
+        _payload(domain_id="t1", request_id="r3", question="암호화 절차",
                  citation_types=["direct", "synthesis"], user_id="u-bob")
     )
     await writer.write(
-        _payload(tenant_id="t1", request_id="r4", question="유출 대응",
+        _payload(domain_id="t1", request_id="r4", question="유출 대응",
                  fallback_reason="low_retrieval", confidence=0.2)
     )
     await writer.write(
-        _payload(tenant_id="t1", request_id="r5", question="감사 로그",
+        _payload(domain_id="t1", request_id="r5", question="감사 로그",
                  ui_mode="chat_streaming")
     )
     # 다른 tenant — 격리 검증
-    await writer.write(_payload(tenant_id="t2", request_id="r6", question="법무 가이드"))
+    await writer.write(_payload(domain_id="t2", request_id="r6", question="법무 가이드"))
     return InMemoryChatLogReader(writer=writer)
 
 
 async def test_list_returns_tenant_scoped_latest_first(reader):
     result = await reader.list_by_tenant(
-        tenant_id="t1", filters=ChatLogListFilters(), page=1, page_size=10
+        domain_id="t1", filters=ChatLogListFilters(), page=1, page_size=10
     )
     assert result.total == 5
     assert result.page == 1
@@ -84,12 +84,12 @@ async def test_list_returns_tenant_scoped_latest_first(reader):
     # 최신순 (마지막 write가 first)
     assert request_ids == ["r5", "r4", "r3", "r2", "r1"]
     # 다른 tenant 포함 없음
-    assert all(r.tenant_id == "t1" for r in result.items)
+    assert all(r.domain_id == "t1" for r in result.items)
 
 
 async def test_list_filters_user_id(reader):
     result = await reader.list_by_tenant(
-        tenant_id="t1",
+        domain_id="t1",
         filters=ChatLogListFilters(user_id="u-bob"),
         page=1, page_size=10,
     )
@@ -99,7 +99,7 @@ async def test_list_filters_user_id(reader):
 
 async def test_list_filters_fallback_only(reader):
     result = await reader.list_by_tenant(
-        tenant_id="t1",
+        domain_id="t1",
         filters=ChatLogListFilters(fallback_only=True),
         page=1, page_size=10,
     )
@@ -110,7 +110,7 @@ async def test_list_filters_fallback_only(reader):
 
 async def test_list_filters_citation_type(reader):
     result = await reader.list_by_tenant(
-        tenant_id="t1",
+        domain_id="t1",
         filters=ChatLogListFilters(citation_type="synthesis"),
         page=1, page_size=10,
     )
@@ -120,7 +120,7 @@ async def test_list_filters_citation_type(reader):
 
 async def test_list_filters_ui_mode(reader):
     result = await reader.list_by_tenant(
-        tenant_id="t1",
+        domain_id="t1",
         filters=ChatLogListFilters(ui_mode="chat_streaming"),
         page=1, page_size=10,
     )
@@ -130,7 +130,7 @@ async def test_list_filters_ui_mode(reader):
 
 async def test_list_filters_keyword_matches_question_or_answer(reader):
     result = await reader.list_by_tenant(
-        tenant_id="t1",
+        domain_id="t1",
         filters=ChatLogListFilters(keyword="VPN"),
         page=1, page_size=10,
     )
@@ -140,7 +140,7 @@ async def test_list_filters_keyword_matches_question_or_answer(reader):
 
 async def test_list_filters_min_confidence(reader):
     result = await reader.list_by_tenant(
-        tenant_id="t1",
+        domain_id="t1",
         filters=ChatLogListFilters(min_confidence=0.5),
         page=1, page_size=10,
     )
@@ -151,24 +151,24 @@ async def test_list_filters_min_confidence(reader):
 
 async def test_list_pagination(reader):
     page1 = await reader.list_by_tenant(
-        tenant_id="t1", filters=ChatLogListFilters(), page=1, page_size=2
+        domain_id="t1", filters=ChatLogListFilters(), page=1, page_size=2
     )
     assert page1.total == 5
     assert [r.request_id for r in page1.items] == ["r5", "r4"]
 
     page2 = await reader.list_by_tenant(
-        tenant_id="t1", filters=ChatLogListFilters(), page=2, page_size=2
+        domain_id="t1", filters=ChatLogListFilters(), page=2, page_size=2
     )
     assert [r.request_id for r in page2.items] == ["r3", "r2"]
 
     page3 = await reader.list_by_tenant(
-        tenant_id="t1", filters=ChatLogListFilters(), page=3, page_size=2
+        domain_id="t1", filters=ChatLogListFilters(), page=3, page_size=2
     )
     assert [r.request_id for r in page3.items] == ["r1"]
 
 
 async def test_get_returns_record_with_all_columns(reader):
-    record = await reader.get(tenant_id="t1", request_id="r2")
+    record = await reader.get(domain_id="t1", request_id="r2")
     assert record is not None
     assert record.question == "VPN 설정"
     assert record.citations == [{"chunk_id": "c1"}]
@@ -178,12 +178,12 @@ async def test_get_returns_record_with_all_columns(reader):
 
 
 async def test_get_returns_none_on_unknown_request_id(reader):
-    assert await reader.get(tenant_id="t1", request_id="r-nope") is None
+    assert await reader.get(domain_id="t1", request_id="r-nope") is None
 
 
 async def test_get_isolates_tenants(reader):
     # r6은 tenant t2 — t1 scope에서 조회 시 미발견
-    assert await reader.get(tenant_id="t1", request_id="r6") is None
-    other = await reader.get(tenant_id="t2", request_id="r6")
+    assert await reader.get(domain_id="t1", request_id="r6") is None
+    other = await reader.get(domain_id="t2", request_id="r6")
     assert other is not None
-    assert other.tenant_id == "t2"
+    assert other.domain_id == "t2"

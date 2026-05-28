@@ -86,35 +86,55 @@ class _MembershipRow:
 
 
 class _FakeResult:
-    def __init__(self, row):
+    def __init__(self, row=None, first=None):
         self._row = row
+        self._first = first
 
     def scalar_one_or_none(self):
         return self._row
 
+    def first(self):
+        return self._first
+
 
 class _FakeSession:
-    def __init__(self, store: dict[tuple[str, str], _MembershipRow]):
+    """membership SELECT(ORM) + tenant enrollment SELECT(text) + JIT INSERT(text) 흉내."""
+
+    def __init__(
+        self,
+        store: dict[tuple[str, str], _MembershipRow],
+        enrollment: str | None = None,
+    ):
         self._store = store
-        self._captured_user: str | None = None
-        self._captured_tenant: str | None = None
+        self._enrollment = enrollment  # tenant enrollment_policy ("open"|"assigned"|None)
 
-    async def execute(self, stmt):
-        # 단순화 — 마지막 호출의 user_id/tenant_id를 stmt.compile()에서 추출하지 않고,
-        # set_keys로 직접 검색을 강제. (테스트마다 한 번씩 호출이므로 store에서 임의 매칭)
-        # 더 정확히는 stmt를 sqlalchemy의 _whereclause에서 파싱해야 하지만, 통합 테스트에선 충분.
-        # store가 비어있으면 None.
+    async def execute(self, stmt, params=None):
+        s = str(stmt).lower()
+        # tenant enrollment_policy 조회 (text SELECT)
+        if "enrollment_policy" in s and "insert" not in s:
+            return _FakeResult(
+                first=(self._enrollment,) if self._enrollment else None
+            )
+        # JIT membership INSERT (text) — 무시
+        if "insert into user_tenant_membership" in s:
+            return _FakeResult()
+        # membership ORM select — store에서 임의 매칭 (테스트당 하나씩 wire)
         if not self._store:
-            return _FakeResult(None)
-        # 한 항목만 있다고 가정 (테스트당 하나씩 wire)
+            return _FakeResult(row=None)
         row = next(iter(self._store.values()))
-        return _FakeResult(row)
+        return _FakeResult(row=row)
+
+    async def commit(self):
+        return None
 
 
-def _make_session_factory(store: dict[tuple[str, str], _MembershipRow] | None):
+def _make_session_factory(
+    store: dict[tuple[str, str], _MembershipRow] | None,
+    enrollment: str | None = None,
+):
     @asynccontextmanager
     async def _cm():
-        yield _FakeSession(store or {})
+        yield _FakeSession(store or {}, enrollment=enrollment)
 
     return _cm
 
@@ -141,13 +161,15 @@ def auth_config():
     return AuthConfigLoader.load(get_settings())
 
 
-def _make_adapter(km: _KeyMaterial, store=None, ledger_audit=None) -> AuthFusionAdapter:
+def _make_adapter(
+    km: _KeyMaterial, store=None, ledger_audit=None, enrollment=None
+) -> AuthFusionAdapter:
     cfg = AuthConfigLoader.load(get_settings())
     return AuthFusionAdapter(
         settings=get_settings(),
         auth_config=cfg,
         jwks_client=_FakeJWKSClient({km.kid: km.jwk_dict}),
-        session_factory=_make_session_factory(store),
+        session_factory=_make_session_factory(store, enrollment=enrollment),
         ledger_audit=ledger_audit,
     )
 
@@ -186,7 +208,7 @@ async def test_normal_user_with_membership_returns_context(km, auth_config):
     )
     ctx = await adapter.verify_and_extract(token, "security")
     assert ctx.user_id == "user-001"
-    assert ctx.tenant_id == "security"
+    assert ctx.domain_id == "security"
     assert ctx.clearance == "confidential"
     assert ctx.department == "security"
     assert "group:security" in ctx.domain_groups
@@ -224,6 +246,124 @@ async def test_no_membership_403(km, auth_config):
         {
             "iss": auth_config.issuer,
             "sub": "user-001",
+            "client_id": "client-security",
+            "roles": ["USER"],
+            "exp": _now() + 600,
+        },
+    )
+    with pytest.raises(HTTPException) as ei:
+        await adapter.verify_and_extract(token, "security")
+    assert ei.value.status_code == 403
+    assert ei.value.detail["error"] == "no_tenant_membership"
+
+
+# ---------------------------------------------------------------------------
+# ADR-022 §3 — 전역 역할(admin/auditor/platform_admin)은 membership 없이 통과
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_global_admin_without_membership_passes(km, auth_config):
+    """ADMIN role + membership 없음 → 통과 (전역 역할). 기본 clearance=secret."""
+    adapter = _make_adapter(km, store={})  # 빈 store
+    token = _issue_token(
+        km,
+        {
+            "iss": auth_config.issuer,
+            "sub": "admin-001",
+            "client_id": "client-security",
+            "roles": ["ADMIN"],
+            "exp": _now() + 600,
+        },
+    )
+    ctx = await adapter.verify_and_extract(token, "security")
+    assert ctx.domain_id == "security"
+    assert ctx.is_admin is True
+    assert ctx.clearance == "secret"
+    assert ctx.domain_groups == []
+
+
+@pytest.mark.asyncio
+async def test_global_auditor_without_membership_passes(km, auth_config):
+    """AUDITOR role + membership 없음 → 통과 (전역 read-only)."""
+    adapter = _make_adapter(km, store={})
+    token = _issue_token(
+        km,
+        {
+            "iss": auth_config.issuer,
+            "sub": "auditor-001",
+            "client_id": "client-security",
+            "roles": ["AUDITOR"],
+            "exp": _now() + 600,
+        },
+    )
+    ctx = await adapter.verify_and_extract(token, "security")
+    assert ctx.is_auditor is True
+    assert ctx.is_admin is False
+    assert ctx.clearance == "secret"
+
+
+@pytest.mark.asyncio
+async def test_global_admin_membership_row_takes_precedence(km, auth_config):
+    """ADMIN이라도 membership row가 있으면 그 clearance를 우선한다."""
+    store = {
+        ("admin-001", "security"): _MembershipRow(
+            clearance="confidential",
+            department="security",
+            domain_groups=["group:security"],
+        )
+    }
+    adapter = _make_adapter(km, store=store)
+    token = _issue_token(
+        km,
+        {
+            "iss": auth_config.issuer,
+            "sub": "admin-001",
+            "client_id": "client-security",
+            "roles": ["ADMIN"],
+            "exp": _now() + 600,
+        },
+    )
+    ctx = await adapter.verify_and_extract(token, "security")
+    assert ctx.is_admin is True
+    assert ctx.clearance == "confidential"  # membership 우선 (secret 기본값 아님)
+    assert "group:security" in ctx.domain_groups
+
+
+# ---------------------------------------------------------------------------
+# ADR-022 §4 — open 도메인은 일반 user에게 JIT membership 자동 부여
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_open_domain_jit_membership_for_user(km, auth_config):
+    """USER + membership 없음 + 도메인 enrollment=open → JIT 생성, clearance=internal."""
+    adapter = _make_adapter(km, store={}, enrollment="open")
+    token = _issue_token(
+        km,
+        {
+            "iss": auth_config.issuer,
+            "sub": "user-jit",
+            "client_id": "client-security",
+            "roles": ["USER"],
+            "exp": _now() + 600,
+        },
+    )
+    ctx = await adapter.verify_and_extract(token, "security")
+    assert ctx.domain_id == "security"
+    assert ctx.is_admin is False
+    assert ctx.clearance == "internal"
+
+
+@pytest.mark.asyncio
+async def test_assigned_domain_user_still_403(km, auth_config):
+    """USER + membership 없음 + 도메인 enrollment=assigned → 여전히 403."""
+    adapter = _make_adapter(km, store={}, enrollment="assigned")
+    token = _issue_token(
+        km,
+        {
+            "iss": auth_config.issuer,
+            "sub": "user-x",
             "client_id": "client-security",
             "roles": ["USER"],
             "exp": _now() + 600,
@@ -321,7 +461,7 @@ async def test_missing_kid_raises_401(km, auth_config):
 
 @pytest.mark.asyncio
 async def test_service_account_indexer_can_call_any_tenant(km, auth_config):
-    """tenant_id='platform' service account는 모든 tenant 호출 허용."""
+    """domain_id='platform' service account는 모든 tenant 호출 허용."""
     adapter = _make_adapter(km, store=None)  # DB 호출 없어야 함
     token = _issue_token(
         km,
@@ -334,7 +474,7 @@ async def test_service_account_indexer_can_call_any_tenant(km, auth_config):
         },
     )
     ctx = await adapter.verify_and_extract(token, "security")
-    assert ctx.tenant_id == "security"
+    assert ctx.domain_id == "security"
     assert ctx.is_service_account is True
     assert ctx.clearance == "secret"  # service_accounts.indexer.clearance
     assert "INDEXER" in ctx.roles
@@ -377,7 +517,7 @@ async def test_platform_admin_role_recognized(km, auth_config):
 async def test_mock_adapter_returns_default_user():
     adapter = MockAuthAdapter()
     ctx = await adapter.verify_and_extract("", "security")
-    assert ctx.tenant_id == "security"
+    assert ctx.domain_id == "security"
     assert "ADMIN" in ctx.roles
     assert ctx.clearance == "confidential"
 
@@ -387,7 +527,7 @@ async def test_mock_adapter_uses_path_tenant():
     """mock은 default tenant 외에도 path tenant를 그대로 인정."""
     adapter = MockAuthAdapter()
     ctx = await adapter.verify_and_extract("", "legal")
-    assert ctx.tenant_id == "legal"
+    assert ctx.domain_id == "legal"
 
 
 def test_mock_adapter_isolated_from_production_code():
@@ -422,7 +562,7 @@ async def test_missing_bearer_token_publishes_auth_failure(km):
     events = [e for e in noop.published if e.event_type == "auth_failure"]
     assert len(events) == 1
     assert events[0].reason == "missing_bearer_token"
-    assert events[0].tenant_id == "security"
+    assert events[0].domain_id == "security"
 
 
 async def test_missing_kid_publishes_auth_failure(km, auth_config):
@@ -508,6 +648,6 @@ async def test_tenant_mismatch_in_adapter_publishes_tenant_mismatch(km, auth_con
     events = [e for e in noop.published if e.event_type == "tenant_mismatch"]
     assert len(events) == 1
     e = events[0]
-    assert e.tenant_id == "security"
+    assert e.domain_id == "security"
     assert e.details["token_tenant"] == "legal"
     assert e.details["expected_tenant"] == "security"

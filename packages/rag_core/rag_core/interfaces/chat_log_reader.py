@@ -2,7 +2,7 @@
 
 ADR-017 §8 + ADR-019 §2 정합:
   - list_by_tenant: tenant scope 필터·페이징 (최신순)
-  - get: tenant_id + request_id로 단건 조회 (모든 컬럼 노출)
+  - get: domain_id + request_id로 단건 조회 (모든 컬럼 노출)
 
 본 모듈은 SQLAlchemy 의존 없는 Protocol과 InMemory variant만 정의. 운영 구현
 (Postgres + RLS)은 backend/app/repositories/chat_log_reader.py.
@@ -29,7 +29,7 @@ class ChatLogRecord:
     """chat_logs row 1건 — ADR-019 §2 컬럼 매핑."""
 
     id: str
-    tenant_id: str
+    domain_id: str
     request_id: str
     user_id: str | None
     conversation_id: str | None
@@ -95,14 +95,14 @@ class ChatLogReader(Protocol):
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         filters: ChatLogListFilters,
         page: int = 1,
         page_size: int = 20,
     ) -> ChatLogListResult: ...
 
     async def get(
-        self, *, tenant_id: str, request_id: str
+        self, *, domain_id: str, request_id: str
     ) -> ChatLogRecord | None: ...
 
 
@@ -124,7 +124,7 @@ class InMemoryChatLogReader:
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         filters: ChatLogListFilters,
         page: int = 1,
         page_size: int = 20,
@@ -132,7 +132,7 @@ class InMemoryChatLogReader:
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
 
-        rows = [r for r in self._writer.records if r.tenant_id == tenant_id]
+        rows = [r for r in self._writer.records if r.domain_id == domain_id]
         rows = [r for r in rows if _row_matches(r, filters)]
         # InMemoryChatLogWriter는 append 순서가 시간순 — 최신순으로 reverse
         rows = list(reversed(rows))
@@ -147,10 +147,10 @@ class InMemoryChatLogReader:
         )
 
     async def get(
-        self, *, tenant_id: str, request_id: str
+        self, *, domain_id: str, request_id: str
     ) -> ChatLogRecord | None:
         for r in self._writer.records:
-            if r.tenant_id == tenant_id and r.request_id == request_id:
+            if r.domain_id == domain_id and r.request_id == request_id:
                 return _payload_to_record(r, index=None)
         return None
 
@@ -189,7 +189,7 @@ def _payload_to_record(payload, *, index: int | None) -> ChatLogRecord:
     record_id = f"inmem-{index:08d}" if index is not None else f"inmem-{payload.request_id}"
     return ChatLogRecord(
         id=record_id,
-        tenant_id=payload.tenant_id,
+        domain_id=payload.domain_id,
         request_id=payload.request_id,
         user_id=payload.user_id,
         conversation_id=payload.conversation_id,

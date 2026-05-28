@@ -285,25 +285,25 @@ class InMemoryVectorStore:
     def __init__(self) -> None:
         self._collections: dict[str, _Collection] = {}
 
-    def _coll(self, tenant_id: str) -> _Collection:
-        c = self._collections.get(tenant_id)
+    def _coll(self, domain_id: str) -> _Collection:
+        c = self._collections.get(domain_id)
         if c is None:
-            raise KeyError(f"collection chunks_{tenant_id} does not exist")
+            raise KeyError(f"collection chunks_{domain_id} does not exist")
         return c
 
     async def create_collection(
-        self, *, tenant_id: str, dense_dim: int, with_sparse: bool = True
+        self, *, domain_id: str, dense_dim: int, with_sparse: bool = True
     ) -> None:
-        if tenant_id in self._collections:
-            raise ValueError(f"collection chunks_{tenant_id} already exists")
-        self._collections[tenant_id] = _Collection(
+        if domain_id in self._collections:
+            raise ValueError(f"collection chunks_{domain_id} already exists")
+        self._collections[domain_id] = _Collection(
             dense_dim=dense_dim, with_sparse=with_sparse
         )
 
     async def upsert_chunks(
-        self, *, tenant_id: str, points: list[dict[str, Any]]
+        self, *, domain_id: str, points: list[dict[str, Any]]
     ) -> None:
-        coll = self._coll(tenant_id)
+        coll = self._coll(domain_id)
         for p in points:
             pid = str(p["id"])
             coll.points[pid] = _Point(
@@ -316,13 +316,13 @@ class InMemoryVectorStore:
     async def hybrid_query(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         dense_query: list[float],
         sparse_query: dict[int, float],
         acl_filter: dict,
         top_k: int = 50,
     ) -> list[dict[str, Any]]:
-        coll = self._coll(tenant_id)
+        coll = self._coll(domain_id)
         scored: list[tuple[float, _Point]] = []
         for p in coll.points.values():
             if not _payload_match(p.payload, acl_filter):
@@ -338,21 +338,21 @@ class InMemoryVectorStore:
         ]
 
     async def set_payload(
-        self, *, tenant_id: str, chunk_ids: list[str], payload: dict
+        self, *, domain_id: str, chunk_ids: list[str], payload: dict
     ) -> None:
-        coll = self._coll(tenant_id)
+        coll = self._coll(domain_id)
         for cid in chunk_ids:
             p = coll.points.get(str(cid))
             if p is not None:
                 p.payload.update(payload)
 
-    async def delete_collection(self, tenant_id: str) -> None:
-        self._collections.pop(tenant_id, None)
+    async def delete_collection(self, domain_id: str) -> None:
+        self._collections.pop(domain_id, None)
 
     async def delete_points(
-        self, *, tenant_id: str, chunk_ids: list[str]
+        self, *, domain_id: str, chunk_ids: list[str]
     ) -> None:
-        coll = self._collections.get(tenant_id)
+        coll = self._collections.get(domain_id)
         if coll is None:
             return
         for cid in chunk_ids:
@@ -405,23 +405,23 @@ class InMemoryParser:
 
 
 class InMemoryDocumentRepository:
-    """documents 테이블 in-memory mock — (tenant_id, doc_id, version) → DocumentRecord."""
+    """documents 테이블 in-memory mock — (domain_id, doc_id, version) → DocumentRecord."""
 
     def __init__(self) -> None:
         self._docs: dict[tuple[str, str, str], DocumentRecord] = {}
 
     async def upsert(self, doc: DocumentRecord) -> None:
-        self._docs[(doc.tenant_id, doc.doc_id, doc.version)] = doc
+        self._docs[(doc.domain_id, doc.doc_id, doc.version)] = doc
 
     async def get(
-        self, *, tenant_id: str, doc_id: str, version: str
+        self, *, domain_id: str, doc_id: str, version: str
     ) -> DocumentRecord | None:
-        return self._docs.get((tenant_id, doc_id, version))
+        return self._docs.get((domain_id, doc_id, version))
 
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         keyword: str | None = None,
         approval_status: str | None = None,
         limit: int = 20,
@@ -430,7 +430,7 @@ class InMemoryDocumentRepository:
         # 같은 doc_id의 가장 최신 version만 노출
         latest: dict[str, DocumentRecord] = {}
         for (tid, did, _ver), rec in self._docs.items():
-            if tid != tenant_id:
+            if tid != domain_id:
                 continue
             existing = latest.get(did)
             if existing is None or _version_key(rec.version) > _version_key(existing.version):
@@ -450,12 +450,12 @@ class InMemoryDocumentRepository:
     async def update_approval(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         approval_status: str,
     ) -> DocumentRecord | None:
-        rec = self._docs.get((tenant_id, doc_id, version))
+        rec = self._docs.get((domain_id, doc_id, version))
         if rec is None:
             return None
         rec.approval_status = approval_status
@@ -464,13 +464,13 @@ class InMemoryDocumentRepository:
     async def delete(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str | None = None,
     ) -> int:
         keys = [
             k for k in self._docs.keys()
-            if k[0] == tenant_id and k[1] == doc_id
+            if k[0] == domain_id and k[1] == doc_id
             and (version is None or k[2] == version)
         ]
         for k in keys:
@@ -480,12 +480,12 @@ class InMemoryDocumentRepository:
     async def update_partial(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         patch: dict,
     ) -> DocumentRecord | None:
-        rec = self._docs.get((tenant_id, doc_id, version))
+        rec = self._docs.get((domain_id, doc_id, version))
         if rec is None:
             return None
         for k, v in patch.items():
@@ -506,7 +506,7 @@ class InMemoryChunkRepository:
     """chunks 테이블 in-memory mock."""
 
     def __init__(self) -> None:
-        # key: (tenant_id, doc_id, doc_version, parser_version) → list[ChunkRecord]
+        # key: (domain_id, doc_id, doc_version, parser_version) → list[ChunkRecord]
         self._chunks: dict[tuple[str, str, str, str], list[ChunkRecord]] = {}
         # chunk_id → ChunkRecord (metadata 갱신용)
         self._by_id: dict[tuple[str, str], ChunkRecord] = {}
@@ -514,31 +514,31 @@ class InMemoryChunkRepository:
     async def replace_chunks(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         doc_version: str,
         parser_version: str,
         chunks: list[ChunkRecord],
     ) -> None:
-        key = (tenant_id, doc_id, doc_version, parser_version)
+        key = (domain_id, doc_id, doc_version, parser_version)
         # 기존 cleanup
         existing = self._chunks.pop(key, [])
         for c in existing:
-            self._by_id.pop((tenant_id, c.chunk_id), None)
+            self._by_id.pop((domain_id, c.chunk_id), None)
         # 신규 INSERT
         self._chunks[key] = list(chunks)
         for c in chunks:
-            self._by_id[(tenant_id, c.chunk_id)] = c
+            self._by_id[(domain_id, c.chunk_id)] = c
 
     async def update_metadata(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         chunk_ids: list[str],
         metadata: dict[str, Any],
     ) -> None:
         for cid in chunk_ids:
-            row = self._by_id.get((tenant_id, cid))
+            row = self._by_id.get((domain_id, cid))
             if row is None:
                 continue
             for k, v in metadata.items():
@@ -548,14 +548,14 @@ class InMemoryChunkRepository:
     async def list_by_doc(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         doc_version: str,
         parser_version: str | None = None,
     ) -> list[ChunkRecord]:
         out: list[ChunkRecord] = []
         for (tid, did, ver, pv), chunks in self._chunks.items():
-            if tid != tenant_id or did != doc_id or ver != doc_version:
+            if tid != domain_id or did != doc_id or ver != doc_version:
                 continue
             if parser_version and pv != parser_version:
                 continue
@@ -565,20 +565,20 @@ class InMemoryChunkRepository:
     async def delete_by_doc(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         doc_version: str | None = None,
     ) -> list[str]:
         deleted_ids: list[str] = []
         keys_to_remove = []
         for (tid, did, ver, pv), chunks in self._chunks.items():
-            if tid != tenant_id or did != doc_id:
+            if tid != domain_id or did != doc_id:
                 continue
             if doc_version is not None and ver != doc_version:
                 continue
             for c in chunks:
                 deleted_ids.append(c.chunk_id)
-                self._by_id.pop((tenant_id, c.chunk_id), None)
+                self._by_id.pop((domain_id, c.chunk_id), None)
             keys_to_remove.append((tid, did, ver, pv))
         for k in keys_to_remove:
             self._chunks.pop(k, None)
@@ -596,7 +596,7 @@ class InMemoryIndexingJobRepository:
     async def create(self, job: IndexingJobRecord) -> None:
         for existing in self._jobs.values():
             if (
-                existing.tenant_id == job.tenant_id
+                existing.domain_id == job.domain_id
                 and existing.doc_id == job.doc_id
                 and existing.doc_version == job.doc_version
                 and existing.status in self._ACTIVE_STATES
@@ -643,12 +643,12 @@ class InMemoryIndexingJobRepository:
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         status: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[IndexingJobRecord]:
-        out = [j for j in self._jobs.values() if j.tenant_id == tenant_id]
+        out = [j for j in self._jobs.values() if j.domain_id == domain_id]
         if status is not None:
             out = [j for j in out if j.status == status]
         # 등록 순(=dict 삽입 순) 역순 — 운영 ADR-017 §7 created_at DESC와 정합.

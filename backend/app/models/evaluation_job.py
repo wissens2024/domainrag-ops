@@ -21,9 +21,9 @@ class EvaluationJob(Base):
         server_default=func.gen_random_uuid(),
     )
     job_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
-    tenant_id: Mapped[str] = mapped_column(
+    domain_id: Mapped[str] = mapped_column(
         String(64),
-        ForeignKey("tenants.tenant_id", ondelete="CASCADE"),
+        ForeignKey("tenants.domain_id", ondelete="CASCADE"),
         nullable=False,
     )
     dataset_name: Mapped[str] = mapped_column(String(255), nullable=False)

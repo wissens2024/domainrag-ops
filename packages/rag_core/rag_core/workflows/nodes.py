@@ -50,7 +50,7 @@ class RAGGraphDeps:
     Args:
         retrieval_service: RetrievalService 인스턴스
         generation_service: GenerationService 인스턴스
-        config_loader: tenant_id → effective config dict. async or sync 모두 허용.
+        config_loader: domain_id → effective config dict. async or sync 모두 허용.
         today_provider: 유효 기간 ACL 필터에 사용할 today 제공자. None이면 date 미적용.
         verifier_service: ADR-010 Tier 1/2/3 + assemble + confidence + Gate 2.
                           chat_structured_full 그래프에서만 사용 (slice는 None 허용).
@@ -70,8 +70,8 @@ class RAGGraphDeps:
     query_rewriter: QueryRewriter | None = None
 
 
-async def _load_config(deps: RAGGraphDeps, tenant_id: str) -> dict[str, Any]:
-    result = deps.config_loader(tenant_id)
+async def _load_config(deps: RAGGraphDeps, domain_id: str) -> dict[str, Any]:
+    result = deps.config_loader(domain_id)
     if hasattr(result, "__await__"):
         result = await result  # type: ignore[assignment]
     return dict(result or {})
@@ -83,9 +83,9 @@ async def _load_config(deps: RAGGraphDeps, tenant_id: str) -> dict[str, Any]:
 
 
 async def tenant_resolver_node(state: RAGState) -> dict[str, Any]:
-    """state.tenant_id / user_context 무결성만 검증. 인증·매핑은 backend AuthAdapter 책임."""
-    if not state.tenant_id:
-        return {"error": "tenant_id missing in state", "fallback_reason": "auth_error"}
+    """state.domain_id / user_context 무결성만 검증. 인증·매핑은 backend AuthAdapter 책임."""
+    if not state.domain_id:
+        return {"error": "domain_id missing in state", "fallback_reason": "auth_error"}
     if state.user_context is None:
         return {"error": "user_context missing in state", "fallback_reason": "auth_error"}
     return {}
@@ -94,7 +94,7 @@ async def tenant_resolver_node(state: RAGState) -> dict[str, Any]:
 async def load_tenant_config_node(
     state: RAGState, deps: RAGGraphDeps
 ) -> dict[str, Any]:
-    config = await _load_config(deps, state.tenant_id)
+    config = await _load_config(deps, state.domain_id)
     return {"tenant_config": config}
 
 
@@ -236,7 +236,7 @@ async def retrieve_context_node(
     # ADR-011 §5 — query_rewrite 노드가 채운 rewritten_query를 우선 사용 (없으면 원 question)
     query = state.rewritten_query or state.question
     result = await deps.retrieval_service.retrieve(
-        tenant_id=state.tenant_id,
+        domain_id=state.domain_id,
         question=query,
         acl_filter=state.acl_filter or {},
         config=cfg,
@@ -353,7 +353,7 @@ async def generate_answer_node(
                 question=state.question,
                 contexts=contexts,
                 lora_adapter=step["lora"],
-                tenant_id=state.tenant_id,
+                domain_id=state.domain_id,
                 model_override=step["model"],
             )
             last_result = result
@@ -448,7 +448,7 @@ async def save_chat_log_node(
     # ADR-020 §4 — pii_storage_policy=mask면 마스킹된 form 보관, plain이면 원문.
     storage_question = state.question_for_storage or state.question
     payload = ChatLogPayload(
-        tenant_id=state.tenant_id,
+        domain_id=state.domain_id,
         request_id=state.request_id,
         user_id=state.user_id,
         conversation_id=state.conversation_id,
@@ -768,7 +768,7 @@ async def detect_unsupported_node(state: RAGState) -> dict[str, Any]:
 async def assemble_response_node(state: RAGState) -> dict[str, Any]:
     contexts = _final_contexts_as_chunks(state)
     citations, types = VerifierService.assemble_citations(
-        state.answer_segments or [], contexts, tenant_id=state.tenant_id
+        state.answer_segments or [], contexts, domain_id=state.domain_id
     )
     final_answer = "".join(seg.get("text", "") for seg in state.answer_segments or [])
     # inference/conflict 다운그레이드 segment가 있으면 limitations에 caveat 추가 (ADR-010 §5)

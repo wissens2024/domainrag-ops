@@ -50,7 +50,7 @@ from app.main import app
 
 def _non_admin_user() -> UserContext:
     return UserContext(
-        user_id="dev-user-001", tenant_id="security",
+        user_id="dev-user-001", domain_id="security",
         roles=["USER"], clearance="confidential",
     )
 
@@ -365,4 +365,4 @@ def test_extract_logs_to_assessment_logger():
         )
     logger = get_assessment_logger(get_settings())
     records = getattr(logger, "records", [])
-    assert any(r.action == "extract" and r.tenant_id == "security" for r in records)
+    assert any(r.action == "extract" and r.domain_id == "security" for r in records)

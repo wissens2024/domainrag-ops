@@ -32,7 +32,7 @@ from app.main import app
 
 def _non_admin_user() -> UserContext:
     return UserContext(
-        user_id="dev-user-001", tenant_id="security",
+        user_id="dev-user-001", domain_id="security",
         roles=["USER"], clearance="confidential",
     )
 
@@ -115,7 +115,7 @@ def test_segments_returns_claim_chunk_mapping():
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["message_id"] == mid
-    assert body["tenant_id"] == "security"
+    assert body["domain_id"] == "security"
     assert body["question"] == "패스워드 정책"
     # ADR-010 §4 — 검증된 citation은 claim_text + chunk_id + support_level + similarity
     assert isinstance(body["citations"], list)
@@ -162,7 +162,7 @@ def test_reverify_updates_citations_and_returns_summary():
     writer = rag._deps.chat_log_writer  # type: ignore[attr-defined]
     updated_metrics = [
         r.verifier_metrics for r in writer.records
-        if r.tenant_id == "security" and r.verifier_metrics.get("reverified_at")
+        if r.domain_id == "security" and r.verifier_metrics.get("reverified_at")
     ]
     assert len(updated_metrics) >= 1
     assert updated_metrics[0].get("reverified_by") == "dev-user-001"

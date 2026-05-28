@@ -10,7 +10,7 @@ from rag_core.services.chat_log_writer import (
 
 def _payload(**kwargs) -> ChatLogPayload:
     base = dict(
-        tenant_id="security",
+        domain_id="security",
         request_id="r1",
         user_id="u1",
         conversation_id=None,
@@ -27,7 +27,7 @@ async def test_writer_appends_record():
     assert cid.startswith("conv-")
     assert len(w.records) == 1
     rec = w.records[0]
-    assert rec.tenant_id == "security"
+    assert rec.domain_id == "security"
     assert rec.conversation_id == cid
 
 

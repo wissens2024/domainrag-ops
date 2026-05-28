@@ -1,7 +1,7 @@
 """ChatLogEraser — right-to-erasure (ADR-020 §10) + ADR-012 hard delete 정합 Protocol.
 
 본인 chat_logs에 대해 `mask_only`(컬럼 단위 NULL/마스킹) 또는 `hard_delete`(row DELETE)를
-수행한다. tenant_id RLS context는 구현체가 책임진다. rag_core는 인터페이스만 정의하고,
+수행한다. domain_id RLS context는 구현체가 책임진다. rag_core는 인터페이스만 정의하고,
 운영 구현은 backend의 PostgresChatLogEraser (SQLAlchemy + RLS).
 
 mask_only 컬럼 정책 (ADR-020 §10):
@@ -33,7 +33,7 @@ class ErasureMode(str, Enum):
 class ErasureResult:
     """erase_my_logs 결과 — endpoint 응답 + audit 기록에 모두 사용."""
 
-    tenant_id: str
+    domain_id: str
     user_id: str
     mode: ErasureMode
     affected_rows: int
@@ -44,7 +44,7 @@ class ChatLogEraser(Protocol):
     async def erase_my_logs(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         user_id: str,
         mode: ErasureMode,
         reason: str,
@@ -64,7 +64,7 @@ class InMemoryChatLogEraser:
     async def erase_my_logs(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         user_id: str,
         mode: ErasureMode,
         reason: str,
@@ -72,7 +72,7 @@ class InMemoryChatLogEraser:
         affected = 0
         new_records = []
         for rec in self._writer.records:
-            if rec.tenant_id == tenant_id and rec.user_id == user_id:
+            if rec.domain_id == domain_id and rec.user_id == user_id:
                 if mode == ErasureMode.HARD_DELETE:
                     affected += 1
                     continue
@@ -90,7 +90,7 @@ class InMemoryChatLogEraser:
             new_records.append(rec)
         self._writer.records = new_records
         return ErasureResult(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             user_id=user_id,
             mode=mode,
             affected_rows=affected,

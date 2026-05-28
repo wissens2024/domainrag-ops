@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 async def _publish_ledger(
     ledger,
     *,
-    tenant_id: str,
+    domain_id: str,
     actor: str,
     action: str,
     details: dict[str, Any] | None = None,
@@ -34,12 +34,12 @@ async def _publish_ledger(
         return
     try:
         await ledger.publish_platform_admin_action(
-            tenant_id=tenant_id, actor=actor, action=action, details=details,
+            domain_id=domain_id, actor=actor, action=action, details=details,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "ledger publish (%s) failed for tenant=%s: %s (swallow)",
-            action, tenant_id, exc,
+            action, domain_id, exc,
         )
 
 from sqlalchemy import text
@@ -52,7 +52,7 @@ class PiiApprovalRecord:
     """API 응답 / 내부 lookup 결과."""
 
     approval_id: str
-    tenant_id: str
+    domain_id: str
     policy: str
     reason: str
     approved_by: str
@@ -97,7 +97,7 @@ class PiiStorageApprovalService:
     async def approve_plain(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         reason: str,
         approved_by: str,
         valid_until: datetime | None = None,
@@ -109,14 +109,14 @@ class PiiStorageApprovalService:
                         text(
                             """
                             INSERT INTO pii_storage_approvals (
-                                tenant_id, policy, reason, approved_by, valid_until
+                                domain_id, policy, reason, approved_by, valid_until
                             )
-                            VALUES (:tenant_id, 'plain', :reason, :approved_by, :valid_until)
+                            VALUES (:domain_id, 'plain', :reason, :approved_by, :valid_until)
                             RETURNING id, valid_from, valid_until, status
                             """
                         ),
                         {
-                            "tenant_id": tenant_id,
+                            "domain_id": domain_id,
                             "reason": reason,
                             "approved_by": approved_by,
                             "valid_until": valid_until,
@@ -125,7 +125,7 @@ class PiiStorageApprovalService:
                 ).first()
             except IntegrityError as exc:
                 await session.rollback()
-                existing = await self._find_active_id(tenant_id)
+                existing = await self._find_active_id(domain_id)
                 if existing:
                     raise PiiApprovalConflictError(existing) from exc
                 raise
@@ -137,7 +137,7 @@ class PiiStorageApprovalService:
 
             await self._audit(
                 session,
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 action="pii_storage_plain_approved",
                 actor=approved_by,
                 reason=reason,
@@ -150,7 +150,7 @@ class PiiStorageApprovalService:
 
             record = PiiApprovalRecord(
                 approval_id=approval_id,
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 policy="plain",
                 reason=reason,
                 approved_by=approved_by,
@@ -160,7 +160,7 @@ class PiiStorageApprovalService:
             )
             await _publish_ledger(
                 self._ledger,
-                tenant_id=tenant_id, actor=approved_by,
+                domain_id=domain_id, actor=approved_by,
                 action="pii_storage_plain_approved",
                 details={
                     "approval_id": approval_id,
@@ -173,7 +173,7 @@ class PiiStorageApprovalService:
     async def revoke_active(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         revoked_by: str,
         revoke_reason: str,
     ) -> PiiApprovalRecord:
@@ -187,14 +187,14 @@ class PiiStorageApprovalService:
                                revoked_at = NOW(),
                                revoked_by = :revoked_by,
                                revoke_reason = :revoke_reason
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                            AND status = 'active'
                         RETURNING id, policy, reason, approved_by, valid_from, valid_until,
                                   revoked_at
                         """
                     ),
                     {
-                        "tenant_id": tenant_id,
+                        "domain_id": domain_id,
                         "revoked_by": revoked_by,
                         "revoke_reason": revoke_reason,
                     },
@@ -202,13 +202,13 @@ class PiiStorageApprovalService:
             ).first()
             if row is None:
                 raise PiiApprovalNotFoundError(
-                    f"no active approval for tenant {tenant_id}"
+                    f"no active approval for tenant {domain_id}"
                 )
 
             approval_id = str(row[0])
             await self._audit(
                 session,
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 action="pii_storage_plain_revoked",
                 actor=revoked_by,
                 reason=revoke_reason,
@@ -218,13 +218,13 @@ class PiiStorageApprovalService:
 
             await _publish_ledger(
                 self._ledger,
-                tenant_id=tenant_id, actor=revoked_by,
+                domain_id=domain_id, actor=revoked_by,
                 action="pii_storage_plain_revoked",
                 details={"approval_id": approval_id, "reason": revoke_reason},
             )
             return PiiApprovalRecord(
                 approval_id=approval_id,
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 policy=row[1],
                 reason=row[2],
                 approved_by=row[3],
@@ -236,7 +236,7 @@ class PiiStorageApprovalService:
                 revoke_reason=revoke_reason,
             )
 
-    async def is_plain_approved(self, tenant_id: str) -> bool:
+    async def is_plain_approved(self, domain_id: str) -> bool:
         """chat 요청 시 PIIService 평가에 사용되는 hot lookup.
 
         active 승인 row가 존재하고 valid_until이 NULL 또는 NOW() 이후면 True.
@@ -247,13 +247,13 @@ class PiiStorageApprovalService:
                     text(
                         """
                         SELECT 1 FROM pii_storage_approvals
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                            AND status = 'active'
                            AND (valid_until IS NULL OR valid_until > NOW())
                          LIMIT 1
                         """
                     ),
-                    {"tenant_id": tenant_id},
+                    {"domain_id": domain_id},
                 )
             ).first()
             return row is not None
@@ -261,7 +261,7 @@ class PiiStorageApprovalService:
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         limit: int = 50,
         offset: int = 0,
     ) -> list[PiiApprovalRecord]:
@@ -273,18 +273,18 @@ class PiiStorageApprovalService:
                         SELECT id, policy, reason, approved_by, valid_from, valid_until,
                                status, revoked_at, revoked_by, revoke_reason
                           FROM pii_storage_approvals
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                          ORDER BY created_at DESC
                          LIMIT :limit OFFSET :offset
                         """
                     ),
-                    {"tenant_id": tenant_id, "limit": limit, "offset": offset},
+                    {"domain_id": domain_id, "limit": limit, "offset": offset},
                 )
             ).all()
             return [
                 PiiApprovalRecord(
                     approval_id=str(r[0]),
-                    tenant_id=tenant_id,
+                    domain_id=domain_id,
                     policy=r[1],
                     reason=r[2],
                     approved_by=r[3],
@@ -298,18 +298,18 @@ class PiiStorageApprovalService:
                 for r in rows
             ]
 
-    async def _find_active_id(self, tenant_id: str) -> str | None:
+    async def _find_active_id(self, domain_id: str) -> str | None:
         async with self._sf() as session:
             row = (
                 await session.execute(
                     text(
                         """
                         SELECT id FROM pii_storage_approvals
-                         WHERE tenant_id = :tenant_id AND status = 'active'
+                         WHERE domain_id = :domain_id AND status = 'active'
                          ORDER BY created_at DESC LIMIT 1
                         """
                     ),
-                    {"tenant_id": tenant_id},
+                    {"domain_id": domain_id},
                 )
             ).first()
             return str(row[0]) if row else None
@@ -318,7 +318,7 @@ class PiiStorageApprovalService:
     async def _audit(
         session,
         *,
-        tenant_id: str,
+        domain_id: str,
         action: str,
         actor: str,
         reason: str,
@@ -329,16 +329,16 @@ class PiiStorageApprovalService:
             text(
                 """
                 INSERT INTO tenant_lifecycle_logs (
-                    tenant_id, action, from_state, to_state, actor, reason, details
+                    domain_id, action, from_state, to_state, actor, reason, details
                 )
                 VALUES (
-                    :tenant_id, :action, NULL, NULL, :actor, :reason,
+                    :domain_id, :action, NULL, NULL, :actor, :reason,
                     CAST(:details AS JSONB)
                 )
                 """
             ),
             {
-                "tenant_id": tenant_id,
+                "domain_id": domain_id,
                 "action": action,
                 "actor": actor,
                 "reason": reason,
@@ -356,7 +356,7 @@ class InMemoryPiiStorageApprovalService:
     """Postgres PiiStorageApprovalService의 in-process 변형 (테스트·inmemory backend)."""
 
     def __init__(self, *, ledger_audit=None) -> None:
-        # tenant_id → PiiApprovalRecord (active 또는 가장 최근)
+        # domain_id → PiiApprovalRecord (active 또는 가장 최근)
         self._active: dict[str, PiiApprovalRecord] = {}
         self._history: dict[str, list[PiiApprovalRecord]] = {}
         self.audit_events: list[dict[str, Any]] = []
@@ -365,18 +365,18 @@ class InMemoryPiiStorageApprovalService:
     async def approve_plain(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         reason: str,
         approved_by: str,
         valid_until: datetime | None = None,
     ) -> PiiApprovalRecord:
-        if tenant_id in self._active:
-            raise PiiApprovalConflictError(self._active[tenant_id].approval_id)
+        if domain_id in self._active:
+            raise PiiApprovalConflictError(self._active[domain_id].approval_id)
         import uuid as _uuid
 
         record = PiiApprovalRecord(
             approval_id=_uuid.uuid4().hex,
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             policy="plain",
             reason=reason,
             approved_by=approved_by,
@@ -384,11 +384,11 @@ class InMemoryPiiStorageApprovalService:
             valid_until=valid_until,
             status="active",
         )
-        self._active[tenant_id] = record
-        self._history.setdefault(tenant_id, []).append(record)
+        self._active[domain_id] = record
+        self._history.setdefault(domain_id, []).append(record)
         self.audit_events.append(
             {
-                "tenant_id": tenant_id,
+                "domain_id": domain_id,
                 "action": "pii_storage_plain_approved",
                 "actor": approved_by,
                 "reason": reason,
@@ -397,7 +397,7 @@ class InMemoryPiiStorageApprovalService:
         )
         await _publish_ledger(
             self._ledger,
-            tenant_id=tenant_id, actor=approved_by,
+            domain_id=domain_id, actor=approved_by,
             action="pii_storage_plain_approved",
             details={"approval_id": record.approval_id, "reason": reason},
         )
@@ -406,18 +406,18 @@ class InMemoryPiiStorageApprovalService:
     async def revoke_active(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         revoked_by: str,
         revoke_reason: str,
     ) -> PiiApprovalRecord:
-        existing = self._active.pop(tenant_id, None)
+        existing = self._active.pop(domain_id, None)
         if existing is None:
             raise PiiApprovalNotFoundError(
-                f"no active approval for tenant {tenant_id}"
+                f"no active approval for tenant {domain_id}"
             )
         revoked = PiiApprovalRecord(
             approval_id=existing.approval_id,
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             policy=existing.policy,
             reason=existing.reason,
             approved_by=existing.approved_by,
@@ -429,12 +429,12 @@ class InMemoryPiiStorageApprovalService:
             revoke_reason=revoke_reason,
         )
         # history의 마지막 record를 revoked로 교체
-        history = self._history.get(tenant_id, [])
+        history = self._history.get(domain_id, [])
         if history and history[-1].approval_id == existing.approval_id:
             history[-1] = revoked
         self.audit_events.append(
             {
-                "tenant_id": tenant_id,
+                "domain_id": domain_id,
                 "action": "pii_storage_plain_revoked",
                 "actor": revoked_by,
                 "reason": revoke_reason,
@@ -443,14 +443,14 @@ class InMemoryPiiStorageApprovalService:
         )
         await _publish_ledger(
             self._ledger,
-            tenant_id=tenant_id, actor=revoked_by,
+            domain_id=domain_id, actor=revoked_by,
             action="pii_storage_plain_revoked",
             details={"approval_id": existing.approval_id, "reason": revoke_reason},
         )
         return revoked
 
-    async def is_plain_approved(self, tenant_id: str) -> bool:
-        record = self._active.get(tenant_id)
+    async def is_plain_approved(self, domain_id: str) -> bool:
+        record = self._active.get(domain_id)
         if record is None:
             return False
         if record.valid_until is not None and record.valid_until <= datetime.utcnow():
@@ -460,9 +460,9 @@ class InMemoryPiiStorageApprovalService:
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         limit: int = 50,
         offset: int = 0,
     ) -> list[PiiApprovalRecord]:
-        history = list(reversed(self._history.get(tenant_id, [])))
+        history = list(reversed(self._history.get(domain_id, [])))
         return history[offset : offset + limit]

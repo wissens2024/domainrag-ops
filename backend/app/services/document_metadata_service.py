@@ -84,7 +84,7 @@ class DocumentMetadataService:
     async def update(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         patch: dict[str, Any],
@@ -97,7 +97,7 @@ class DocumentMetadataService:
             InputSchemaValidationError: merged metadata가 input_type schema 위반
         """
         existing = await self._docs.get(
-            tenant_id=tenant_id, doc_id=doc_id, version=version
+            domain_id=domain_id, doc_id=doc_id, version=version
         )
         if existing is None:
             return None
@@ -105,7 +105,7 @@ class DocumentMetadataService:
         # 1) merged metadata 빌드 (input_type schema 검증용). acl은 documents 컬럼에 없으므로
         #    같은 (doc, version)의 첫 chunk에서 보강 — common_required.acl 검증 통과 목적.
         chunks_for_acl = await self._chunks.list_by_doc(
-            tenant_id=tenant_id, doc_id=doc_id, doc_version=version
+            domain_id=domain_id, doc_id=doc_id, doc_version=version
         )
         existing_acl = list(chunks_for_acl[0].acl) if chunks_for_acl else []
         merged = _merge_for_validation(existing, patch, existing_acl=existing_acl)
@@ -114,12 +114,12 @@ class DocumentMetadataService:
         input_type = merged.get("input_type") or existing.input_type
         if input_type:
             self._schema.validate(
-                tenant_id=tenant_id, input_type=input_type, metadata=merged
+                domain_id=domain_id, input_type=input_type, metadata=merged
             )
 
         # 3) documents UPDATE
         updated = await self._docs.update_partial(
-            tenant_id=tenant_id, doc_id=doc_id, version=version, patch=patch
+            domain_id=domain_id, doc_id=doc_id, version=version, patch=patch
         )
         if updated is None:  # race — 검증 중 다른 caller가 delete
             return None
@@ -129,18 +129,18 @@ class DocumentMetadataService:
         affected_chunks = 0
         if sync_payload:
             chunks = await self._chunks.list_by_doc(
-                tenant_id=tenant_id, doc_id=doc_id, doc_version=version
+                domain_id=domain_id, doc_id=doc_id, doc_version=version
             )
             chunk_ids = [c.chunk_id for c in chunks]
             if chunk_ids:
                 await self._chunks.update_metadata(
-                    tenant_id=tenant_id,
+                    domain_id=domain_id,
                     chunk_ids=chunk_ids,
                     metadata=sync_payload,
                 )
                 try:
                     await self._vs.set_payload(
-                        tenant_id=tenant_id,
+                        domain_id=domain_id,
                         chunk_ids=chunk_ids,
                         payload=sync_payload,
                     )
@@ -148,13 +148,13 @@ class DocumentMetadataService:
                     logger.error(
                         "vector_store.set_payload failed during metadata update: "
                         "tenant=%s doc=%s err=%s",
-                        tenant_id, doc_id, exc,
+                        domain_id, doc_id, exc,
                     )
                 affected_chunks = len(chunk_ids)
 
         # 5) audit
         await self._audit(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             actor=actor,
             details={
                 "doc_id": doc_id,
@@ -175,28 +175,28 @@ class DocumentMetadataService:
     async def _audit(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         actor: str,
         details: dict[str, Any],
     ) -> None:
         if self._admin is None:
             return
         async with self._admin() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             await session.execute(
                 text(
                     """
                     INSERT INTO tenant_lifecycle_logs (
-                        tenant_id, action, from_state, to_state, actor, reason, details
+                        domain_id, action, from_state, to_state, actor, reason, details
                     )
                     VALUES (
-                        :tenant_id, 'document_metadata_updated',
+                        :domain_id, 'document_metadata_updated',
                         NULL, NULL, :actor, :reason, CAST(:details AS JSONB)
                     )
                     """
                 ),
                 {
-                    "tenant_id": tenant_id,
+                    "domain_id": domain_id,
                     "actor": actor,
                     "reason": details.get("reason") or "metadata_patch",
                     "details": json.dumps(details, ensure_ascii=False, default=str),

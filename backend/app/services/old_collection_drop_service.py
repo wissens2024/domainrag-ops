@@ -32,7 +32,7 @@ _OLD_COLLECTION_LOCK_KEY = 7019_0401  # ADR-021 §3 표
 
 @dataclass
 class CandidateRow:
-    tenant_id: str
+    domain_id: str
     old_collection: str
     swapped_at: datetime
     days_since_swap: int
@@ -111,7 +111,7 @@ class OldCollectionDropService:
                     await session.execute(
                         text(
                             """
-                            SELECT tenant_id, old_collection, swapped_at,
+                            SELECT domain_id, old_collection, swapped_at,
                                    EXTRACT(DAY FROM NOW() - swapped_at)::int AS days
                               FROM tenant_collection_history
                              WHERE swapped_at < NOW() - (:hold_days || ' days')::interval
@@ -132,7 +132,7 @@ class OldCollectionDropService:
         for r in rows:
             candidates.append(
                 CandidateRow(
-                    tenant_id=str(r[0]),
+                    domain_id=str(r[0]),
                     old_collection=str(r[1]),
                     swapped_at=r[2],
                     days_since_swap=int(r[3]),
@@ -144,14 +144,14 @@ class OldCollectionDropService:
         if candidates and self._ledger is not None:
             try:
                 await self._ledger.publish_platform_admin_action(
-                    tenant_id="platform",
+                    domain_id="platform",
                     actor="old_collection_drop_service",
                     action="old_collection_drop_candidates",
                     reason=f"{len(candidates)}개 collection이 {self._hold_days}일 hold 경과",
                     details={
                         "candidates": [
                             {
-                                "tenant_id": c.tenant_id,
+                                "domain_id": c.domain_id,
                                 "collection": c.old_collection,
                                 "days_since_swap": c.days_since_swap,
                             }
@@ -170,11 +170,11 @@ class OldCollectionDropService:
                         text(
                             """
                             INSERT INTO tenant_lifecycle_logs (
-                                tenant_id, action, from_state, to_state,
+                                domain_id, action, from_state, to_state,
                                 actor, reason, details
                             )
                             VALUES (
-                                :tenant_id, 'old_collection_drop_candidate',
+                                :domain_id, 'old_collection_drop_candidate',
                                 NULL, NULL, 'cron',
                                 'hold_days_exceeded',
                                 CAST(:details AS JSONB)
@@ -182,7 +182,7 @@ class OldCollectionDropService:
                             """
                         ),
                         {
-                            "tenant_id": c.tenant_id,
+                            "domain_id": c.domain_id,
                             "details": json.dumps(
                                 {
                                     "collection": c.old_collection,

@@ -9,7 +9,7 @@
 비책임 (caller / 별도 모듈):
   - 동시성 제한 (worker_pool — backend 책임)
   - MinIO 업로드 (별도 storage helper)
-  - tenant_id RLS context (caller의 DB session에서 set)
+  - domain_id RLS context (caller의 DB session에서 set)
   - hard delete (별도 hard_delete_workflow)
 """
 
@@ -52,7 +52,7 @@ class ReindexMode(str, Enum):
 class IndexingRequest:
     """upload 또는 reindex 진입점에 전달되는 요청 객체."""
 
-    tenant_id: str
+    domain_id: str
     doc_id: str
     doc_version: str
     file_path: str  # 로컬 경로 또는 InMemoryParser.inline 키
@@ -130,7 +130,7 @@ class IndexingService:
         """단일 indexing job 실행 — job_repo.create + dispatch."""
         job = IndexingJobRecord(
             job_id=job_id,
-            tenant_id=request.tenant_id,
+            domain_id=request.domain_id,
             doc_id=request.doc_id,
             doc_version=request.doc_version,
             status="pending",
@@ -283,7 +283,7 @@ class IndexingService:
         # 기존 chunks 가져와서 page_number/section_title만 업데이트.
         # InMemory 구현에서는 update_metadata로 처리.
         existing = await self.chunk_repo.list_by_doc(
-            tenant_id=request.tenant_id,
+            domain_id=request.domain_id,
             doc_id=request.doc_id,
             doc_version=request.doc_version,
             parser_version=self.parser.parser_version,
@@ -306,13 +306,13 @@ class IndexingService:
                 "heading_path": list(page.heading_path or []),
             }
             await self.chunk_repo.update_metadata(
-                tenant_id=request.tenant_id,
+                domain_id=request.domain_id,
                 chunk_ids=[c.chunk_id],
                 metadata=meta,
             )
             try:
                 await self.vector_store.set_payload(
-                    tenant_id=request.tenant_id,
+                    domain_id=request.domain_id,
                     chunk_ids=[c.chunk_id],
                     payload=meta,
                 )
@@ -355,7 +355,7 @@ class IndexingService:
         pii_config: dict[str, Any] | None,
     ) -> IndexingResult:
         existing = await self.chunk_repo.list_by_doc(
-            tenant_id=request.tenant_id,
+            domain_id=request.domain_id,
             doc_id=request.doc_id,
             doc_version=request.doc_version,
         )
@@ -418,7 +418,7 @@ class IndexingService:
 
         # chunks.embedding_model / embedding_version / vector_id 갱신
         await self.chunk_repo.update_metadata(
-            tenant_id=request.tenant_id,
+            domain_id=request.domain_id,
             chunk_ids=[c.chunk_id for c in chunks_for_embed if c.chunk_id not in {f["chunk_id"] for f in embed_result.failed}],
             metadata={
                 "embedding_model": self.embedder.model_name,
@@ -504,7 +504,7 @@ class IndexingService:
             warning = warnings_by_chunk.get(c.chunk_id, ChunkPIIWarning())
             records.append(
                 ChunkRecord(
-                    tenant_id=request.tenant_id,
+                    domain_id=request.domain_id,
                     chunk_id=c.chunk_id,
                     doc_id=request.doc_id,
                     doc_version=request.doc_version,
@@ -550,7 +550,7 @@ class IndexingService:
             dense, sparse = vectors[c.chunk_id]
             warning = warnings_by_chunk.get(c.chunk_id, ChunkPIIWarning())
             payload: dict[str, Any] = {
-                "tenant_id": request.tenant_id,
+                "domain_id": request.domain_id,
                 "doc_id": request.doc_id,
                 "doc_version": request.doc_version,
                 "parser_version": self.parser.parser_version,
@@ -581,7 +581,7 @@ class IndexingService:
             )
         if points:
             await self.vector_store.upsert_chunks(
-                tenant_id=request.tenant_id, points=points
+                domain_id=request.domain_id, points=points
             )
 
     async def _write_chunks_and_document(
@@ -591,7 +591,7 @@ class IndexingService:
     ) -> None:
         await self.document_repo.upsert(
             DocumentRecord(
-                tenant_id=request.tenant_id,
+                domain_id=request.domain_id,
                 doc_id=request.doc_id,
                 title=request.title,
                 version=request.doc_version,
@@ -611,7 +611,7 @@ class IndexingService:
             )
         )
         await self.chunk_repo.replace_chunks(
-            tenant_id=request.tenant_id,
+            domain_id=request.domain_id,
             doc_id=request.doc_id,
             doc_version=request.doc_version,
             parser_version=self.parser.parser_version,

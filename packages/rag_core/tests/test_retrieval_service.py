@@ -17,7 +17,7 @@ from rag_core.services.retrieval_service import RetrievalConfig, RetrievalServic
 async def populated_store():
     store = InMemoryVectorStore()
     embedder = InMemoryEmbedder(dense_dim=8)
-    await store.create_collection(tenant_id="security", dense_dim=8)
+    await store.create_collection(domain_id="security", dense_dim=8)
 
     docs = [
         ("c1", "패스워드 정책 12자 이상 복합 문자",
@@ -57,7 +57,7 @@ async def populated_store():
                 "payload": payload,
             }
         )
-    await store.upsert_chunks(tenant_id="security", points=points)
+    await store.upsert_chunks(domain_id="security", points=points)
     return store, embedder
 
 
@@ -72,7 +72,7 @@ async def test_retrieve_filters_by_acl_and_approval(populated_store):
         domain_groups=["group:security"],
     )
     result = await service.retrieve(
-        tenant_id="security",
+        domain_id="security",
         question="패스워드 정책",
         acl_filter=acl,
         config=RetrievalConfig(fused_top_k=10, rerank_top_k=10, context_top_k=10),
@@ -97,7 +97,7 @@ async def test_retrieve_blocks_high_security_for_internal_user(populated_store):
         domain_groups=["group:security"],
     )
     result = await service.retrieve(
-        tenant_id="security",
+        domain_id="security",
         question="보안 사고 대응",
         acl_filter=acl,
     )
@@ -115,7 +115,7 @@ async def test_retrieve_context_top_k_truncation(populated_store):
         domain_groups=["group:security"],
     )
     result = await service.retrieve(
-        tenant_id="security",
+        domain_id="security",
         question="패스워드",
         acl_filter=acl,
         config=RetrievalConfig(fused_top_k=10, rerank_top_k=5, context_top_k=2),
@@ -137,7 +137,7 @@ async def test_retrieve_with_reranker_reorders(populated_store):
         domain_groups=["group:security"],
     )
     result = await service.retrieve(
-        tenant_id="security",
+        domain_id="security",
         question="VPN 토큰 발급",
         acl_filter=acl,
         config=RetrievalConfig(fused_top_k=10, rerank_top_k=10, context_top_k=3),
@@ -160,7 +160,7 @@ async def test_retrieve_with_reranker_bypass(populated_store):
         domain_groups=["group:security"],
     )
     result = await service.retrieve(
-        tenant_id="security",
+        domain_id="security",
         question="패스워드",
         acl_filter=acl,
         config=RetrievalConfig(reranker_bypass=True),

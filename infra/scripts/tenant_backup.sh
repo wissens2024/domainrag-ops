@@ -11,12 +11,12 @@
 #     configs/              (configs/tenants/<id>/ 사본)
 #
 # 사용법:
-#   ./tenant_backup.sh <tenant_id> [BACKUP_DIR=path]
+#   ./tenant_backup.sh <domain_id> [BACKUP_DIR=path]
 # ============================================================================
 
 set -euo pipefail
 
-TENANT_ID="${1:?tenant_id 필수}"
+TENANT_ID="${1:?domain_id 필수}"
 BACKUP_DIR="${BACKUP_DIR:-./backups/$(date +%Y%m%d_%H%M%S)_$TENANT_ID}"
 
 mkdir -p "$BACKUP_DIR/postgres" "$BACKUP_DIR/qdrant" "$BACKUP_DIR/minio" "$BACKUP_DIR/configs"
@@ -27,17 +27,17 @@ QDRANT_URL="${QDRANT_URL:-http://localhost:6333}"
 echo "[tenant_backup] tenant=$TENANT_ID → $BACKUP_DIR"
 
 # ----------------------------------------------------------------------------
-# 1) PostgreSQL — tenant_id 필터한 모든 핵심 테이블
+# 1) PostgreSQL — domain_id 필터한 모든 핵심 테이블
 # ----------------------------------------------------------------------------
 echo "[1] PostgreSQL CSV export..."
-psql -X "$PG_ADMIN_DSN" -c "\COPY (SELECT * FROM tenants WHERE tenant_id='$TENANT_ID') TO '$BACKUP_DIR/postgres/tenants.csv' CSV HEADER"
+psql -X "$PG_ADMIN_DSN" -c "\COPY (SELECT * FROM tenants WHERE domain_id='$TENANT_ID') TO '$BACKUP_DIR/postgres/tenants.csv' CSV HEADER"
 
 for tbl in user_tenant_membership documents chunks conversations messages chat_logs \
            indexing_jobs tenant_config_overrides tenant_input_schemas \
            tenant_lifecycle_logs adapter_registry assessment_items assessment_logs \
            chunks_archive; do
   psql -X "$PG_ADMIN_DSN" \
-    -c "\COPY (SELECT * FROM $tbl WHERE tenant_id='$TENANT_ID') TO '$BACKUP_DIR/postgres/$tbl.csv' CSV HEADER" \
+    -c "\COPY (SELECT * FROM $tbl WHERE domain_id='$TENANT_ID') TO '$BACKUP_DIR/postgres/$tbl.csv' CSV HEADER" \
     2>/dev/null || echo "  (skip $tbl — 테이블 없음)"
 done
 
@@ -97,7 +97,7 @@ if command -v jq >/dev/null 2>&1; then
     --arg tid "$TENANT_ID" \
     --arg ts "$(date -u +%FT%TZ)" \
     --argjson arts "${ARTIFACTS:-[]}" \
-    '{tenant_id: $tid, created_at: $ts, artifacts: $arts}' \
+    '{domain_id: $tid, created_at: $ts, artifacts: $arts}' \
     > "$BACKUP_DIR/manifest.json"
 else
   echo "  ⚠ jq 미설치 — manifest.json 생성 skip (tenant_restore.sh sha 검증 불가)"

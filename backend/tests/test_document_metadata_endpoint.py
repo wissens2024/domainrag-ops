@@ -1,4 +1,4 @@
-"""PATCH /api/{tenant_id}/admin/documents/{doc_id} — payload-only metadata 갱신 (ADR-017 §6.4)."""
+"""PATCH /api/{domain_id}/admin/documents/{doc_id} — payload-only metadata 갱신 (ADR-017 §6.4)."""
 
 from __future__ import annotations
 

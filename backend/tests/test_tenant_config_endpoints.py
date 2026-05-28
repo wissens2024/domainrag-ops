@@ -70,7 +70,7 @@ def test_get_all_configs_returns_categories():
         )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["tenant_id"] == "security"
+    assert body["domain_id"] == "security"
     cats = body["categories"]
     assert "citation" in cats
     assert "retrieval" in cats
@@ -158,7 +158,7 @@ def test_patch_restricted_key_by_platform_admin_succeeds_and_publishes_breaking(
     def _platform_admin():
         return UserContext(
             user_id="platform-admin-001",
-            tenant_id="platform",
+            domain_id="platform",
             roles=["PLATFORM_ADMIN"],
             clearance="secret",
         )
@@ -181,7 +181,7 @@ def test_patch_restricted_key_by_platform_admin_succeeds_and_publishes_breaking(
     ]
     assert len(events) == 1
     e = events[0]
-    assert e.tenant_id == "security"
+    assert e.domain_id == "security"
     assert e.actor == "platform-admin-001"
     assert e.details["category"] == "model"
     assert e.details["path"] == "endpoints.tenant_slm.base_url"

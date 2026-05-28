@@ -1,6 +1,6 @@
 """PostgresDocumentRepository — documents UPSERT/GET (ADR-012).
 
-rag_core.interfaces.chunk_repository.DocumentRepository Protocol 구현. tenant_id
+rag_core.interfaces.chunk_repository.DocumentRepository Protocol 구현. domain_id
 RLS context는 매 호출마다 set_tenant_context로 주입.
 """
 
@@ -18,7 +18,7 @@ from app.core.rls import set_tenant_context
 class PostgresDocumentRepository:
     """documents 테이블 SQLAlchemy 구현체.
 
-    UPSERT는 (tenant_id, doc_id, version) 유니크 키 기반.
+    UPSERT는 (domain_id, doc_id, version) 유니크 키 기반.
     """
 
     def __init__(self, *, session_factory: async_sessionmaker) -> None:
@@ -26,26 +26,26 @@ class PostgresDocumentRepository:
 
     async def upsert(self, doc: DocumentRecord) -> None:
         async with self._session_factory() as session:
-            await set_tenant_context(session, doc.tenant_id)
+            await set_tenant_context(session, doc.domain_id)
             await session.execute(
                 text(
                     """
                     INSERT INTO documents (
-                        tenant_id, doc_id, title, input_type, source_type,
+                        domain_id, doc_id, title, input_type, source_type,
                         source_path, object_storage_path, department, doc_type,
                         security_level, version, owner, tags, language,
                         valid_from, valid_until, approval_status, file_hash,
                         parser_version, metadata
                     )
                     VALUES (
-                        :tenant_id, :doc_id, :title, :input_type, :source_type,
+                        :domain_id, :doc_id, :title, :input_type, :source_type,
                         :source_path, :object_storage_path, :department, :doc_type,
                         :security_level, :version, :owner,
                         CAST(:tags AS JSONB), :language,
                         :valid_from, :valid_until, :approval_status, :file_hash,
                         :parser_version, CAST(:metadata AS JSONB)
                     )
-                    ON CONFLICT (tenant_id, doc_id, version) DO UPDATE SET
+                    ON CONFLICT (domain_id, doc_id, version) DO UPDATE SET
                         title = EXCLUDED.title,
                         input_type = EXCLUDED.input_type,
                         source_type = EXCLUDED.source_type,
@@ -67,7 +67,7 @@ class PostgresDocumentRepository:
                     """
                 ),
                 {
-                    "tenant_id": doc.tenant_id,
+                    "domain_id": doc.domain_id,
                     "doc_id": doc.doc_id,
                     "title": doc.title,
                     "input_type": doc.input_type,
@@ -94,7 +94,7 @@ class PostgresDocumentRepository:
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         keyword: str | None = None,
         approval_status: str | None = None,
         limit: int = 20,
@@ -109,7 +109,7 @@ class PostgresDocumentRepository:
                              version DESC
                 ) AS rn
                   FROM documents
-                 WHERE tenant_id = :tenant_id
+                 WHERE domain_id = :domain_id
                    {keyword_clause}
                    {status_clause}
             )
@@ -122,7 +122,7 @@ class PostgresDocumentRepository:
              ORDER BY doc_id
              LIMIT :limit OFFSET :offset
         """
-        params: dict = {"tenant_id": tenant_id, "limit": limit, "offset": offset}
+        params: dict = {"domain_id": domain_id, "limit": limit, "offset": offset}
         keyword_clause = ""
         if keyword:
             keyword_clause = "AND (LOWER(title) LIKE :keyword OR LOWER(doc_id) LIKE :keyword)"
@@ -134,20 +134,20 @@ class PostgresDocumentRepository:
         sql = sql.format(keyword_clause=keyword_clause, status_clause=status_clause)
 
         async with self._session_factory() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             rows = (await session.execute(text(sql), params)).all()
-            return [_row_to_doc(tenant_id, r) for r in rows]
+            return [_row_to_doc(domain_id, r) for r in rows]
 
     async def update_approval(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         approval_status: str,
     ) -> DocumentRecord | None:
         async with self._session_factory() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             row = (
                 await session.execute(
                     text(
@@ -155,7 +155,7 @@ class PostgresDocumentRepository:
                         UPDATE documents
                            SET approval_status = :approval_status,
                                updated_at = NOW()
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                            AND doc_id = :doc_id
                            AND version = :version
                         RETURNING title, input_type, source_type, source_path,
@@ -166,7 +166,7 @@ class PostgresDocumentRepository:
                         """
                     ),
                     {
-                        "tenant_id": tenant_id,
+                        "domain_id": domain_id,
                         "doc_id": doc_id,
                         "version": version,
                         "approval_status": approval_status,
@@ -179,7 +179,7 @@ class PostgresDocumentRepository:
             await session.commit()
             # row to record (version 보강)
             return DocumentRecord(
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 doc_id=doc_id,
                 title=row[0],
                 input_type=row[1],
@@ -220,7 +220,7 @@ class PostgresDocumentRepository:
     async def update_partial(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         patch: dict,
@@ -231,7 +231,7 @@ class PostgresDocumentRepository:
         approval_status는 update_approval로 분리 (ADR-012 §3-8).
         """
         cols: list[str] = []
-        params: dict = {"tenant_id": tenant_id, "doc_id": doc_id, "version": version}
+        params: dict = {"domain_id": domain_id, "doc_id": doc_id, "version": version}
         for key, kind in self._PARTIAL_COLUMNS.items():
             if key not in patch:
                 continue
@@ -245,13 +245,13 @@ class PostgresDocumentRepository:
 
         if not cols:
             # 변경할 컬럼이 없으면 현재 row만 반환 (멱등)
-            return await self.get(tenant_id=tenant_id, doc_id=doc_id, version=version)
+            return await self.get(domain_id=domain_id, doc_id=doc_id, version=version)
 
         sql = f"""
             UPDATE documents
                SET {", ".join(cols)},
                    updated_at = NOW()
-             WHERE tenant_id = :tenant_id
+             WHERE domain_id = :domain_id
                AND doc_id = :doc_id
                AND version = :version
             RETURNING title, input_type, source_type, source_path, object_storage_path,
@@ -260,14 +260,14 @@ class PostgresDocumentRepository:
                       metadata
         """
         async with self._session_factory() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             row = (await session.execute(text(sql), params)).first()
             if row is None:
                 await session.rollback()
                 return None
             await session.commit()
             return DocumentRecord(
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 doc_id=doc_id,
                 title=row[0],
                 input_type=row[1],
@@ -292,44 +292,44 @@ class PostgresDocumentRepository:
     async def delete(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str | None = None,
     ) -> int:
         """ADR-007/012 hard delete — documents row 삭제."""
         async with self._session_factory() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             if version is None:
                 result = await session.execute(
                     text(
                         """
                         DELETE FROM documents
-                         WHERE tenant_id = :tenant_id AND doc_id = :doc_id
+                         WHERE domain_id = :domain_id AND doc_id = :doc_id
                         """
                     ),
-                    {"tenant_id": tenant_id, "doc_id": doc_id},
+                    {"domain_id": domain_id, "doc_id": doc_id},
                 )
             else:
                 result = await session.execute(
                     text(
                         """
                         DELETE FROM documents
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                            AND doc_id = :doc_id
                            AND version = :version
                         """
                     ),
-                    {"tenant_id": tenant_id, "doc_id": doc_id, "version": version},
+                    {"domain_id": domain_id, "doc_id": doc_id, "version": version},
                 )
             count = result.rowcount or 0
             await session.commit()
             return count
 
     async def get(
-        self, *, tenant_id: str, doc_id: str, version: str
+        self, *, domain_id: str, doc_id: str, version: str
     ) -> DocumentRecord | None:
         async with self._session_factory() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             row = (
                 await session.execute(
                     text(
@@ -340,18 +340,18 @@ class PostgresDocumentRepository:
                                valid_from, valid_until, approval_status,
                                file_hash, parser_version, metadata
                           FROM documents
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                            AND doc_id = :doc_id
                            AND version = :version
                         """
                     ),
-                    {"tenant_id": tenant_id, "doc_id": doc_id, "version": version},
+                    {"domain_id": domain_id, "doc_id": doc_id, "version": version},
                 )
             ).first()
             if row is None:
                 return None
             return DocumentRecord(
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 doc_id=doc_id,
                 title=row[0],
                 input_type=row[1],
@@ -380,10 +380,10 @@ def _json(value) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)
 
 
-def _row_to_doc(tenant_id: str, r) -> DocumentRecord:
+def _row_to_doc(domain_id: str, r) -> DocumentRecord:
     """list_by_tenant SELECT 컬럼 순서 정합 헬퍼."""
     return DocumentRecord(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         doc_id=r[0],
         title=r[1],
         input_type=r[2],

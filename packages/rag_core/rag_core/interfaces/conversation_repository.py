@@ -2,7 +2,7 @@
 
 운영 구현은 backend의 PostgresConversationRepository (SQLAlchemy + RLS).
 InMemory variant는 InMemoryChatLogWriter.records 위에서 동작:
-  - 대화 목록은 records로부터 (tenant_id, user_id, conversation_id) grouping
+  - 대화 목록은 records로부터 (domain_id, user_id, conversation_id) grouping
   - 제목은 별도 in-process override 사전 (PATCH가 채움). override 없으면 첫
     질문의 첫 80자.
   - 삭제는 in-process set. 다시 list/get할 때 제외.
@@ -23,7 +23,7 @@ from typing import Protocol
 @dataclass
 class ConversationRecord:
     id: str
-    tenant_id: str
+    domain_id: str
     user_id: str
     title: str | None
     created_at: datetime | None
@@ -43,20 +43,20 @@ class ConversationRepository(Protocol):
     async def list_by_user(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         user_id: str,
         page: int = 1,
         page_size: int = 20,
     ) -> ConversationListResult: ...
 
     async def get(
-        self, *, tenant_id: str, user_id: str, conversation_id: str
+        self, *, domain_id: str, user_id: str, conversation_id: str
     ) -> ConversationRecord | None: ...
 
     async def update_title(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         user_id: str,
         conversation_id: str,
         title: str,
@@ -70,7 +70,7 @@ class ConversationRepository(Protocol):
     async def delete(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         user_id: str,
         conversation_id: str,
     ) -> int:
@@ -102,10 +102,10 @@ class InMemoryConversationRepository:
         self._title_overrides: dict[str, str] = {}
         self._deleted: set[str] = set()
 
-    def _conversations_for(self, tenant_id: str, user_id: str) -> dict[str, list]:
+    def _conversations_for(self, domain_id: str, user_id: str) -> dict[str, list]:
         groups: dict[str, list] = {}
         for r in self._writer.records:
-            if r.tenant_id != tenant_id or r.user_id != user_id:
+            if r.domain_id != domain_id or r.user_id != user_id:
                 continue
             if not r.conversation_id or r.conversation_id in self._deleted:
                 continue
@@ -113,7 +113,7 @@ class InMemoryConversationRepository:
         return groups
 
     def _record_from_group(
-        self, tenant_id: str, user_id: str, cid: str, recs: list
+        self, domain_id: str, user_id: str, cid: str, recs: list
     ) -> ConversationRecord:
         title = self._title_overrides.get(cid)
         if title is None and recs:
@@ -121,7 +121,7 @@ class InMemoryConversationRepository:
             title = first_q[:80] or None
         return ConversationRecord(
             id=cid,
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             user_id=user_id,
             title=title,
             created_at=None,
@@ -132,16 +132,16 @@ class InMemoryConversationRepository:
     async def list_by_user(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         user_id: str,
         page: int = 1,
         page_size: int = 20,
     ) -> ConversationListResult:
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
-        groups = self._conversations_for(tenant_id, user_id)
+        groups = self._conversations_for(domain_id, user_id)
         rows = [
-            self._record_from_group(tenant_id, user_id, cid, recs)
+            self._record_from_group(domain_id, user_id, cid, recs)
             for cid, recs in groups.items()
         ]
         # InMemory에는 timestamp 없음 — 등장 순(records append 순)의 역순
@@ -149,7 +149,7 @@ class InMemoryConversationRepository:
         ordering = []
         for r in self._writer.records:
             if (
-                r.tenant_id == tenant_id
+                r.domain_id == domain_id
                 and r.user_id == user_id
                 and r.conversation_id in groups
                 and r.conversation_id not in ordering
@@ -170,44 +170,44 @@ class InMemoryConversationRepository:
         )
 
     async def get(
-        self, *, tenant_id: str, user_id: str, conversation_id: str
+        self, *, domain_id: str, user_id: str, conversation_id: str
     ) -> ConversationRecord | None:
         if conversation_id in self._deleted:
             return None
-        groups = self._conversations_for(tenant_id, user_id)
+        groups = self._conversations_for(domain_id, user_id)
         recs = groups.get(conversation_id)
         if not recs:
             return None
-        return self._record_from_group(tenant_id, user_id, conversation_id, recs)
+        return self._record_from_group(domain_id, user_id, conversation_id, recs)
 
     async def update_title(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         user_id: str,
         conversation_id: str,
         title: str,
     ) -> ConversationRecord | None:
         if conversation_id in self._deleted:
             return None
-        groups = self._conversations_for(tenant_id, user_id)
+        groups = self._conversations_for(domain_id, user_id)
         if conversation_id not in groups:
             return None
         self._title_overrides[conversation_id] = title
         return self._record_from_group(
-            tenant_id, user_id, conversation_id, groups[conversation_id]
+            domain_id, user_id, conversation_id, groups[conversation_id]
         )
 
     async def delete(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         user_id: str,
         conversation_id: str,
     ) -> int:
         if conversation_id in self._deleted:
             return 0
-        groups = self._conversations_for(tenant_id, user_id)
+        groups = self._conversations_for(domain_id, user_id)
         if conversation_id not in groups:
             return 0
         self._deleted.add(conversation_id)

@@ -1,5 +1,5 @@
 """
-Tenant Admin API — `/api/{tenant_id}/admin/*` (ADR-017 §4~17).
+Tenant Admin API — `/api/{domain_id}/admin/*` (ADR-017 §4~17).
 """
 
 from __future__ import annotations
@@ -71,8 +71,8 @@ def require_admin(user: UserContext = Depends(get_user_context)) -> UserContext:
     return user
 
 
-async def _ensure_tenant_match(tenant_id: str, user: UserContext) -> None:
-    """URL path tenant_id와 JWT의 tenant_id가 다르면 403 (ADR-008 §2 3중 방어).
+async def _ensure_tenant_match(domain_id: str, user: UserContext) -> None:
+    """URL path domain_id와 JWT의 domain_id가 다르면 403 (ADR-008 §2 3중 방어).
 
     platform_admin은 모든 tenant 접근 가능. mismatch 시 Ledger publish_tenant_mismatch
     (ADR-020 §8) — ledger는 module-level lookup하므로 endpoint 의존 추가 없음.
@@ -80,7 +80,7 @@ async def _ensure_tenant_match(tenant_id: str, user: UserContext) -> None:
     from app.core.config import get_settings
 
     ledger = get_ledger_audit_service(get_settings())
-    await ensure_tenant_match(tenant_id, user, ledger=ledger)
+    await ensure_tenant_match(domain_id, user, ledger=ledger)
 
 
 # ----------------------------------------------------------------------------
@@ -90,7 +90,7 @@ async def _ensure_tenant_match(tenant_id: str, user: UserContext) -> None:
 
 @router.post("/documents/upload", status_code=202)
 async def upload_document(
-    tenant_id: str,
+    domain_id: str,
     background: BackgroundTasks,
     file: UploadFile = File(...),
     input_type: str | None = Form(None),
@@ -108,7 +108,7 @@ async def upload_document(
     Response 409: 같은 (doc_id, version)에 대한 active 인덱싱 job이 이미 존재 (ADR-012 §10).
     Response 422: input_type schema 검증 실패 (ADR-015).
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     meta_dict = _parse_metadata_json(metadata)
     effective_title = title or (file.filename or "untitled")
 
@@ -119,7 +119,7 @@ async def upload_document(
         merged_for_validation.setdefault("title", effective_title)
         try:
             schema_service.validate(
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 input_type=input_type,
                 metadata=merged_for_validation,
             )
@@ -138,7 +138,7 @@ async def upload_document(
 
     try:
         prepared = await orchestrator.prepare_upload(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             doc_id=doc_id,
             version=version,
             title=effective_title,
@@ -172,7 +172,7 @@ class ReindexRequest(BaseModel):
 
 @router.post("/documents/{doc_id}/reindex", status_code=202)
 async def reindex_document(
-    tenant_id: str,
+    domain_id: str,
     doc_id: str,
     req: ReindexRequest,
     background: BackgroundTasks,
@@ -181,7 +181,7 @@ async def reindex_document(
     orchestrator: IndexingOrchestrator = Depends(get_indexing_orchestrator),
 ):
     """기존 문서 재색인 (ADR-017 §6.6, ADR-012 §11)."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     try:
         mode = ReindexMode(req.mode)
     except ValueError as exc:
@@ -191,7 +191,7 @@ async def reindex_document(
 
     try:
         prepared = await orchestrator.prepare_reindex(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             doc_id=doc_id,
             version=version,
             mode=mode,
@@ -216,7 +216,7 @@ async def reindex_document(
 
 @router.get("/documents")
 async def list_documents(
-    tenant_id: str,
+    domain_id: str,
     keyword: str | None = Query(None),
     approval_status: str | None = Query(None),
     page: int = Query(1, ge=1),
@@ -225,10 +225,10 @@ async def list_documents(
     orchestrator: IndexingOrchestrator = Depends(get_indexing_orchestrator),
 ):
     """ADR-017 §6.2 — admin documents 목록 페이징. doc_id별 최신 version만 노출."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     offset = (page - 1) * page_size
     docs = await orchestrator.service.document_repo.list_by_tenant(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         keyword=keyword,
         approval_status=approval_status,
         limit=page_size,
@@ -243,23 +243,23 @@ async def list_documents(
 
 @router.get("/documents/{doc_id}")
 async def get_document(
-    tenant_id: str,
+    domain_id: str,
     doc_id: str,
     version: str = Query("v1"),
     user: UserContext = Depends(require_admin),
     orchestrator: IndexingOrchestrator = Depends(get_indexing_orchestrator),
 ):
     """ADR-017 §6.3 — document 메타 + 같은 (doc_id, version) chunks 요약."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     doc = await orchestrator.service.document_repo.get(
-        tenant_id=tenant_id, doc_id=doc_id, version=version
+        domain_id=domain_id, doc_id=doc_id, version=version
     )
     if doc is None:
         raise HTTPException(
             status_code=404, detail={"error": "document_not_found"}
         )
     chunks = await orchestrator.service.chunk_repo.list_by_doc(
-        tenant_id=tenant_id, doc_id=doc_id, doc_version=version
+        domain_id=domain_id, doc_id=doc_id, doc_version=version
     )
     return {
         **_document_to_dict(doc),
@@ -287,7 +287,7 @@ class MetadataPatchRequest(BaseModel):
 
 @router.patch("/documents/{doc_id}")
 async def patch_document_metadata(
-    tenant_id: str,
+    domain_id: str,
     doc_id: str,
     req: MetadataPatchRequest,
     user: UserContext = Depends(require_admin),
@@ -298,7 +298,7 @@ async def patch_document_metadata(
     chunks/Qdrant payload는 chunk-syncable 필드(title/department/doc_type/security_level/
     tags/valid_from/valid_until)만 자동 동기화. content/embedding 재생성 없음.
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     if not req.patch:
         raise HTTPException(
             status_code=400,
@@ -306,7 +306,7 @@ async def patch_document_metadata(
         )
     try:
         result = await metadata_service.update(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             doc_id=doc_id,
             version=req.version,
             patch=req.patch,
@@ -345,7 +345,7 @@ class ApprovalRequest(BaseModel):
 
 @router.patch("/documents/{doc_id}/approval")
 async def patch_approval(
-    tenant_id: str,
+    domain_id: str,
     doc_id: str,
     req: ApprovalRequest,
     user: UserContext = Depends(require_admin),
@@ -356,9 +356,9 @@ async def patch_approval(
     documents.approval_status + chunks.approval_status + Qdrant payload 3개 layer를
     한 transaction-ish 흐름으로 동기화. content/embedding 재생성 없음.
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     result = await approval_service.set_approval(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         doc_id=doc_id,
         version=req.version,
         approval_status=req.approval_status,
@@ -393,7 +393,7 @@ class HardDeleteRequest(BaseModel):
 def _schema_record_to_dict(record) -> dict[str, Any]:
     return {
         "schema_id": record.schema_id,
-        "tenant_id": record.tenant_id,
+        "domain_id": record.domain_id,
         "schema_version": record.schema_version,
         "status": record.status,
         "schema_yaml": record.schema_yaml,
@@ -407,13 +407,13 @@ def _schema_record_to_dict(record) -> dict[str, Any]:
 
 @router.get("/schema")
 async def get_schema_active(
-    tenant_id: str,
+    domain_id: str,
     user: UserContext = Depends(require_admin),
     service=Depends(get_schema_editor_service),
 ):
     """ADR-017 §15 — 현재 active schema. None이면 404 schema_not_initialized."""
-    await _ensure_tenant_match(tenant_id, user)
-    record = await service.get_active(tenant_id=tenant_id)
+    await _ensure_tenant_match(domain_id, user)
+    record = await service.get_active(domain_id=domain_id)
     if record is None:
         raise HTTPException(
             status_code=404,
@@ -433,7 +433,7 @@ class SchemaPutRequest(BaseModel):
 
 @router.put("/schema")
 async def put_schema(
-    tenant_id: str,
+    domain_id: str,
     req: SchemaPutRequest,
     user: UserContext = Depends(require_admin),
     service=Depends(get_schema_editor_service),
@@ -444,7 +444,7 @@ async def put_schema(
     backward compat: 이전 active의 input_type 제거 시 422 + errors[].
     성공 시 새 schema_version + 기존 active는 deprecated 전이.
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     from rag_core.interfaces.tenant_input_schema_repository import (
         SchemaVersionConflictError,
     )
@@ -452,7 +452,7 @@ async def put_schema(
 
     try:
         result = await service.put(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             base_version=req.base_version,
             schema_yaml=req.schema_yaml,
             ui_schema_yaml=req.ui_schema_yaml,
@@ -480,19 +480,19 @@ async def put_schema(
 
 @router.get("/schema/history")
 async def get_schema_history(
-    tenant_id: str,
+    domain_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     user: UserContext = Depends(require_admin),
     service=Depends(get_schema_editor_service),
 ):
     """ADR-017 §15 — schema_version 역순 페이징."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     items = await service.list_history(
-        tenant_id=tenant_id, limit=page_size, offset=(page - 1) * page_size,
+        domain_id=domain_id, limit=page_size, offset=(page - 1) * page_size,
     )
     return {
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "items": [_schema_record_to_dict(r) for r in items],
         "page": page,
         "page_size": page_size,
@@ -501,15 +501,15 @@ async def get_schema_history(
 
 @router.get("/input_schemas")
 async def list_input_schemas(
-    tenant_id: str,
+    domain_id: str,
     user: UserContext = Depends(require_admin),
     schema_service: InputSchemaService = Depends(get_input_schema_service),
 ):
     """ADR-015 §3 — Frontend react-jsonschema-form 입력. input_types 목록 + 합성 schema."""
-    await _ensure_tenant_match(tenant_id, user)
-    types = schema_service.list_input_types(tenant_id)
+    await _ensure_tenant_match(domain_id, user)
+    types = schema_service.list_input_types(domain_id)
     return {
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "input_types": [
             {
                 "name": t.name,
@@ -523,7 +523,7 @@ async def list_input_schemas(
 
 @router.delete("/documents/{doc_id}/hard")
 async def hard_delete(
-    tenant_id: str,
+    domain_id: str,
     doc_id: str,
     req: HardDeleteRequest,
     user: UserContext = Depends(require_admin),
@@ -535,9 +535,9 @@ async def hard_delete(
     chat_logs_action_applied / dead_letters(부분 실패 누적). 동일 doc_id가 없어도
     200 + 0건 (idempotent).
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     result = await service.execute(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         doc_id=doc_id,
         version=req.version,
         actor=user.user_id,
@@ -545,7 +545,7 @@ async def hard_delete(
         chat_logs_action=req.chat_logs_action,
     )
     return {
-        "tenant_id": result.tenant_id,
+        "domain_id": result.domain_id,
         "doc_id": result.doc_id,
         "version": result.version,
         "removed_chunks": result.removed_chunks,
@@ -564,7 +564,7 @@ async def hard_delete(
 
 @router.get("/indexing/jobs")
 async def list_indexing_jobs(
-    tenant_id: str,
+    domain_id: str,
     status: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -572,10 +572,10 @@ async def list_indexing_jobs(
     orchestrator: IndexingOrchestrator = Depends(get_indexing_orchestrator),
 ):
     """ADR-017 §7 — Tenant Admin 인덱싱 모니터링 페이징 조회."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     offset = (page - 1) * page_size
     jobs = await orchestrator.service.job_repo.list_by_tenant(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         status=status,
         limit=page_size,
         offset=offset,
@@ -589,17 +589,17 @@ async def list_indexing_jobs(
 
 @router.get("/indexing/jobs/{job_id}")
 async def get_indexing_job(
-    tenant_id: str,
+    domain_id: str,
     job_id: str,
     user: UserContext = Depends(require_admin),
     orchestrator: IndexingOrchestrator = Depends(get_indexing_orchestrator),
 ):
     """ADR-017 §7 — 단일 job 상세 (failed_chunks JSONB 포함)."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     job = await orchestrator.service.job_repo.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail={"error": "job_not_found"})
-    if job.tenant_id != tenant_id:
+    if job.domain_id != domain_id:
         # path-mirror 검증 — RLS context 누락 시에도 안전.
         raise HTTPException(status_code=404, detail={"error": "job_not_found"})
     return _job_to_dict(job)
@@ -607,7 +607,7 @@ async def get_indexing_job(
 
 @router.post("/indexing/jobs/{job_id}/retry", status_code=202)
 async def retry_indexing_job(
-    tenant_id: str,
+    domain_id: str,
     job_id: str,
     background: BackgroundTasks,
     user: UserContext = Depends(require_admin),
@@ -618,10 +618,10 @@ async def retry_indexing_job(
     status가 failed/partial이 아니면 400 invalid_status. job·document 미발견은 404.
     202 + job_id 반환. 실제 indexing은 BackgroundTask로 수행.
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     try:
         prepared = await orchestrator.retry_job(
-            tenant_id=tenant_id, job_id=job_id,
+            domain_id=domain_id, job_id=job_id,
         )
     except FileNotFoundError as exc:
         raise HTTPException(
@@ -660,28 +660,28 @@ class EvaluationPromoteRequest(BaseModel):
 
 @router.get("/evaluation/datasets")
 async def list_evaluation_datasets(
-    tenant_id: str,
+    domain_id: str,
     user: UserContext = Depends(require_admin),
     orchestrator: EvaluationOrchestrator = Depends(get_evaluation_orchestrator),
 ):
     """ADR-017 §16 — 평가셋 목록."""
-    await _ensure_tenant_match(tenant_id, user)
-    return {"datasets": orchestrator.list_datasets(tenant_id)}
+    await _ensure_tenant_match(domain_id, user)
+    return {"datasets": orchestrator.list_datasets(domain_id)}
 
 
 @router.post("/evaluation/run", status_code=202)
 async def run_evaluation(
-    tenant_id: str,
+    domain_id: str,
     req: EvaluationRunRequest,
     background: BackgroundTasks,
     user: UserContext = Depends(require_admin),
     orchestrator: EvaluationOrchestrator = Depends(get_evaluation_orchestrator),
 ):
     """ADR-017 §16 — 평가 실행 트리거. 202 + job_id 반환, background에서 실제 실행."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     try:
         prepared = await orchestrator.prepare_run(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             dataset_name=req.dataset_name,
             actor=user.user_id,
             config_override=req.config_override or {},
@@ -693,11 +693,11 @@ async def run_evaluation(
         ) from exc
 
     background.add_task(
-        orchestrator.execute, job_id=prepared.job_id, tenant_id=tenant_id
+        orchestrator.execute, job_id=prepared.job_id, domain_id=domain_id
     )
     return {
         "job_id": prepared.job_id,
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "dataset_name": prepared.dataset_name,
         "status": "pending",
     }
@@ -705,14 +705,14 @@ async def run_evaluation(
 
 @router.get("/evaluation/jobs/{job_id}")
 async def get_evaluation_job(
-    tenant_id: str,
+    domain_id: str,
     job_id: str,
     user: UserContext = Depends(require_admin),
     orchestrator: EvaluationOrchestrator = Depends(get_evaluation_orchestrator),
 ):
     """ADR-017 §16 — 단일 evaluation job 진행/결과 조회."""
-    await _ensure_tenant_match(tenant_id, user)
-    record = await orchestrator.repo.get(tenant_id=tenant_id, job_id=job_id)
+    await _ensure_tenant_match(domain_id, user)
+    record = await orchestrator.repo.get(domain_id=domain_id, job_id=job_id)
     if record is None:
         raise HTTPException(
             status_code=404, detail={"error": "evaluation_job_not_found"}
@@ -722,17 +722,17 @@ async def get_evaluation_job(
 
 @router.get("/evaluation/jobs")
 async def list_evaluation_jobs(
-    tenant_id: str,
+    domain_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     user: UserContext = Depends(require_admin),
     orchestrator: EvaluationOrchestrator = Depends(get_evaluation_orchestrator),
 ):
     """ADR-017 §16 보강 — 페이징 목록."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     offset = (page - 1) * page_size
     items = await orchestrator.repo.list_by_tenant(
-        tenant_id=tenant_id, limit=page_size, offset=offset
+        domain_id=domain_id, limit=page_size, offset=offset
     )
     return {
         "items": [_evaluation_to_dict(j) for j in items],
@@ -743,7 +743,7 @@ async def list_evaluation_jobs(
 
 @router.post("/evaluation/jobs/{job_id}/promote")
 async def promote_evaluation_job(
-    tenant_id: str,
+    domain_id: str,
     job_id: str,
     req: EvaluationPromoteRequest,
     user: UserContext = Depends(require_admin),
@@ -754,10 +754,10 @@ async def promote_evaluation_job(
     실제 모델/prompt 승격(prompt_registry/model_registry 갱신)은 별도 ADR에서 정의되며,
     본 endpoint는 audit row(status='promoted' + promoted_by/target/version) 기록만 담당한다.
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     try:
         record = await orchestrator.promote(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             job_id=job_id,
             actor=user.user_id,
             target=req.target,
@@ -784,7 +784,7 @@ async def promote_evaluation_job(
 def _evaluation_to_dict(job) -> dict[str, Any]:
     return {
         "job_id": job.job_id,
-        "tenant_id": job.tenant_id,
+        "domain_id": job.domain_id,
         "dataset_name": job.dataset_name,
         "status": job.status,
         "actor": job.actor,
@@ -814,14 +814,14 @@ _CONFIG_CATEGORIES = (
 
 @router.get("/configs")
 async def get_all_configs(
-    tenant_id: str,
+    domain_id: str,
     user: UserContext = Depends(require_admin),
 ):
     """ADR-017 §11 — defaults + overrides 합성된 효과적 config 전체."""
-    await _ensure_tenant_match(tenant_id, user)
-    cfg = TenantConfigService.load(tenant_id)
+    await _ensure_tenant_match(domain_id, user)
+    cfg = TenantConfigService.load(domain_id)
     return {
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "categories": {
             cat: getattr(cfg, cat) for cat in _CONFIG_CATEGORIES
         },
@@ -831,19 +831,19 @@ async def get_all_configs(
 
 @router.get("/configs/{category}")
 async def get_config_category(
-    tenant_id: str,
+    domain_id: str,
     category: str,
     user: UserContext = Depends(require_admin),
 ):
     """ADR-017 §11 — 카테고리별 효과적 config (defaults + overrides 합성)."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     if category not in _CONFIG_CATEGORIES:
         raise HTTPException(
             status_code=404, detail={"error": "unknown_category", "category": category}
         )
-    cfg = TenantConfigService.load(tenant_id)
+    cfg = TenantConfigService.load(domain_id)
     return {
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "category": category,
         "value": getattr(cfg, category),
     }
@@ -857,7 +857,7 @@ class ConfigPatchRequest(BaseModel):
 
 @router.patch("/configs/{category}")
 async def patch_config_category(
-    tenant_id: str,
+    domain_id: str,
     category: str,
     req: ConfigPatchRequest,
     user: UserContext = Depends(require_admin),
@@ -868,7 +868,7 @@ async def patch_config_category(
     restricted_to platform_admin 키를 일반 admin이 patch 시도하면 403.
     breaking 키 변경 시 Ledger publish_config_change_breaking 자동 호출.
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     if category not in _CONFIG_CATEGORIES:
         raise HTTPException(
             status_code=404, detail={"error": "unknown_category", "category": category}
@@ -876,7 +876,7 @@ async def patch_config_category(
 
     try:
         record = await override_service.patch(
-            tenant_id=tenant_id, category=category, key=req.key, value=req.value,
+            domain_id=domain_id, category=category, key=req.key, value=req.value,
             actor=user.user_id, is_platform_admin=user.is_platform_admin,
             reason=req.reason,
         )
@@ -891,7 +891,7 @@ async def patch_config_category(
         ) from exc
 
     return {
-        "tenant_id": record.tenant_id,
+        "domain_id": record.domain_id,
         "category": record.category,
         "key": record.key,
         "old_value": record.old_value,
@@ -904,19 +904,19 @@ async def patch_config_category(
 
 @router.post("/configs/reload", status_code=204)
 async def reload_configs(
-    tenant_id: str,
+    domain_id: str,
     user: UserContext = Depends(require_admin),
     override_service=Depends(get_tenant_config_override_service),
 ):
     """ADR-017 §11 — 수동 cache invalidate. LISTEN/NOTIFY 무관하게 즉시 반영 강제."""
-    await _ensure_tenant_match(tenant_id, user)
-    await override_service.reload(tenant_id=tenant_id)
+    await _ensure_tenant_match(domain_id, user)
+    await override_service.reload(domain_id=domain_id)
     return None
 
 
 @router.get("/configs/{category}/history")
 async def get_config_history(
-    tenant_id: str,
+    domain_id: str,
     category: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -924,13 +924,13 @@ async def get_config_history(
     override_service=Depends(get_tenant_config_override_service),
 ):
     """ADR-017 §11 — tenant_config_change_logs 페이징 조회."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     if category not in _CONFIG_CATEGORIES:
         raise HTTPException(
             status_code=404, detail={"error": "unknown_category", "category": category}
         )
     items = await override_service.list_history(
-        tenant_id=tenant_id, category=category,
+        domain_id=domain_id, category=category,
         limit=page_size, offset=(page - 1) * page_size,
     )
     return {"items": items, "page": page, "page_size": page_size}
@@ -943,7 +943,7 @@ async def get_config_history(
 
 @router.get("/logs/chat")
 async def list_chat_logs(
-    tenant_id: str,
+    domain_id: str,
     user_id: str | None = Query(None),
     conversation_id: str | None = Query(None),
     from_date: datetime | None = Query(None),
@@ -961,7 +961,7 @@ async def list_chat_logs(
     user: UserContext = Depends(require_admin),
     reader=Depends(get_chat_log_reader),
 ):
-    """ADR-017 §8 — chat_logs 페이징 조회. tenant_id로 RLS 자동 격리.
+    """ADR-017 §8 — chat_logs 페이징 조회. domain_id로 RLS 자동 격리.
 
     필터:
       - user_id / conversation_id: 정확 일치
@@ -972,7 +972,7 @@ async def list_chat_logs(
       - min/max_confidence: 0.0~1.0
       - keyword: question / rewritten_query / answer ILIKE 부분 일치
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
 
     from rag_core.interfaces.chat_log_reader import ChatLogListFilters
 
@@ -989,7 +989,7 @@ async def list_chat_logs(
         keyword=keyword,
     )
     result = await reader.list_by_tenant(
-        tenant_id=tenant_id, filters=filters, page=page, page_size=page_size
+        domain_id=domain_id, filters=filters, page=page, page_size=page_size
     )
     return {
         "items": [_chat_log_to_dict(r) for r in result.items],
@@ -1001,14 +1001,14 @@ async def list_chat_logs(
 
 @router.get("/logs/chat/{request_id}")
 async def get_chat_log(
-    tenant_id: str,
+    domain_id: str,
     request_id: str,
     user: UserContext = Depends(require_admin),
     reader=Depends(get_chat_log_reader),
 ):
     """ADR-017 §8 — 단건 상세 (모든 chat_logs 컬럼)."""
-    await _ensure_tenant_match(tenant_id, user)
-    record = await reader.get(tenant_id=tenant_id, request_id=request_id)
+    await _ensure_tenant_match(domain_id, user)
+    record = await reader.get(domain_id=domain_id, request_id=request_id)
     if record is None:
         raise HTTPException(
             status_code=404,
@@ -1020,7 +1020,7 @@ async def get_chat_log(
 def _chat_log_to_dict(record) -> dict[str, Any]:
     return {
         "id": record.id,
-        "tenant_id": record.tenant_id,
+        "domain_id": record.domain_id,
         "request_id": record.request_id,
         "user_id": record.user_id,
         "conversation_id": record.conversation_id,
@@ -1060,7 +1060,7 @@ def _chat_log_to_dict(record) -> dict[str, Any]:
 def _adapter_to_dict(rec) -> dict[str, Any]:
     return {
         "adapter_id": rec.adapter_id,
-        "tenant_id": rec.tenant_id,
+        "domain_id": rec.domain_id,
         "version": rec.version,
         "base_model": rec.base_model,
         "keyhub_secret_ref": rec.keyhub_secret_ref,
@@ -1074,16 +1074,16 @@ def _adapter_to_dict(rec) -> dict[str, Any]:
 
 @router.get("/lora")
 async def list_lora_adapters(
-    tenant_id: str,
+    domain_id: str,
     status: Literal["registered", "active", "retired"] | None = Query(None),
     user: UserContext = Depends(require_admin),
     registry=Depends(get_lora_registry),
 ):
     """ADR-017 §14 — tenant scope LoRA adapter 목록 (status 필터)."""
-    await _ensure_tenant_match(tenant_id, user)
-    items = await registry.list_by_tenant(tenant_id=tenant_id, status=status)
+    await _ensure_tenant_match(domain_id, user)
+    items = await registry.list_by_tenant(domain_id=domain_id, status=status)
     return {
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "items": [_adapter_to_dict(r) for r in items],
         "total": len(items),
     }
@@ -1091,7 +1091,7 @@ async def list_lora_adapters(
 
 @router.post("/lora/upload", status_code=201)
 async def upload_lora_adapter(
-    tenant_id: str,
+    domain_id: str,
     weights: UploadFile = File(...),
     metadata: str = Form(...),
     user: UserContext = Depends(require_admin),
@@ -1108,7 +1108,7 @@ async def upload_lora_adapter(
       3. adapter_registry에 INSERT (KeyHub ref 포함)
       4. 충돌 시 KeyHub에 저장된 secret 정리 (best-effort)
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
 
     meta = _parse_metadata_json(metadata)
     adapter_id = meta.get("adapter_id")
@@ -1124,7 +1124,7 @@ async def upload_lora_adapter(
     training_metadata.setdefault("filename", weights.filename)
 
     # 1) KeyHub에 weights 저장 — keyhub_secret_ref 산출
-    secret_key = f"lora/{tenant_id}/{adapter_id}"
+    secret_key = f"lora/{domain_id}/{adapter_id}"
     if meta.get("version"):
         secret_key = f"{secret_key}/{meta['version']}"
     try:
@@ -1132,7 +1132,7 @@ async def upload_lora_adapter(
             secret_key,
             blob,
             metadata={
-                "tenant_id": tenant_id,
+                "domain_id": domain_id,
                 "adapter_id": adapter_id,
                 "version": meta.get("version"),
                 "base_model": meta.get("base_model"),
@@ -1153,7 +1153,7 @@ async def upload_lora_adapter(
 
     record = AdapterRecord(
         adapter_id=adapter_id,
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         version=meta.get("version"),
         base_model=meta.get("base_model"),
         keyhub_secret_ref=keyhub_secret_ref,
@@ -1183,7 +1183,7 @@ async def upload_lora_adapter(
 
 @router.post("/lora/{adapter_id}/activate")
 async def activate_lora_adapter(
-    tenant_id: str,
+    domain_id: str,
     adapter_id: str,
     user: UserContext = Depends(require_admin),
     orchestrator=Depends(get_lora_orchestrator),
@@ -1193,7 +1193,7 @@ async def activate_lora_adapter(
     KeyHub fetch → vLLM load → registry.activate 순서. vLLM 미운영(dev) 환경은
     registry 상태만 전이. retired→active는 400.
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     from app.services.lora_orchestrator import LoRAOrchestrationError
     from rag_core.interfaces.lora_registry import (
         LoRAInvalidTransitionError,
@@ -1202,7 +1202,7 @@ async def activate_lora_adapter(
 
     try:
         rec = await orchestrator.activate(
-            tenant_id=tenant_id, adapter_id=adapter_id
+            domain_id=domain_id, adapter_id=adapter_id
         )
     except LoRANotFoundError as exc:
         raise HTTPException(
@@ -1228,18 +1228,18 @@ async def activate_lora_adapter(
 
 @router.post("/lora/{adapter_id}/retire")
 async def retire_lora_adapter(
-    tenant_id: str,
+    domain_id: str,
     adapter_id: str,
     user: UserContext = Depends(require_admin),
     orchestrator=Depends(get_lora_orchestrator),
 ):
     """ADR-017 §14 — active|registered → retired. vLLM unload + idempotent."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     from rag_core.interfaces.lora_registry import LoRANotFoundError
 
     try:
         rec = await orchestrator.retire(
-            tenant_id=tenant_id, adapter_id=adapter_id
+            domain_id=domain_id, adapter_id=adapter_id
         )
     except LoRANotFoundError as exc:
         raise HTTPException(
@@ -1251,17 +1251,17 @@ async def retire_lora_adapter(
 
 @router.delete("/lora/{adapter_id}", status_code=204)
 async def delete_lora_adapter(
-    tenant_id: str,
+    domain_id: str,
     adapter_id: str,
     user: UserContext = Depends(require_admin),
     registry=Depends(get_lora_registry),
 ):
     """ADR-017 §14 — adapter row 삭제. active 상태면 409 (retire 후 삭제 필요)."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     from rag_core.interfaces.lora_registry import LoRADeleteForbiddenError
 
     try:
-        affected = await registry.delete(tenant_id=tenant_id, adapter_id=adapter_id)
+        affected = await registry.delete(domain_id=domain_id, adapter_id=adapter_id)
     except LoRADeleteForbiddenError as exc:
         raise HTTPException(
             status_code=409,
@@ -1301,15 +1301,15 @@ def _prompt_to_dict(record) -> dict[str, Any]:
 
 @router.get("/prompts")
 async def list_prompts(
-    tenant_id: str,
+    domain_id: str,
     user: UserContext = Depends(require_admin),
     service=Depends(get_prompt_studio_service),
 ):
     """ADR-017 §12 — 모든 task의 effective prompt 목록(task별 정렬)."""
-    await _ensure_tenant_match(tenant_id, user)
-    items = service.list_tasks(tenant_id)
+    await _ensure_tenant_match(domain_id, user)
+    items = service.list_tasks(domain_id)
     return {
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "items": [_prompt_to_dict(r) for r in items],
         "total": len(items),
     }
@@ -1317,7 +1317,7 @@ async def list_prompts(
 
 @router.get("/prompts/{task}")
 async def get_prompt(
-    tenant_id: str,
+    domain_id: str,
     task: str,
     version: str | None = Query(None),
     ab_slot: str | None = Query(None),
@@ -1325,8 +1325,8 @@ async def get_prompt(
     service=Depends(get_prompt_studio_service),
 ):
     """ADR-017 §12 — 특정 task의 effective prompt. version/ab_slot 미지정 시 첫 항목."""
-    await _ensure_tenant_match(tenant_id, user)
-    record = service.get_prompt(tenant_id, task, version, ab_slot)
+    await _ensure_tenant_match(domain_id, user)
+    record = service.get_prompt(domain_id, task, version, ab_slot)
     if record is None:
         raise HTTPException(
             status_code=404,
@@ -1343,7 +1343,7 @@ class PromptPatchRequest(BaseModel):
 
 @router.patch("/prompts/{task}/{version}/{ab_slot}")
 async def patch_prompt(
-    tenant_id: str,
+    domain_id: str,
     task: str,
     version: str,
     ab_slot: str,
@@ -1356,10 +1356,10 @@ async def patch_prompt(
     GenerationService 재구성은 follow-up — 본 endpoint는 PromptStudioService runtime
     override만 갱신한다.
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     try:
         change = service.patch(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             task=task, version=version, ab_slot=ab_slot,
             system=req.system, user=req.user,
             actor=user.user_id, reason=req.reason,
@@ -1372,7 +1372,7 @@ async def patch_prompt(
             ) from exc
         raise
     return {
-        "tenant_id": change.tenant_id,
+        "domain_id": change.domain_id,
         "task": change.task,
         "version": change.version,
         "ab_slot": change.ab_slot,
@@ -1393,7 +1393,7 @@ class PromptPreviewRequest(BaseModel):
 
 @router.post("/prompts/{task}/preview")
 async def preview_prompt(
-    tenant_id: str,
+    domain_id: str,
     task: str,
     req: PromptPreviewRequest,
     user: UserContext = Depends(require_admin),
@@ -1404,9 +1404,9 @@ async def preview_prompt(
     system/user 미지정 시 현재 effective 사용. invoke_llm=False면 sample_answer는
     null (랜더 결과만 검토).
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     result = await service.preview(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         task=task,
         system=req.system, user=req.user,
         sample_question=req.sample_question,
@@ -1419,7 +1419,7 @@ async def preview_prompt(
             detail={"error": "prompt_render_failed", "reason": result["render_error"]},
         )
     return {
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "task": task,
         "rendered_system": result["rendered_system"],
         "rendered_user": result["rendered_user"],
@@ -1434,7 +1434,7 @@ async def preview_prompt(
 
 @router.get("/routing")
 async def get_routing(
-    tenant_id: str,
+    domain_id: str,
     user: UserContext = Depends(require_admin),
 ):
     """ADR-017 §13 — 현재 effective routing.yaml dict.
@@ -1442,9 +1442,9 @@ async def get_routing(
     platform routing.yaml + tenant overrides.yaml + runtime override(ADR-009 §5
     DB→load 영구화 대기 동안) 합성 결과.
     """
-    await _ensure_tenant_match(tenant_id, user)
-    cfg = TenantConfigService.load(tenant_id)
-    return {"tenant_id": tenant_id, "routing": cfg.routing or {}}
+    await _ensure_tenant_match(domain_id, user)
+    cfg = TenantConfigService.load(domain_id)
+    return {"domain_id": domain_id, "routing": cfg.routing or {}}
 
 
 class RoutingPutRequest(BaseModel):
@@ -1454,7 +1454,7 @@ class RoutingPutRequest(BaseModel):
 
 @router.put("/routing")
 async def put_routing(
-    tenant_id: str,
+    domain_id: str,
     req: RoutingPutRequest,
     user: UserContext = Depends(require_admin),
     override_service=Depends(get_tenant_config_override_service),
@@ -1463,7 +1463,7 @@ async def put_routing(
 
     검증 실패 시 422 routing_schema_invalid + errors[]. 성공 시 200 + effective dict.
     """
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     try:
         validate_routing_yaml(req.value)
     except RoutingSchemaError as exc:
@@ -1474,15 +1474,15 @@ async def put_routing(
 
     # DB 영구화 (path="" → 전체 카테고리 단일 override)
     await override_service.patch(
-        tenant_id=tenant_id, category="routing", key="",
+        domain_id=domain_id, category="routing", key="",
         value=req.value,
         actor=user.user_id, is_platform_admin=user.is_platform_admin,
         reason=req.reason,
     )
     # 같은 프로세스 즉시 반영 (다음 chat 요청부터 새 routing 사용)
-    TenantConfigService.apply_runtime_override(tenant_id, "routing", req.value)
+    TenantConfigService.apply_runtime_override(domain_id, "routing", req.value)
 
-    return {"tenant_id": tenant_id, "routing": req.value}
+    return {"domain_id": domain_id, "routing": req.value}
 
 
 class RoutingDryRunRequest(BaseModel):
@@ -1498,7 +1498,7 @@ class RoutingDryRunRequest(BaseModel):
 
 @router.post("/routing/dryrun")
 async def dryrun_routing(
-    tenant_id: str,
+    domain_id: str,
     req: RoutingDryRunRequest,
     user: UserContext = Depends(require_admin),
 ):
@@ -1507,8 +1507,8 @@ async def dryrun_routing(
     routing_config 미지정 시 현재 effective config 사용 — Routing Rules Editor
     프리뷰 용도.
     """
-    await _ensure_tenant_match(tenant_id, user)
-    cfg = TenantConfigService.load(tenant_id)
+    await _ensure_tenant_match(domain_id, user)
+    cfg = TenantConfigService.load(domain_id)
     routing_cfg = req.routing_config if req.routing_config is not None else (cfg.routing or {})
     # routing_config가 주어졌으면 schema 검증
     if req.routing_config is not None:
@@ -1527,7 +1527,7 @@ async def dryrun_routing(
         retrieval_confidence=req.retrieval_confidence,
     )
     return {
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "sample_query": req.sample_query,
         "classifier_decision": req.classifier_decision,
         "decision": routing_decision_to_dict(decision),
@@ -1541,7 +1541,7 @@ async def dryrun_routing(
 
 @router.get("/citation-inspector/distribution")
 async def citation_distribution(
-    tenant_id: str,
+    domain_id: str,
     from_date: datetime | None = Query(None),
     to_date: datetime | None = Query(None),
     group_by: Literal["day", "hour"] = Query("day"),
@@ -1549,14 +1549,14 @@ async def citation_distribution(
     analytics=Depends(get_citation_distribution),
 ):
     """ADR-017 §9 — citation_type 분포 시계열 (date_trunc 버킷)."""
-    await _ensure_tenant_match(tenant_id, user)
+    await _ensure_tenant_match(domain_id, user)
     result = await analytics.distribution(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         from_date=from_date, to_date=to_date,
         group_by=group_by,
     )
     return {
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "granularity": result.granularity,
         "total_messages": result.total_messages,
         "from_date": iso_kst(result.from_date),
@@ -1569,7 +1569,7 @@ async def citation_distribution(
 
 @router.get("/citation-inspector/segments/{message_id}")
 async def citation_segments(
-    tenant_id: str,
+    domain_id: str,
     message_id: str,
     user: UserContext = Depends(require_admin),
     reader=Depends(get_chat_log_reader),
@@ -1580,8 +1580,8 @@ async def citation_segments(
     를 support_type별로 그룹화 + retrieved_chunks/verifier_metrics/conflict_groups/
     inference_judge_results를 함께 노출.
     """
-    await _ensure_tenant_match(tenant_id, user)
-    record = await reader.get(tenant_id=tenant_id, request_id=message_id)
+    await _ensure_tenant_match(domain_id, user)
+    record = await reader.get(domain_id=domain_id, request_id=message_id)
     if record is None:
         raise HTTPException(
             status_code=404,
@@ -1592,7 +1592,7 @@ async def citation_segments(
         st = c.get("support_type") or "direct"
         citations_by_type.setdefault(st, []).append(c)
     return {
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "message_id": message_id,
         "question": record.question,
         "answer": record.answer,
@@ -1618,7 +1618,7 @@ class ReverifyRequest(BaseModel):
 
 @router.post("/citation-inspector/reverify")
 async def citation_reverify(
-    tenant_id: str,
+    domain_id: str,
     req: ReverifyRequest,
     user: UserContext = Depends(require_admin),
     service=Depends(get_citation_reverify_service),
@@ -1630,14 +1630,14 @@ async def citation_reverify(
     chat_logs.citations + verifier_metrics(reverified_at/by/tier2_avg_similarity)
     UPDATE. 운영 cap: max_records (default 100, 최대 500).
     """
-    await _ensure_tenant_match(tenant_id, user)
-    cfg = TenantConfigService.load(tenant_id)
+    await _ensure_tenant_match(domain_id, user)
+    cfg = TenantConfigService.load(domain_id)
     tier2 = ((cfg.citation or {}).get("verification") or {}).get("tier2") or {}
     thresholds = tier2.get("thresholds") or {}
     from rag_core.services.citation_reverifier import ReverifyThresholds
 
     summary = await service.reverify(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         actor=user.user_id,
         from_date=req.from_date,
         to_date=req.to_date,
@@ -1648,7 +1648,7 @@ async def citation_reverify(
         max_records=req.max_records,
     )
     return {
-        "tenant_id": summary.tenant_id,
+        "domain_id": summary.domain_id,
         "from_date": iso_kst(summary.from_date),
         "to_date": iso_kst(summary.to_date),
         "scanned": summary.scanned,
@@ -1669,7 +1669,7 @@ async def citation_reverify(
 
 @router.get("/dashboard")
 async def dashboard(
-    tenant_id: str,
+    domain_id: str,
     user: UserContext = Depends(require_admin),
     analytics=Depends(get_dashboard_analytics),
 ):
@@ -1680,10 +1680,10 @@ async def dashboard(
     negative_feedback_rate / citation_type_distribution / fallback_distribution /
     routing_distribution.
     """
-    await _ensure_tenant_match(tenant_id, user)
-    snap = await analytics.get_snapshot(tenant_id=tenant_id)
+    await _ensure_tenant_match(domain_id, user)
+    snap = await analytics.get_snapshot(domain_id=domain_id)
     return {
-        "tenant_id": tenant_id,
+        "domain_id": domain_id,
         "total_documents": snap.total_documents,
         "total_chunks": snap.total_chunks,
         "uploaded_today": snap.uploaded_today,
@@ -1762,7 +1762,7 @@ def _job_to_dict(job) -> dict[str, Any]:
         return iso_kst(v)
     return {
         "job_id": job.job_id,
-        "tenant_id": job.tenant_id,
+        "domain_id": job.domain_id,
         "doc_id": job.doc_id,
         "doc_version": job.doc_version,
         "filename": job.filename,

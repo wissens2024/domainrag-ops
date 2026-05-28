@@ -13,7 +13,7 @@ export type SupportLevel = 'strong' | 'medium' | 'weak';
 export interface Citation {
   citation_id: string;
   marker: string;
-  tenant_id: string;
+  domain_id: string;
   support_type: SupportType;
   support_level: SupportLevel;
   verified: boolean;
@@ -120,13 +120,41 @@ export type ChatResponse = ChatSuccessResponse | ChatFallbackResponse;
 
 export interface UserContext {
   user_id: string;
-  tenant_id: string;
+  domain_id: string;
   roles: string[];
+  is_admin: boolean;
+  is_auditor?: boolean;
+  is_platform_admin: boolean;
   clearance: string;
   department: string | null;
   domain_groups: string[];
   preferred_username?: string;
   email?: string;
+}
+
+// ADR-022 §7 — 도메인 switcher. /api/auth/me/domains 응답.
+export type DomainAccess = 'global' | 'member' | 'open';
+
+export interface AccessibleDomain {
+  domain_id: string;
+  display_name: string;
+  enrollment_policy: string;
+  access: DomainAccess;
+}
+
+export interface MyDomainsResult {
+  items: AccessibleDomain[];
+  is_global: boolean;
+}
+
+// ADR-022 §3 — 도메인 관리 화면: 한 도메인에 배정된 사용자.
+export interface DomainMember {
+  user_id: string;
+  domain_id: string;
+  clearance: string;
+  department: string | null;
+  domain_groups: string[];
+  is_active: boolean;
 }
 
 // ----------------------------------------------------------------------------
@@ -404,7 +432,7 @@ export type LoRAStatus = 'registered' | 'active' | 'retired';
 
 export interface AdapterRecord {
   adapter_id: string;
-  tenant_id: string;
+  domain_id: string;
   version: string | null;
   base_model: string | null;
   status: LoRAStatus;
@@ -476,7 +504,7 @@ export type AssessmentQualityStatus = 'draft' | 'reviewed' | 'approved' | 'retir
 
 export interface AssessmentItem {
   item_id: string;
-  tenant_id: string;
+  domain_id: string;
   subject: string;
   chapter: string | null;
   difficulty: string | null;
@@ -526,7 +554,7 @@ export interface AssessmentAnalytics {
 export type TenantStatus = 'active' | 'suspended' | 'archived' | 'deleted';
 
 export interface TenantRow {
-  tenant_id: string;
+  domain_id: string;
   display_name: string;
   domain_type: string;
   embedding_model: string;
@@ -555,7 +583,7 @@ export interface EndpointHealthRow {
 }
 
 export interface PlatformUsageRow {
-  tenant_id: string;
+  domain_id: string;
   messages: number;
   fallbacks: number;
   avg_latency_ms: number;
@@ -566,7 +594,7 @@ export interface PlatformUsageRow {
 // ----------------------------------------------------------------------------
 
 export interface DashboardSnapshot {
-  tenant_id: string;
+  domain_id: string;
   total_documents: number;
   total_chunks: number;
   uploaded_today: number;

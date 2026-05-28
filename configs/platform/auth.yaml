@@ -47,7 +47,7 @@ oidc:
   #   domainrag-ops-admin / domainrag-ops-auditor / domainrag-ops-user
   rp_slug: domainrag-ops
 
-  # client_id ≡ tenant_id 매핑 (ADR-018 §1)
+  # client_id ≡ domain_id 매핑 (ADR-018 §1)
   # AuthFusion에서 client_id는 UUID로 발급되므로 매번 본 mapping table을 lookup.
   # 신규 tenant 등록 시 이 매핑에 자동 추가 (tenant_register.sh + AuthFusion Admin API).
   #
@@ -63,11 +63,11 @@ oidc:
   # Service account (시스템 호출용 — ADR-018 §7)
   service_accounts:
     service-domainrag-eval:
-      tenant_id: platform
+      domain_id: platform
       roles: ["SERVICE", "EVALUATION"]
       clearance: confidential
     service-domainrag-indexer:
-      tenant_id: platform                # 모든 tenant 색인 가능 (BYPASSRLS)
+      domain_id: platform                # 모든 tenant 색인 가능 (BYPASSRLS)
       roles: ["SERVICE", "INDEXER"]
       clearance: secret
 

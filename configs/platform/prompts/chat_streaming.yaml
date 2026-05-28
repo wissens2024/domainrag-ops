@@ -2,7 +2,7 @@
 # Chat Streaming Prompt (ADR-013 §6.2 — free chat / no RAG / no citation)
 # ============================================================================
 # task: chat_streaming
-# tenant overrides: configs/tenants/<tenant_id>/prompts/chat_streaming.yaml
+# tenant overrides: configs/tenants/<domain_id>/prompts/chat_streaming.yaml
 
 name: chat_streaming
 version: v1

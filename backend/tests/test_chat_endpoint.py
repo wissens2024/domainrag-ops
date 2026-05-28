@@ -1,4 +1,4 @@
-"""POST /api/{tenant_id}/chat — chat_structured slice 통합 테스트.
+"""POST /api/{domain_id}/chat — chat_structured slice 통합 테스트.
 
 env 고정: AUTH_MODE=mock + RAG_BACKEND=inmemory (conftest.py).
 DB·Qdrant·vLLM 의존 없이 동작해야 한다.
@@ -35,7 +35,7 @@ def test_chat_returns_structured_answer():
     assert len(body["citations"]) >= 1
     # ADR-017 §3.1 citation 객체 핵심 필드 + verifier 결선 결과
     cite = body["citations"][0]
-    assert cite["tenant_id"] == "security"
+    assert cite["domain_id"] == "security"
     assert cite["marker"].startswith("[")
     assert cite["claim_text"]
     assert cite["support_level"] in {"strong", "medium"}

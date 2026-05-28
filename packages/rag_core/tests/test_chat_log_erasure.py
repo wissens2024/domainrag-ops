@@ -9,9 +9,9 @@ from rag_core.services.chat_log_erasure import (
 from rag_core.services.chat_log_writer import ChatLogPayload, InMemoryChatLogWriter
 
 
-def _payload(*, tenant_id: str, user_id: str | None, question: str) -> ChatLogPayload:
+def _payload(*, domain_id: str, user_id: str | None, question: str) -> ChatLogPayload:
     return ChatLogPayload(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         request_id=f"req-{question}",
         user_id=user_id,
         conversation_id=None,
@@ -27,10 +27,10 @@ def _payload(*, tenant_id: str, user_id: str | None, question: str) -> ChatLogPa
 
 
 async def _seed(writer: InMemoryChatLogWriter) -> None:
-    await writer.write(_payload(tenant_id="t1", user_id="u-alice", question="q1"))
-    await writer.write(_payload(tenant_id="t1", user_id="u-alice", question="q2"))
-    await writer.write(_payload(tenant_id="t1", user_id="u-bob", question="q3"))
-    await writer.write(_payload(tenant_id="t2", user_id="u-alice", question="q4"))
+    await writer.write(_payload(domain_id="t1", user_id="u-alice", question="q1"))
+    await writer.write(_payload(domain_id="t1", user_id="u-alice", question="q2"))
+    await writer.write(_payload(domain_id="t1", user_id="u-bob", question="q3"))
+    await writer.write(_payload(domain_id="t2", user_id="u-alice", question="q4"))
 
 
 async def test_mask_only_preserves_other_users_and_other_tenants():
@@ -39,7 +39,7 @@ async def test_mask_only_preserves_other_users_and_other_tenants():
     eraser = InMemoryChatLogEraser(writer=writer)
 
     result = await eraser.erase_my_logs(
-        tenant_id="t1",
+        domain_id="t1",
         user_id="u-alice",
         mode=ErasureMode.MASK_ONLY,
         reason="user request",
@@ -49,7 +49,7 @@ async def test_mask_only_preserves_other_users_and_other_tenants():
     assert result.mode == ErasureMode.MASK_ONLY
 
     # u-alice / t1 logs는 마스킹 적용. user_id NULL, question/answer NULL.
-    alice_t1 = [r for r in writer.records if r.tenant_id == "t1" and r.user_id is None]
+    alice_t1 = [r for r in writer.records if r.domain_id == "t1" and r.user_id is None]
     assert len(alice_t1) == 2
     for r in alice_t1:
         assert r.question is None
@@ -69,7 +69,7 @@ async def test_mask_only_preserves_other_users_and_other_tenants():
     assert bob[0].question == "q3"
 
     # 다른 tenant의 u-alice도 보존
-    alice_t2 = [r for r in writer.records if r.tenant_id == "t2"]
+    alice_t2 = [r for r in writer.records if r.domain_id == "t2"]
     assert len(alice_t2) == 1
     assert alice_t2[0].user_id == "u-alice"
     assert alice_t2[0].question == "q4"
@@ -81,7 +81,7 @@ async def test_hard_delete_removes_rows():
     eraser = InMemoryChatLogEraser(writer=writer)
 
     result = await eraser.erase_my_logs(
-        tenant_id="t1",
+        domain_id="t1",
         user_id="u-alice",
         mode=ErasureMode.HARD_DELETE,
         reason="hard purge",
@@ -90,7 +90,7 @@ async def test_hard_delete_removes_rows():
     assert result.affected_rows == 2
     assert result.mode == ErasureMode.HARD_DELETE
     assert all(
-        not (r.tenant_id == "t1" and r.user_id == "u-alice") for r in writer.records
+        not (r.domain_id == "t1" and r.user_id == "u-alice") for r in writer.records
     )
     # u-bob t1 + u-alice t2 = 2건 남음
     assert len(writer.records) == 2
@@ -102,7 +102,7 @@ async def test_erase_with_no_matches_returns_zero():
     eraser = InMemoryChatLogEraser(writer=writer)
 
     result = await eraser.erase_my_logs(
-        tenant_id="t1",
+        domain_id="t1",
         user_id="u-charlie",
         mode=ErasureMode.MASK_ONLY,
         reason="no match",

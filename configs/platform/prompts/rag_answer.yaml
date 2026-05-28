@@ -2,7 +2,7 @@
 # RAG Answer Prompt (ADR-010 §2 hybrid structured)
 # ============================================================================
 # task: chat_answer
-# tenant overrides: configs/tenants/<tenant_id>/prompts/chat_answer.yaml
+# tenant overrides: configs/tenants/<domain_id>/prompts/chat_answer.yaml
 
 name: chat_answer
 version: v1

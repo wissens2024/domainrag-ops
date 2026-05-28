@@ -10,6 +10,7 @@ MockAuthAdapter는 ADR-018 §9에 따라 `backend/tests/_fixtures/mock_auth.py`�
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
@@ -25,13 +26,15 @@ from app.core.auth_config import AuthConfig, AuthConfigLoader
 from app.core.config import Settings, get_settings
 from app.core.jwks_client import JWKSClient, JWKSFetchError
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class UserContext:
     """ADR-018 §5 — JWT 검증 후 빌드되는 사용자 컨텍스트."""
 
     user_id: str  # AuthFusion sub
-    tenant_id: str  # DomainRAG tenant (client_id 매핑)
+    domain_id: str  # DomainRAG tenant (client_id 매핑)
     roles: list[str] = field(default_factory=list)
     clearance: str = "internal"  # ADR-004
     department: str | None = None
@@ -49,6 +52,11 @@ class UserContext:
         return "ADMIN" in self.roles or self.is_platform_admin
 
     @property
+    def is_auditor(self) -> bool:
+        """ADR-022 §3 — 전역 read-only 감사 역할 (모든 도메인 조회, 쓰기 불가)."""
+        return "AUDITOR" in self.roles
+
+    @property
     def is_service_account(self) -> bool:
         return "SERVICE" in self.roles
 
@@ -57,7 +65,7 @@ class AuthAdapter(Protocol):
     """ADR-008 §7 Protocol stub의 구체 인터페이스."""
 
     async def verify_and_extract(
-        self, bearer_token: str, expected_tenant_id: str
+        self, bearer_token: str, expected_domain_id: str
     ) -> UserContext: ...
 
 
@@ -97,7 +105,7 @@ class AuthFusionAdapter:
     async def _publish_auth_failure(
         self,
         *,
-        expected_tenant_id: str,
+        expected_domain_id: str,
         error: str,
         actor: str | None = None,
         details: dict[str, Any] | None = None,
@@ -106,7 +114,7 @@ class AuthFusionAdapter:
             return
         try:
             await self._ledger.publish_auth_failure(
-                tenant_id=expected_tenant_id,
+                domain_id=expected_domain_id,
                 actor=actor,
                 reason=error,
                 details=dict(details or {}),
@@ -117,7 +125,7 @@ class AuthFusionAdapter:
     async def _publish_tenant_mismatch(
         self,
         *,
-        expected_tenant_id: str,
+        expected_domain_id: str,
         token_tenant: str | None,
         actor: str | None,
     ) -> None:
@@ -125,21 +133,21 @@ class AuthFusionAdapter:
             return
         try:
             await self._ledger.publish_tenant_mismatch(
-                tenant_id=expected_tenant_id,
+                domain_id=expected_domain_id,
                 actor=actor,
-                expected_tenant=expected_tenant_id,
+                expected_tenant=expected_domain_id,
                 token_tenant=token_tenant,
             )
         except Exception:  # noqa: BLE001
             pass
 
     async def verify_and_extract(
-        self, bearer_token: str, expected_tenant_id: str
+        self, bearer_token: str, expected_domain_id: str
     ) -> UserContext:
         token = (bearer_token or "").strip()
         if not token:
             await self._publish_auth_failure(
-                expected_tenant_id=expected_tenant_id, error="missing_bearer_token"
+                expected_domain_id=expected_domain_id, error="missing_bearer_token"
             )
             raise HTTPException(status_code=401, detail={"error": "missing_bearer_token"})
 
@@ -148,7 +156,7 @@ class AuthFusionAdapter:
             header = jwt.get_unverified_header(token)
         except JWTError as exc:
             await self._publish_auth_failure(
-                expected_tenant_id=expected_tenant_id,
+                expected_domain_id=expected_domain_id,
                 error="invalid_token_header",
                 details={"reason": str(exc)},
             )
@@ -158,7 +166,7 @@ class AuthFusionAdapter:
         kid = header.get("kid")
         if not kid:
             await self._publish_auth_failure(
-                expected_tenant_id=expected_tenant_id, error="missing_kid"
+                expected_domain_id=expected_domain_id, error="missing_kid"
             )
             raise HTTPException(status_code=401, detail={"error": "missing_kid"})
 
@@ -186,7 +194,7 @@ class AuthFusionAdapter:
             )
         except JWTError as exc:
             await self._publish_auth_failure(
-                expected_tenant_id=expected_tenant_id,
+                expected_domain_id=expected_domain_id,
                 error="invalid_token",
                 details={"reason": str(exc)},
             )
@@ -195,16 +203,9 @@ class AuthFusionAdapter:
             ) from exc
 
         client_id = claims.get("client_id") or claims.get("azp")
-        print(
-            f"[DIAG] verify_and_extract — expected={expected_tenant_id!r} "
-            f"client_id={client_id!r} sub={claims.get('sub')!r} "
-            f"roles={claims.get('roles')!r} "
-            f"map={self.auth_config.client_tenant_map.get(client_id) if client_id else None}",
-            flush=True,
-        )
         if not client_id:
             await self._publish_auth_failure(
-                expected_tenant_id=expected_tenant_id,
+                expected_domain_id=expected_domain_id,
                 error="missing_client_id_claim",
                 actor=claims.get("sub"),
             )
@@ -228,38 +229,38 @@ class AuthFusionAdapter:
         # 4) Service account vs 일반 user
         sa = self.auth_config.service_accounts.get(client_id)
         if sa is not None or "SERVICE" in roles:
-            # service account: tenant_id 매핑 + clearance/role 확정
+            # service account: domain_id 매핑 + clearance/role 확정
             if sa is not None:
-                token_tenant_id = sa.tenant_id
+                token_domain_id = sa.domain_id
                 merged_roles = list(dict.fromkeys([*roles, *sa.roles]))
                 clearance = sa.clearance
             else:
                 # SERVICE role인데 service_accounts 매핑 미등록 — 보수적으로 fallback
-                token_tenant_id = self.auth_config.client_id_to_tenant_id(
-                    client_id, expected_tenant_id
+                token_domain_id = self.auth_config.client_id_to_domain_id(
+                    client_id, expected_domain_id
                 )
                 merged_roles = roles
                 clearance = "internal"
 
-            # service account의 tenant_id="platform"은 모든 tenant 호출 허용
-            if token_tenant_id != "platform" and token_tenant_id != expected_tenant_id:
+            # service account의 domain_id="platform"은 모든 tenant 호출 허용
+            if token_domain_id != "platform" and token_domain_id != expected_domain_id:
                 await self._publish_tenant_mismatch(
-                    expected_tenant_id=expected_tenant_id,
-                    token_tenant=token_tenant_id,
+                    expected_domain_id=expected_domain_id,
+                    token_tenant=token_domain_id,
                     actor=claims.get("sub", client_id),
                 )
                 raise HTTPException(
                     status_code=403,
                     detail={
                         "error": "tenant_mismatch",
-                        "token_tenant_id": token_tenant_id,
-                        "expected_tenant_id": expected_tenant_id,
+                        "token_domain_id": token_domain_id,
+                        "expected_domain_id": expected_domain_id,
                     },
                 )
 
             return UserContext(
                 user_id=claims.get("sub", client_id),
-                tenant_id=expected_tenant_id,
+                domain_id=expected_domain_id,
                 roles=merged_roles,
                 clearance=clearance,
                 department=None,
@@ -269,17 +270,17 @@ class AuthFusionAdapter:
                 raw_claims=claims,
             )
 
-        # 일반 user: client_id → tenant_id 매핑 (single-client multi-tenant 시
-        # expected_tenant_id가 map[client_id] list에 있으면 expected를 신뢰).
-        # expected_tenant_id == "__platform__" sentinel은 platform admin 경로 —
+        # 일반 user: client_id → domain_id 매핑 (single-client multi-tenant 시
+        # expected_domain_id가 map[client_id] list에 있으면 expected를 신뢰).
+        # expected_domain_id == "__platform__" sentinel은 platform admin 경로 —
         # tenant mismatch 검증 skip (role 검증은 require_platform_admin이 담당).
-        token_tenant_id = self.auth_config.client_id_to_tenant_id(
-            client_id, expected_tenant_id
+        token_domain_id = self.auth_config.client_id_to_domain_id(
+            client_id, expected_domain_id
         )
-        if expected_tenant_id == "__platform__":
+        if expected_domain_id == "__platform__":
             return UserContext(
                 user_id=claims.get("sub", client_id),
-                tenant_id=token_tenant_id,
+                domain_id=token_domain_id,
                 roles=roles,
                 clearance=claims.get("clearance", "internal"),
                 department=claims.get("department"),
@@ -288,26 +289,26 @@ class AuthFusionAdapter:
                 email=claims.get("email"),
                 raw_claims=claims,
             )
-        if token_tenant_id != expected_tenant_id:
+        if token_domain_id != expected_domain_id:
             logger.warning(
                 "verify_and_extract tenant_mismatch — client_id=%s expected=%s "
                 "token_tenant=%s map=%s",
                 client_id,
-                expected_tenant_id,
-                token_tenant_id,
+                expected_domain_id,
+                token_domain_id,
                 self.auth_config.client_tenant_map.get(client_id),
             )
             await self._publish_tenant_mismatch(
-                expected_tenant_id=expected_tenant_id,
-                token_tenant=token_tenant_id,
+                expected_domain_id=expected_domain_id,
+                token_tenant=token_domain_id,
                 actor=claims.get("sub", client_id),
             )
             raise HTTPException(
                 status_code=403,
                 detail={
                     "error": "tenant_mismatch",
-                    "token_tenant_id": token_tenant_id,
-                    "expected_tenant_id": expected_tenant_id,
+                    "token_domain_id": token_domain_id,
+                    "expected_domain_id": expected_domain_id,
                 },
             )
 
@@ -321,7 +322,7 @@ class AuthFusionAdapter:
             and claims.get("email_verified") is not True
         ):
             await self._publish_auth_failure(
-                expected_tenant_id=expected_tenant_id,
+                expected_domain_id=expected_domain_id,
                 error="email_not_verified",
                 actor=claims.get("sub"),
             )
@@ -330,41 +331,51 @@ class AuthFusionAdapter:
                 detail={"error": "email_not_verified"},
             )
 
-        # 6) user_tenant_membership 조회로 clearance/department/domain_groups 보강
+        # 6) user_tenant_membership 조회로 clearance/department/domain_groups 보강.
+        #    전역 역할(admin/auditor/platform_admin)은 membership 없이 통과 (ADR-022 §3).
         sub = claims.get("sub")
         if not sub:
             await self._publish_auth_failure(
-                expected_tenant_id=expected_tenant_id, error="missing_sub_claim",
+                expected_domain_id=expected_domain_id, error="missing_sub_claim",
             )
             raise HTTPException(status_code=401, detail={"error": "missing_sub_claim"})
 
-        try:
-            membership = await self._load_membership(sub, expected_tenant_id)
-        except Exception as exc:
-            print(f"[DIAG] _load_membership EXCEPTION: {exc!r}", flush=True)
-            raise
-        print(
-            f"[DIAG] membership lookup sub={sub!r} tenant={expected_tenant_id!r} "
-            f"result={membership!r}",
-            flush=True,
-        )
+        membership = await self._load_membership(sub, expected_domain_id)
         if membership is None:
-            await self._publish_auth_failure(
-                expected_tenant_id=expected_tenant_id,
-                error="no_tenant_membership",
-                actor=sub,
-            )
-            # 멤버십 미등록 = 해당 tenant 접근 권한 없음
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error": "no_tenant_membership",
-                    "tenant_id": expected_tenant_id,
-                },
-            )
+            # 전역 역할은 모든 도메인 접근 (ADR-022 §3): admin/platform_admin=관리,
+            # auditor=read-only. 기본 clearance=secret(전체 문서 가시). membership row가
+            # 존재하면 그 값을 우선한다(더 구체적).
+            is_global = bool({"ADMIN", "AUDITOR", "PLATFORM_ADMIN"} & set(roles))
+            if is_global:
+                membership = {
+                    "clearance": "secret",
+                    "department": None,
+                    "domain_groups": [],
+                }
+            else:
+                # 일반 user. open 도메인이면 JIT membership 생성(ADR-022 §4), 아니면 403.
+                enrollment = await self._load_tenant_enrollment(expected_domain_id)
+                if enrollment == "open":
+                    membership = await self._create_jit_membership(
+                        sub, expected_domain_id
+                    )
+                else:
+                    await self._publish_auth_failure(
+                        expected_domain_id=expected_domain_id,
+                        error="no_tenant_membership",
+                        actor=sub,
+                    )
+                    # assigned 도메인 + membership 미등록 = 접근 권한 없음
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "error": "no_tenant_membership",
+                            "domain_id": expected_domain_id,
+                        },
+                    )
 
         # tenant 별 추가 admin role
-        extra_admin_roles = self.auth_config.extra_admin_roles(expected_tenant_id)
+        extra_admin_roles = self.auth_config.extra_admin_roles(expected_domain_id)
         if extra_admin_roles and "ADMIN" not in roles:
             for r in extra_admin_roles:
                 if r in roles:
@@ -373,7 +384,7 @@ class AuthFusionAdapter:
 
         return UserContext(
             user_id=sub,
-            tenant_id=expected_tenant_id,
+            domain_id=expected_domain_id,
             roles=roles,
             clearance=membership["clearance"],
             department=membership.get("department"),
@@ -384,7 +395,7 @@ class AuthFusionAdapter:
         )
 
     async def _load_membership(
-        self, user_id: str, tenant_id: str
+        self, user_id: str, domain_id: str
     ) -> dict[str, Any] | None:
         if self.session_factory is None:
             # session 미주입 — DB 조회 불가. 운영에서는 사용 불가.
@@ -399,7 +410,7 @@ class AuthFusionAdapter:
                 select(UserTenantMembership)
                 .where(
                     UserTenantMembership.user_id == user_id,
-                    UserTenantMembership.tenant_id == tenant_id,
+                    UserTenantMembership.domain_id == domain_id,
                     UserTenantMembership.is_active.is_(True),
                 )
                 .limit(1)
@@ -413,6 +424,62 @@ class AuthFusionAdapter:
                 "department": row.department,
                 "domain_groups": row.domain_groups or [],
             }
+
+    async def _load_tenant_enrollment(self, domain_id: str) -> str | None:
+        """ADR-022 §4 — 도메인의 enrollment_policy 조회 (open|assigned). 없으면 None."""
+        if self.session_factory is None:
+            return None
+        from sqlalchemy import text
+
+        async with self.session_factory() as session:
+            row = (
+                await session.execute(
+                    text(
+                        "SELECT enrollment_policy FROM tenants "
+                        "WHERE domain_id = :tid AND status = 'active'"
+                    ),
+                    {"tid": domain_id},
+                )
+            ).first()
+        return row[0] if row else None
+
+    async def _create_jit_membership(
+        self, user_id: str, domain_id: str
+    ) -> dict[str, Any]:
+        """ADR-022 §4 — open 도메인 첫 진입 시 기본 membership(USER/internal) 자동 생성.
+
+        모든 접근이 단일 membership 경로로 흐르게 해 감사·revoke 일관성을 유지한다.
+        persist 실패는 best-effort로 swallow하고 이번 요청은 기본값으로 통과시킨다.
+        """
+        default = {
+            "clearance": "internal",
+            "department": None,
+            "domain_groups": [],
+        }
+        if self.session_factory is None:
+            return default
+        from sqlalchemy import text
+
+        try:
+            async with self.session_factory() as session:
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO user_tenant_membership
+                            (user_id, domain_id, clearance, domain_groups, is_active)
+                        VALUES (:uid, :tid, 'internal', '[]'::jsonb, TRUE)
+                        ON CONFLICT (user_id, domain_id) DO UPDATE SET is_active = TRUE
+                        """
+                    ),
+                    {"uid": user_id, "tid": domain_id},
+                )
+                await session.commit()
+        except Exception as exc:  # noqa: BLE001 — persist 실패해도 open 도메인 접근은 허용
+            logger.warning(
+                "JIT membership persist failed (user=%s tenant=%s): %s",
+                user_id, domain_id, exc,
+            )
+        return default
 
 
 # ---------------------------------------------------------------------------
@@ -482,16 +549,16 @@ async def get_user_context_no_tenant(
 
 async def get_user_context(
     request: Request,
-    tenant_id: str,
+    domain_id: str,
     adapter: AuthAdapter = Depends(get_auth_adapter),
 ) -> UserContext:
-    """모든 `/api/{tenant_id}/...` endpoint의 dependency.
+    """모든 `/api/{domain_id}/...` endpoint의 dependency.
 
     Token source 우선순위 (ADR-018 §6):
       1. Authorization: Bearer ... 헤더 (service-to-service / 명시적 SDK)
       2. httpOnly cookie `domainrag_access` (브라우저 + frontend SPA)
 
-    둘 다 없으면 401. 검증된 token의 tenant_id가 URL path tenant_id와
+    둘 다 없으면 401. 검증된 token의 domain_id가 URL path domain_id와
     mismatch면 403 (ADR-008 격리 3중 방어).
     """
     token = ""
@@ -503,4 +570,4 @@ async def get_user_context(
     if not token:
         raise HTTPException(status_code=401, detail={"error": "missing_bearer_token"})
 
-    return await adapter.verify_and_extract(token, tenant_id)
+    return await adapter.verify_and_extract(token, domain_id)

@@ -106,9 +106,9 @@ def test_app_role_can_insert_chat_log_with_rls_context(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO tenants (tenant_id, name, status)
+                INSERT INTO tenants (domain_id, name, status)
                 VALUES ('t-integration', 'Integration Test', 'active')
-                ON CONFLICT (tenant_id) DO NOTHING
+                ON CONFLICT (domain_id) DO NOTHING
                 """
             )
 
@@ -117,11 +117,11 @@ def test_app_role_can_insert_chat_log_with_rls_context(
     payload_citations = json.dumps([{"chunk_id": "c1", "marker": "[1]"}])
     with psycopg.connect(app_dsn, autocommit=False) as conn:
         with conn.cursor() as cur:
-            cur.execute("SET LOCAL app.current_tenant = 't-integration'")
+            cur.execute("SET LOCAL app.current_domain = 't-integration'")
             cur.execute(
                 """
                 INSERT INTO chat_logs (
-                    tenant_id, request_id, user_id, question, answer,
+                    domain_id, request_id, user_id, question, answer,
                     citations, citation_types, latency_ms, ui_mode, confidence
                 )
                 VALUES (
@@ -137,10 +137,10 @@ def test_app_role_can_insert_chat_log_with_rls_context(
     # 같은 tenant context로 SELECT — 1건 보임
     with psycopg.connect(app_dsn, autocommit=False) as conn:
         with conn.cursor() as cur:
-            cur.execute("SET LOCAL app.current_tenant = 't-integration'")
+            cur.execute("SET LOCAL app.current_domain = 't-integration'")
             cur.execute(
                 "SELECT request_id, citations FROM chat_logs "
-                "WHERE tenant_id = 't-integration'"
+                "WHERE domain_id = 't-integration'"
             )
             rows = cur.fetchall()
     assert len(rows) >= 1
@@ -157,16 +157,16 @@ def test_app_role_rls_blocks_cross_tenant(alembic_upgraded, admin_dsn, app_dsn):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO tenants (tenant_id, name, status)
+                INSERT INTO tenants (domain_id, name, status)
                 VALUES ('t-other-rls', 'Other RLS', 'active')
-                ON CONFLICT (tenant_id) DO NOTHING
+                ON CONFLICT (domain_id) DO NOTHING
                 """
             )
 
     # 't-other-rls' context — t-integration의 row는 안 보여야 함
     with psycopg.connect(app_dsn, autocommit=False) as conn:
         with conn.cursor() as cur:
-            cur.execute("SET LOCAL app.current_tenant = 't-other-rls'")
+            cur.execute("SET LOCAL app.current_domain = 't-other-rls'")
             cur.execute("SELECT COUNT(*) FROM chat_logs")
             count = cur.fetchone()[0]
     assert count == 0
@@ -178,7 +178,7 @@ def test_admin_role_bypasses_rls(alembic_upgraded, admin_dsn):
 
     with psycopg.connect(admin_dsn) as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT tenant_id, COUNT(*) FROM chat_logs GROUP BY tenant_id")
+            cur.execute("SELECT domain_id, COUNT(*) FROM chat_logs GROUP BY domain_id")
             rows = cur.fetchall()
     # 위 test가 't-integration'에 INSERT했으므로 보이거나 admin이 BYPASSRLS임을 다른
     # 방법으로 확인. RLS 정책상 admin은 context 미설정으로도 조회 가능.
@@ -195,9 +195,9 @@ def test_migration_009_notify_payload_is_4field(alembic_upgraded, admin_dsn, app
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO tenants (tenant_id, name, status)
+                INSERT INTO tenants (domain_id, name, status)
                 VALUES ('t-config-test', 'Config Test', 'active')
-                ON CONFLICT (tenant_id) DO NOTHING
+                ON CONFLICT (domain_id) DO NOTHING
                 """
             )
 
@@ -212,16 +212,16 @@ def test_migration_009_notify_payload_is_4field(alembic_upgraded, admin_dsn, app
         # 별도 connection으로 INSERT — trigger 발사
         with psycopg.connect(app_dsn, autocommit=True) as conn:
             with conn.cursor() as cur:
-                cur.execute("SET LOCAL app.current_tenant = 't-config-test'")
+                cur.execute("SET LOCAL app.current_domain = 't-config-test'")
                 cur.execute(
                     """
                     INSERT INTO tenant_config_overrides (
-                        tenant_id, category, path, value, schema_version_at_write, author
+                        domain_id, category, path, value, schema_version_at_write, author
                     ) VALUES (
                         't-config-test', 'routing', 'verification.tier2.strong',
                         '0.78'::jsonb, 2, 'integration_test'
                     )
-                    ON CONFLICT (tenant_id, category, path) DO UPDATE
+                    ON CONFLICT (domain_id, category, path) DO UPDATE
                         SET value = EXCLUDED.value
                     """
                 )
@@ -232,8 +232,8 @@ def test_migration_009_notify_payload_is_4field(alembic_upgraded, admin_dsn, app
         notifies = list(listener.notifies)
         assert len(notifies) >= 1, "tenant_config_changed NOTIFY 미발사"
         payload = json.loads(notifies[0].payload)
-        # ADR-021 §2: 4-field (tenant_id, category, key, schema_version)
-        assert payload["tenant_id"] == "t-config-test"
+        # ADR-021 §2: 4-field (domain_id, category, key, schema_version)
+        assert payload["domain_id"] == "t-config-test"
         assert payload["category"] == "routing"
         assert payload["key"] == "verification.tier2.strong"
         assert payload["schema_version"] == 2
@@ -253,7 +253,7 @@ def test_migration_010_tenant_register_failures_table(alembic_upgraded, admin_ds
     )
     cols = {r[0] for r in rows}
     expected = {
-        "id", "tenant_id", "failed_step", "error_message",
+        "id", "domain_id", "failed_step", "error_message",
         "rollback_succeeded", "details", "created_at",
         "resolved_at", "resolved_by", "resolution_note",
     }

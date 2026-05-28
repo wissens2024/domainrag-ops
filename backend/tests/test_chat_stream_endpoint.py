@@ -1,4 +1,4 @@
-"""POST /api/{tenant_id}/chat/stream — SSE chat_streaming endpoint 통합 테스트.
+"""POST /api/{domain_id}/chat/stream — SSE chat_streaming endpoint 통합 테스트.
 
 env 고정: AUTH_MODE=mock + RAG_BACKEND=inmemory (conftest.py).
 inmemory LLM은 stream_chunks=['mock ', 'answer'] 기본값 사용.
@@ -90,4 +90,4 @@ def test_chat_stream_blocks_input_pii():
 
 
 # NOTE: tenant mismatch 403은 운영(AuthFusionAdapter) 환경에서만 검증 가능.
-# Mock adapter는 모든 tenant_id를 허용한다 (auth_adapter.py MockAuthAdapter).
+# Mock adapter는 모든 domain_id를 허용한다 (auth_adapter.py MockAuthAdapter).

@@ -31,6 +31,7 @@ _document_metadata_service = None
 _ledger_audit_service = None
 _tenant_config_override_service = None
 _tenant_lifecycle_service = None
+_membership_service = None
 _dashboard_analytics = None
 _chat_log_reader = None
 _feedback_writer = None
@@ -411,7 +412,7 @@ def get_schema_editor_service(settings: Settings = Depends(get_settings)):
     """ADR-017 §15 + ADR-015 — tenant_input_schemas CRUD + backward compat.
 
     inmemory backend: InMemoryTenantInputSchemaRepository.
-    production: PostgresTenantInputSchemaRepository + RLS + UNIQUE(tenant_id, schema_version).
+    production: PostgresTenantInputSchemaRepository + RLS + UNIQUE(domain_id, schema_version).
     """
     global _schema_editor_service
     if _schema_editor_service is None:
@@ -964,6 +965,34 @@ def reset_tenant_lifecycle_service() -> None:
     """테스트용 — singleton 리셋."""
     global _tenant_lifecycle_service
     _tenant_lifecycle_service = None
+
+
+def get_membership_service(settings: Settings = Depends(get_settings)):
+    """ADR-018 §4 + ADR-022 §3·§4 — user_tenant_membership CRUD.
+
+    inmemory backend: InMemoryMembershipService (프로세스 내 dict).
+    production: PostgresMembershipService — admin engine(BYPASSRLS, 매핑 테이블은 RLS 미적용).
+    """
+    global _membership_service
+    if _membership_service is None:
+        if settings.rag_backend == "inmemory":
+            from app.services.membership_service import InMemoryMembershipService
+
+            _membership_service = InMemoryMembershipService()
+        else:
+            from app.core.db import AdminSessionLocal
+            from app.services.membership_service import PostgresMembershipService
+
+            _membership_service = PostgresMembershipService(
+                admin_session_factory=AdminSessionLocal
+            )
+    return _membership_service
+
+
+def reset_membership_service() -> None:
+    """테스트용 — singleton 리셋."""
+    global _membership_service
+    _membership_service = None
 
 
 def _build_indexing_orchestrator(settings: Settings) -> IndexingOrchestrator:

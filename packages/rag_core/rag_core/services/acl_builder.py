@@ -9,8 +9,8 @@
 본 함수는 pure function — DB·Qdrant 호출 없음. 결과 dict는 qdrant_client.models.Filter
 pydantic 모델로 validate 가능한 형태.
 
-ADR-008·018: tenant_id는 collection 이름(`chunks_<tenant_id>`)으로 1차 격리되므로
-본 filter에는 tenant_id 조건을 포함하지 않는다 (RLS·collection 격리가 안전망).
+ADR-008·018: domain_id는 collection 이름(`chunks_<domain_id>`)으로 1차 격리되므로
+본 filter에는 domain_id 조건을 포함하지 않는다 (RLS·collection 격리가 안전망).
 """
 
 from __future__ import annotations

@@ -30,7 +30,7 @@ def _payload(chunk_id: str, extra: dict | None = None) -> dict:
 
 
 async def _populate(store: InMemoryVectorStore, embedder: InMemoryEmbedder):
-    await store.create_collection(tenant_id="t1", dense_dim=64)
+    await store.create_collection(domain_id="t1", dense_dim=64)
     points = []
     for cid, archived in [("c1", False), ("c2", True)]:
         d, s = await embedder.embed_query(f"chunk {cid}")
@@ -42,7 +42,7 @@ async def _populate(store: InMemoryVectorStore, embedder: InMemoryEmbedder):
                 "payload": _payload(cid, {"archived": True} if archived else None),
             }
         )
-    await store.upsert_chunks(tenant_id="t1", points=points)
+    await store.upsert_chunks(domain_id="t1", points=points)
 
 
 async def test_must_not_excludes_archived_chunk():
@@ -59,7 +59,7 @@ async def test_must_not_excludes_archived_chunk():
     )
     d, s = await embedder.embed_query("chunk")
     hits = await store.hybrid_query(
-        tenant_id="t1", dense_query=d, sparse_query=s, acl_filter=acl, top_k=10
+        domain_id="t1", dense_query=d, sparse_query=s, acl_filter=acl, top_k=10
     )
     ids = {h["id"] for h in hits}
     assert "c1" in ids
@@ -81,7 +81,7 @@ async def test_exclude_archived_false_includes_archived():
     )
     d, s = await embedder.embed_query("chunk")
     hits = await store.hybrid_query(
-        tenant_id="t1", dense_query=d, sparse_query=s, acl_filter=acl, top_k=10
+        domain_id="t1", dense_query=d, sparse_query=s, acl_filter=acl, top_k=10
     )
     ids = {h["id"] for h in hits}
     assert {"c1", "c2"}.issubset(ids)
@@ -103,7 +103,7 @@ async def test_retrieval_service_respects_archived_filter():
         domain_groups=["group:security"],
     )
     result = await retrieval.retrieve(
-        tenant_id="t1", question="chunk", acl_filter=acl
+        domain_id="t1", question="chunk", acl_filter=acl
     )
     fused_ids = {c.chunk_id for c in result.fused}
     assert "c1" in fused_ids

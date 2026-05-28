@@ -14,7 +14,7 @@ from typing import Any, Protocol
 class DocumentRecord:
     """documents 테이블에 INSERT 또는 UPSERT할 메타."""
 
-    tenant_id: str
+    domain_id: str
     doc_id: str
     title: str
     version: str = "v1"
@@ -40,7 +40,7 @@ class DocumentRecord:
 class ChunkRecord:
     """chunks 테이블에 INSERT할 row — Chunker.Chunk + lifecycle/PII 메타 결합."""
 
-    tenant_id: str
+    domain_id: str
     chunk_id: str
     doc_id: str
     doc_version: str
@@ -73,7 +73,7 @@ class ChunkRecord:
 @dataclass
 class IndexingJobRecord:
     job_id: str
-    tenant_id: str
+    domain_id: str
     doc_id: str
     doc_version: str
     status: str = "pending"
@@ -91,12 +91,12 @@ class IndexingJobRecord:
 class DocumentRepository(Protocol):
     async def upsert(self, doc: DocumentRecord) -> None: ...
 
-    async def get(self, *, tenant_id: str, doc_id: str, version: str) -> DocumentRecord | None: ...
+    async def get(self, *, domain_id: str, doc_id: str, version: str) -> DocumentRecord | None: ...
 
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         keyword: str | None = None,
         approval_status: str | None = None,
         limit: int = 20,
@@ -113,14 +113,14 @@ class DocumentRepository(Protocol):
     async def update_approval(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         approval_status: str,
     ) -> DocumentRecord | None:
         """ADR-012 §3-8 — approval_status payload-only update.
 
-        documents row + 같은 (tenant_id, doc_id, version)에 속한 chunks row의
+        documents row + 같은 (domain_id, doc_id, version)에 속한 chunks row의
         approval_status를 함께 update. None이면 doc 없음(404).
         """
         ...
@@ -128,7 +128,7 @@ class DocumentRepository(Protocol):
     async def delete(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str | None = None,
     ) -> int:
@@ -141,7 +141,7 @@ class DocumentRepository(Protocol):
     async def update_partial(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         version: str,
         patch: dict[str, Any],
@@ -161,13 +161,13 @@ class ChunkRepository(Protocol):
     async def replace_chunks(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         doc_version: str,
         parser_version: str,
         chunks: list[ChunkRecord],
     ) -> None:
-        """기존 (tenant_id, doc_id, doc_version, parser_version) 조합 chunks 제거 후 INSERT.
+        """기존 (domain_id, doc_id, doc_version, parser_version) 조합 chunks 제거 후 INSERT.
 
         full / chunk_re_split / parser_only 모드에서 chunks 갱신.
         """
@@ -176,7 +176,7 @@ class ChunkRepository(Protocol):
     async def update_metadata(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         chunk_ids: list[str],
         metadata: dict[str, Any],
     ) -> None:
@@ -186,7 +186,7 @@ class ChunkRepository(Protocol):
     async def list_by_doc(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         doc_version: str,
         parser_version: str | None = None,
@@ -195,7 +195,7 @@ class ChunkRepository(Protocol):
     async def delete_by_doc(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         doc_id: str,
         doc_version: str | None = None,
     ) -> list[str]:
@@ -233,7 +233,7 @@ class IndexingJobRepository(Protocol):
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         status: str | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -247,7 +247,7 @@ class IndexingJobRepository(Protocol):
 
 
 class IndexingConflictError(Exception):
-    """ADR-012 §10 — 같은 (tenant_id, doc_id, doc_version) 활성 job 존재."""
+    """ADR-012 §10 — 같은 (domain_id, doc_id, doc_version) 활성 job 존재."""
 
     def __init__(self, existing_job_id: str):
         super().__init__(f"active indexing job already exists: {existing_job_id}")

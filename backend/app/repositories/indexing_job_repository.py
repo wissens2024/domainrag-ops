@@ -1,6 +1,6 @@
 """PostgresIndexingJobRepository — indexing_jobs SQLAlchemy 구현 (ADR-007/012/019).
 
-ADR-012 §10 — 같은 (tenant_id, doc_id, doc_version)에서 active 상태(pending/parsing/
+ADR-012 §10 — 같은 (domain_id, doc_id, doc_version)에서 active 상태(pending/parsing/
 chunking/embedding/indexing) job은 1건만 허용. Migration 002의 부분 유니크 인덱스가
 DB 차원의 race 방지를 담당하며, 본 모듈은 INSERT 실패 시 IndexingConflictError로
 변환해 상위로 올린다.
@@ -44,25 +44,25 @@ class PostgresIndexingJobRepository:
 
     async def create(self, job: IndexingJobRecord) -> None:
         async with self._session_factory() as session:
-            await set_tenant_context(session, job.tenant_id)
+            await set_tenant_context(session, job.domain_id)
             try:
                 await session.execute(
                     text(
                         """
                         INSERT INTO indexing_jobs (
-                            tenant_id, job_id, doc_id, doc_version, filename,
+                            domain_id, job_id, doc_id, doc_version, filename,
                             status, progress, step, total_chunks, indexed_chunks,
                             failed_chunks, retry_count, started_at
                         )
                         VALUES (
-                            :tenant_id, :job_id, :doc_id, :doc_version, :filename,
+                            :domain_id, :job_id, :doc_id, :doc_version, :filename,
                             :status, :progress, :step, :total_chunks, :indexed_chunks,
                             CAST(:failed_chunks AS JSONB), :retry_count, NOW()
                         )
                         """
                     ),
                     {
-                        "tenant_id": job.tenant_id,
+                        "domain_id": job.domain_id,
                         "job_id": job.job_id,
                         "doc_id": job.doc_id,
                         "doc_version": job.doc_version,
@@ -81,7 +81,7 @@ class PostgresIndexingJobRepository:
                 await session.rollback()
                 # 부분 유니크 인덱스 충돌이면 ConflictError로 변환
                 existing_id = await self._find_active_job_id(
-                    tenant_id=job.tenant_id,
+                    domain_id=job.domain_id,
                     doc_id=job.doc_id,
                     doc_version=job.doc_version,
                 )
@@ -90,16 +90,16 @@ class PostgresIndexingJobRepository:
                 raise
 
     async def _find_active_job_id(
-        self, *, tenant_id: str, doc_id: str, doc_version: str
+        self, *, domain_id: str, doc_id: str, doc_version: str
     ) -> str | None:
         async with self._session_factory() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             row = (
                 await session.execute(
                     text(
                         f"""
                         SELECT job_id FROM indexing_jobs
-                         WHERE tenant_id = :tenant_id
+                         WHERE domain_id = :domain_id
                            AND doc_id = :doc_id
                            AND doc_version = :doc_version
                            AND status IN {_ACTIVE_STATES!r}
@@ -107,7 +107,7 @@ class PostgresIndexingJobRepository:
                         """
                     ),
                     {
-                        "tenant_id": tenant_id,
+                        "domain_id": domain_id,
                         "doc_id": doc_id,
                         "doc_version": doc_version,
                     },
@@ -161,14 +161,14 @@ class PostgresIndexingJobRepository:
         if not set_clauses:
             return
 
-        # update_metadata는 tenant_id를 받지 않으므로 admin engine으로 update.
-        # indexing_jobs의 RLS 정책 (tenant_id = current_setting) 때문에 admin role 또는
-        # job_id로 먼저 tenant_id 조회 후 set_tenant_context. 후자가 RLS 무력화 없이 안전.
+        # update_metadata는 domain_id를 받지 않으므로 admin engine으로 update.
+        # indexing_jobs의 RLS 정책 (domain_id = current_setting) 때문에 admin role 또는
+        # job_id로 먼저 domain_id 조회 후 set_tenant_context. 후자가 RLS 무력화 없이 안전.
         async with self._session_factory() as session:
             row = (
                 await session.execute(
                     text(
-                        "SELECT tenant_id FROM indexing_jobs WHERE job_id = :job_id"
+                        "SELECT domain_id FROM indexing_jobs WHERE job_id = :job_id"
                     ),
                     {"job_id": job_id},
                 )
@@ -178,8 +178,8 @@ class PostgresIndexingJobRepository:
                 # 결과가 0건이 될 수 있음. caller가 active job을 update하는 케이스만
                 # 가정되어 있으므로 None은 silently 무시.
                 return
-            tenant_id = str(row[0])
-            await set_tenant_context(session, tenant_id)
+            domain_id = str(row[0])
+            await set_tenant_context(session, domain_id)
             await session.execute(
                 text(
                     f"UPDATE indexing_jobs SET {', '.join(set_clauses)} WHERE job_id = :job_id"
@@ -194,7 +194,7 @@ class PostgresIndexingJobRepository:
                 await session.execute(
                     text(
                         """
-                        SELECT tenant_id, doc_id, doc_version, filename, status,
+                        SELECT domain_id, doc_id, doc_version, filename, status,
                                step, progress, total_chunks, indexed_chunks,
                                failed_chunks, error_message, failure_rate,
                                retry_count
@@ -209,7 +209,7 @@ class PostgresIndexingJobRepository:
                 return None
             return IndexingJobRecord(
                 job_id=job_id,
-                tenant_id=row[0],
+                domain_id=row[0],
                 doc_id=row[1] or "",
                 doc_version=row[2] or "",
                 filename=row[3],
@@ -227,32 +227,32 @@ class PostgresIndexingJobRepository:
     async def list_by_tenant(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         status: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[IndexingJobRecord]:
-        """ADR-017 §7 — GET /api/{tenant_id}/admin/indexing/jobs 페이징 조회."""
+        """ADR-017 §7 — GET /api/{domain_id}/admin/indexing/jobs 페이징 조회."""
         sql = """
             SELECT job_id, doc_id, doc_version, filename, status, step, progress,
                    total_chunks, indexed_chunks, failed_chunks, error_message,
                    failure_rate, retry_count
               FROM indexing_jobs
-             WHERE tenant_id = :tenant_id
+             WHERE domain_id = :domain_id
         """
-        params: dict[str, Any] = {"tenant_id": tenant_id, "limit": limit, "offset": offset}
+        params: dict[str, Any] = {"domain_id": domain_id, "limit": limit, "offset": offset}
         if status is not None:
             sql += " AND status = :status"
             params["status"] = status
         sql += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
 
         async with self._session_factory() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             rows = (await session.execute(text(sql), params)).all()
             return [
                 IndexingJobRecord(
                     job_id=str(r[0]),
-                    tenant_id=tenant_id,
+                    domain_id=domain_id,
                     doc_id=r[1] or "",
                     doc_version=r[2] or "",
                     filename=r[3],

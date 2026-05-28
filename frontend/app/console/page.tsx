@@ -39,7 +39,7 @@ export default function ConsoleEntry() {
         if (body.is_platform_admin) {
           router.replace('/platform/admin/tenants');
         } else if (body.is_admin) {
-          router.replace(`/${body.tenant_id}/admin/dashboard`);
+          router.replace(`/${body.domain_id}/admin/dashboard`);
         }
       })
       .catch(() => {})
@@ -55,11 +55,11 @@ export default function ConsoleEntry() {
     if (!user) return;
     setSwitching(true);
     try {
-      await logout(user.tenant_id);
+      await logout(user.domain_id);
     } catch {
       // 실패해도 SSO 재시작은 진행
     }
-    window.location.href = `${API_BASE}/api/auth/authorize/${user.tenant_id}?redirect=1`;
+    window.location.href = `${API_BASE}/api/auth/authorize/${user.domain_id}?redirect=1`;
   };
 
   if (isLoading) {
@@ -105,7 +105,7 @@ export default function ConsoleEntry() {
               {switching ? '로그아웃 중…' : '다른 계정으로 로그인'}
             </button>
             <Link
-              href={`/${user.tenant_id}/chat`}
+              href={`/${user.domain_id}/chat`}
               className="block w-full text-center px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               채팅으로 돌아가기

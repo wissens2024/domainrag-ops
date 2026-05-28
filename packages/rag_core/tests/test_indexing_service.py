@@ -107,7 +107,7 @@ class _FailingEmbedder:
 
 
 def _request(
-    tenant_id="security",
+    domain_id="security",
     doc_id="doc-001",
     doc_version="v1",
     file_path="/inline/doc-001.txt",
@@ -115,7 +115,7 @@ def _request(
     **kwargs,
 ) -> IndexingRequest:
     return IndexingRequest(
-        tenant_id=tenant_id,
+        domain_id=domain_id,
         doc_id=doc_id,
         doc_version=doc_version,
         file_path=file_path,
@@ -149,7 +149,7 @@ async def test_full_mode_indexes_chunks_and_db():
     )
 
     # Qdrant collection 사전 생성 (IndexingService는 collection 생성 책임 없음)
-    await vstore.create_collection(tenant_id="security", dense_dim=8)
+    await vstore.create_collection(domain_id="security", dense_dim=8)
 
     result = await svc.run(_request(), job_id="job-1", pii_config=_pii_config())
 
@@ -161,7 +161,7 @@ async def test_full_mode_indexes_chunks_and_db():
 
     # Qdrant 적재 확인
     points = await vstore.hybrid_query(
-        tenant_id="security",
+        domain_id="security",
         dense_query=[0.0] * 8,
         sparse_query={},
         acl_filter={},
@@ -169,17 +169,17 @@ async def test_full_mode_indexes_chunks_and_db():
     )
     assert len(points) == result.indexed_chunks
     for p in points:
-        assert p["payload"]["tenant_id"] == "security"
+        assert p["payload"]["domain_id"] == "security"
         assert p["payload"]["doc_id"] == "doc-001"
         assert "content" in p["payload"]
 
     # Postgres chunks/document 쓰기 확인
     chunks = await chunk_repo.list_by_doc(
-        tenant_id="security", doc_id="doc-001", doc_version="v1", parser_version="p1"
+        domain_id="security", doc_id="doc-001", doc_version="v1", parser_version="p1"
     )
     assert len(chunks) == result.indexed_chunks
     assert all(c.embedding_model == "mock-embed" for c in chunks)
-    doc = await doc_repo.get(tenant_id="security", doc_id="doc-001", version="v1")
+    doc = await doc_repo.get(domain_id="security", doc_id="doc-001", version="v1")
     assert doc is not None
     assert doc.approval_status == "approved"
 
@@ -200,7 +200,7 @@ async def test_pii_warnings_recorded_in_chunks_and_qdrant():
         },
         max_tokens=20,
     )
-    await vstore.create_collection(tenant_id="security", dense_dim=8)
+    await vstore.create_collection(domain_id="security", dense_dim=8)
 
     result = await svc.run(
         _request(doc_id="doc-pii", file_path="/inline/doc-pii.txt"),
@@ -211,7 +211,7 @@ async def test_pii_warnings_recorded_in_chunks_and_qdrant():
     assert result.high_pii_chunks >= 1
 
     chunks = await chunk_repo.list_by_doc(
-        tenant_id="security", doc_id="doc-pii", doc_version="v1", parser_version="p1"
+        domain_id="security", doc_id="doc-pii", doc_version="v1", parser_version="p1"
     )
     assert any(
         any(w["category"] == "rrn" for w in c.pii_warnings) for c in chunks
@@ -219,7 +219,7 @@ async def test_pii_warnings_recorded_in_chunks_and_qdrant():
 
     # Qdrant payload에도 pii_warnings 들어감
     points = await vstore.hybrid_query(
-        tenant_id="security",
+        domain_id="security",
         dense_query=[0.0] * 8,
         sparse_query={},
         acl_filter={},
@@ -240,10 +240,10 @@ async def test_chunk_re_split_recreates_chunks():
         inline_pages={"/inline/doc-001.txt": ["aa bb cc dd ee ff gg hh"]},
         max_tokens=4,
     )
-    await vstore.create_collection(tenant_id="security", dense_dim=8)
+    await vstore.create_collection(domain_id="security", dense_dim=8)
     await svc.run(_request(), job_id="job-init", pii_config=_pii_config())
     first = await chunk_repo.list_by_doc(
-        tenant_id="security", doc_id="doc-001", doc_version="v1", parser_version="p1"
+        domain_id="security", doc_id="doc-001", doc_version="v1", parser_version="p1"
     )
     initial_count = len(first)
 
@@ -255,7 +255,7 @@ async def test_chunk_re_split_recreates_chunks():
     )
     assert result.status == "completed"
     second = await chunk_repo.list_by_doc(
-        tenant_id="security", doc_id="doc-001", doc_version="v1", parser_version="p1"
+        domain_id="security", doc_id="doc-001", doc_version="v1", parser_version="p1"
     )
     assert len(second) == initial_count  # 같은 chunker 설정
 
@@ -266,10 +266,10 @@ async def test_embedding_only_preserves_chunks_and_reembeds():
         inline_pages={"/inline/doc-001.txt": ["aa bb cc dd ee ff gg hh"]},
         max_tokens=4,
     )
-    await vstore.create_collection(tenant_id="security", dense_dim=8)
+    await vstore.create_collection(domain_id="security", dense_dim=8)
     await svc.run(_request(), job_id="job-init", pii_config=_pii_config())
     before = await chunk_repo.list_by_doc(
-        tenant_id="security", doc_id="doc-001", doc_version="v1", parser_version="p1"
+        domain_id="security", doc_id="doc-001", doc_version="v1", parser_version="p1"
     )
     before_ids = {c.chunk_id for c in before}
     before_count = len(before)
@@ -283,7 +283,7 @@ async def test_embedding_only_preserves_chunks_and_reembeds():
     assert result.indexed_chunks == before_count
 
     after = await chunk_repo.list_by_doc(
-        tenant_id="security", doc_id="doc-001", doc_version="v1", parser_version="p1"
+        domain_id="security", doc_id="doc-001", doc_version="v1", parser_version="p1"
     )
     # chunk_id가 유지됨 (chunks 보존)
     assert {c.chunk_id for c in after} == before_ids
@@ -295,7 +295,7 @@ async def test_parser_only_updates_metadata_without_reembedding():
         inline_pages={"/inline/doc-001.txt": ["aa bb cc dd"]},
         max_tokens=4,
     )
-    await vstore.create_collection(tenant_id="security", dense_dim=8)
+    await vstore.create_collection(domain_id="security", dense_dim=8)
     await svc.run(_request(), job_id="job-init", pii_config=_pii_config())
 
     # parser_only — inline_pages 변경 없이 호출
@@ -318,7 +318,7 @@ async def test_concurrent_indexing_raises_conflict():
         inline_pages={"/inline/doc-001.txt": ["aa bb cc"]},
         max_tokens=4,
     )
-    await vstore.create_collection(tenant_id="security", dense_dim=8)
+    await vstore.create_collection(domain_id="security", dense_dim=8)
 
     # 첫 job 강제로 pending 상태 유지하기 위해 job_repo에 직접 인서트
     from rag_core.interfaces.chunk_repository import IndexingJobRecord
@@ -326,7 +326,7 @@ async def test_concurrent_indexing_raises_conflict():
     await job_repo.create(
         IndexingJobRecord(
             job_id="active-job",
-            tenant_id="security",
+            domain_id="security",
             doc_id="doc-001",
             doc_version="v1",
             status="pending",
@@ -349,7 +349,7 @@ async def test_full_embed_failure_marks_job_failed():
         max_tokens=2,
         failing_embedder=True,
     )
-    await vstore.create_collection(tenant_id="security", dense_dim=8)
+    await vstore.create_collection(domain_id="security", dense_dim=8)
     result = await svc.run(_request(), job_id="job-fail", pii_config=_pii_config())
 
     assert result.status == "failed"
@@ -360,6 +360,6 @@ async def test_full_embed_failure_marks_job_failed():
 
     # chunks가 DB에 들어가지 않았는지
     rows = await chunk_repo.list_by_doc(
-        tenant_id="security", doc_id="doc-001", doc_version="v1", parser_version="p1"
+        domain_id="security", doc_id="doc-001", doc_version="v1", parser_version="p1"
     )
     assert rows == []

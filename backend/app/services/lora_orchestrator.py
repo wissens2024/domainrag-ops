@@ -50,8 +50,8 @@ class LoRAOrchestrator:
     vllm: object | None  # VllmLLMClient or None (inmemory dev에선 vLLM 미운영 가능)
     shared_lora_path: Path
 
-    async def activate(self, *, tenant_id: str, adapter_id: str) -> AdapterRecord:
-        record = await self.registry.get(tenant_id=tenant_id, adapter_id=adapter_id)
+    async def activate(self, *, domain_id: str, adapter_id: str) -> AdapterRecord:
+        record = await self.registry.get(domain_id=domain_id, adapter_id=adapter_id)
         if record is None:
             raise LoRANotFoundError(adapter_id)
         if record.status not in ("registered", "active"):
@@ -64,7 +64,7 @@ class LoRAOrchestrator:
         if self.vllm is None:
             # vLLM 미운영 환경 — registry 상태만 전이 (dev)
             return await self.registry.activate(
-                tenant_id=tenant_id, adapter_id=adapter_id
+                domain_id=domain_id, adapter_id=adapter_id
             )
 
         # 1) KeyHub에서 weights 가져오기
@@ -80,7 +80,7 @@ class LoRAOrchestrator:
             ) from exc
 
         # 2) vLLM 공유 디렉터리에 저장
-        adapter_dir = self.shared_lora_path / tenant_id / adapter_id
+        adapter_dir = self.shared_lora_path / domain_id / adapter_id
         adapter_dir.mkdir(parents=True, exist_ok=True)
         weights_file = adapter_dir / "adapter_model.bin"
         weights_file.write_bytes(blob)
@@ -105,7 +105,7 @@ class LoRAOrchestrator:
         # 4) registry 상태 전이
         try:
             activated = await self.registry.activate(
-                tenant_id=tenant_id, adapter_id=adapter_id
+                domain_id=domain_id, adapter_id=adapter_id
             )
         except Exception:
             # vLLM unload + 파일 정리
@@ -121,9 +121,9 @@ class LoRAOrchestrator:
             raise
         return activated
 
-    async def retire(self, *, tenant_id: str, adapter_id: str) -> AdapterRecord:
+    async def retire(self, *, domain_id: str, adapter_id: str) -> AdapterRecord:
         record = await self.registry.retire(
-            tenant_id=tenant_id, adapter_id=adapter_id
+            domain_id=domain_id, adapter_id=adapter_id
         )
         if self.vllm is not None and record.status == "retired":
             try:

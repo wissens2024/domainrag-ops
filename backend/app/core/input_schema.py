@@ -1,7 +1,7 @@
 """InputSchemaService — ADR-015 input_schema 로드 + light validator.
 
 운영 원칙:
-  - source: configs/tenants/<tenant_id>/input_schema.yaml (도메인 필드)
+  - source: configs/tenants/<domain_id>/input_schema.yaml (도메인 필드)
   - inherits: configs/platform/common_fields.yaml (공통 필드)
   - 본 service가 두 yaml을 합성해 input_type별 JSON Schema 형태 dict를 반환
 
@@ -95,7 +95,7 @@ class InputSchemaLoader:
     _lock = Lock()
 
     @classmethod
-    def apply_runtime_override(cls, tenant_id: str, schema_yaml: dict) -> None:
+    def apply_runtime_override(cls, domain_id: str, schema_yaml: dict) -> None:
         """ADR-017 §15 — Schema Editor PUT 후 즉시 validation에 반영.
 
         Schema Editor PUT은 ADR-015 §1 list 포맷을 검증하지만 disk yaml + InputSchemaLoader는
@@ -116,23 +116,23 @@ class InputSchemaLoader:
                 as_dict[str(name)] = {k: v for k, v in it.items() if k != "name"}
             normalized["input_types"] = as_dict
         with cls._lock:
-            cls._runtime_yaml[tenant_id] = normalized
-            cls._cache.pop(tenant_id, None)
+            cls._runtime_yaml[domain_id] = normalized
+            cls._cache.pop(domain_id, None)
 
     @classmethod
-    def clear_runtime_override(cls, tenant_id: str | None = None) -> None:
+    def clear_runtime_override(cls, domain_id: str | None = None) -> None:
         """테스트용 — runtime layer 초기화."""
         with cls._lock:
-            if tenant_id is None:
+            if domain_id is None:
                 cls._runtime_yaml.clear()
             else:
-                cls._runtime_yaml.pop(tenant_id, None)
-            cls._cache.pop(tenant_id, None) if tenant_id else cls._cache.clear()
+                cls._runtime_yaml.pop(domain_id, None)
+            cls._cache.pop(domain_id, None) if domain_id else cls._cache.clear()
 
     @classmethod
-    def load(cls, *, config_dir: Path, tenant_id: str) -> dict[str, InputTypeSchema]:
+    def load(cls, *, config_dir: Path, domain_id: str) -> dict[str, InputTypeSchema]:
         with cls._lock:
-            cached = cls._cache.get(tenant_id)
+            cached = cls._cache.get(domain_id)
             if cached is not None:
                 return cached
 
@@ -140,23 +140,23 @@ class InputSchemaLoader:
         common = _read_yaml(common_path) if common_path.exists() else {}
 
         # 1) runtime override 우선 (Schema Editor PUT 결과)
-        runtime = cls._runtime_yaml.get(tenant_id)
+        runtime = cls._runtime_yaml.get(domain_id)
         if runtime is not None:
             tenant = runtime
         else:
-            tenant_path = config_dir / "tenants" / tenant_id / "input_schema.yaml"
+            tenant_path = config_dir / "tenants" / domain_id / "input_schema.yaml"
             if not tenant_path.exists():
                 with cls._lock:
-                    cls._cache[tenant_id] = {}
+                    cls._cache[domain_id] = {}
                 return {}
             tenant = _read_yaml(tenant_path)
 
         common_required = list(common.get("common_required") or [])
         common_fields = dict(common.get("common_field_definitions") or {})
 
-        # tenant_id는 자동 주입 — 사용자 입력 검증 대상 아님
-        common_required = [r for r in common_required if r != "tenant_id"]
-        common_fields.pop("tenant_id", None)
+        # domain_id는 자동 주입 — 사용자 입력 검증 대상 아님
+        common_required = [r for r in common_required if r != "domain_id"]
+        common_fields.pop("domain_id", None)
         # input_type도 endpoint Form 필드에서 별도 검증 — body의 metadata에서는 다루지 않음
         common_required = [r for r in common_required if r != "input_type"]
         common_fields.pop("input_type", None)
@@ -180,16 +180,16 @@ class InputSchemaLoader:
             )
 
         with cls._lock:
-            cls._cache[tenant_id] = result
+            cls._cache[domain_id] = result
         return result
 
     @classmethod
-    def reset(cls, tenant_id: str | None = None) -> None:
+    def reset(cls, domain_id: str | None = None) -> None:
         with cls._lock:
-            if tenant_id is None:
+            if domain_id is None:
                 cls._cache.clear()
             else:
-                cls._cache.pop(tenant_id, None)
+                cls._cache.pop(domain_id, None)
 
 
 def _read_yaml(path: Path) -> dict:
@@ -203,25 +203,25 @@ def _read_yaml(path: Path) -> dict:
 
 
 class InputSchemaService:
-    """ADR-015 검증 진입점. caller는 validate(tenant_id, input_type, metadata) 호출."""
+    """ADR-015 검증 진입점. caller는 validate(domain_id, input_type, metadata) 호출."""
 
     def __init__(self, *, config_dir: Path) -> None:
         self._config_dir = config_dir
 
-    def list_input_types(self, tenant_id: str) -> list[InputTypeSchema]:
+    def list_input_types(self, domain_id: str) -> list[InputTypeSchema]:
         return list(InputSchemaLoader.load(
-            config_dir=self._config_dir, tenant_id=tenant_id
+            config_dir=self._config_dir, domain_id=domain_id
         ).values())
 
-    def get_schema(self, tenant_id: str, input_type: str) -> InputTypeSchema | None:
+    def get_schema(self, domain_id: str, input_type: str) -> InputTypeSchema | None:
         return InputSchemaLoader.load(
-            config_dir=self._config_dir, tenant_id=tenant_id
+            config_dir=self._config_dir, domain_id=domain_id
         ).get(input_type)
 
     def validate(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         input_type: str | None,
         metadata: dict[str, Any],
     ) -> None:
@@ -233,7 +233,7 @@ class InputSchemaService:
         if input_type is None:
             return
         schemas = InputSchemaLoader.load(
-            config_dir=self._config_dir, tenant_id=tenant_id
+            config_dir=self._config_dir, domain_id=domain_id
         )
         schema = schemas.get(input_type)
         if schema is None:
@@ -241,7 +241,7 @@ class InputSchemaService:
                 FieldError(
                     path="input_type",
                     code="unknown_input_type",
-                    message=f"input_type '{input_type}'은 tenant '{tenant_id}'에 정의되지 않음",
+                    message=f"input_type '{input_type}'은 tenant '{domain_id}'에 정의되지 않음",
                 )
             ])
 

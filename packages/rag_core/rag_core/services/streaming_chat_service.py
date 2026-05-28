@@ -103,7 +103,7 @@ class StreamingChatService:
     async def stream(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         user_id: str,
         question: str,
         tenant_config: dict[str, Any] | None,
@@ -153,7 +153,7 @@ class StreamingChatService:
                 )
                 latency_ms = int((time.perf_counter() - start) * 1000)
                 await self._save_log(
-                    tenant_id=tenant_id,
+                    domain_id=domain_id,
                     request_id=request_id,
                     user_id=user_id,
                     conversation_id=conversation_id,
@@ -171,7 +171,7 @@ class StreamingChatService:
                 if self._ledger is not None:
                     try:
                         await self._ledger.publish_pii_high_severity_block(
-                            tenant_id=tenant_id,
+                            domain_id=domain_id,
                             actor=user_id,
                             categories=list(check.blocked_categories),
                             details={
@@ -234,7 +234,7 @@ class StreamingChatService:
                     "현재 정책상 답변을 드릴 수 없는 요청입니다."
                 )
                 await self._save_log(
-                    tenant_id=tenant_id,
+                    domain_id=domain_id,
                     request_id=request_id,
                     user_id=user_id,
                     conversation_id=conversation_id,
@@ -288,7 +288,7 @@ class StreamingChatService:
         except Exception as e:  # noqa: BLE001 — graceful fallback
             latency_ms = int((time.perf_counter() - start) * 1000)
             await self._save_log(
-                tenant_id=tenant_id,
+                domain_id=domain_id,
                 request_id=request_id,
                 user_id=user_id,
                 conversation_id=conversation_id,
@@ -321,7 +321,7 @@ class StreamingChatService:
 
         latency_ms = int((time.perf_counter() - start) * 1000)
         conv_id = await self._save_log(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             request_id=request_id,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -363,7 +363,7 @@ class StreamingChatService:
     async def _save_log(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         request_id: str,
         user_id: str,
         conversation_id: str | None,
@@ -382,7 +382,7 @@ class StreamingChatService:
         if self._chat_log_writer is None:
             return None
         payload = ChatLogPayload(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             request_id=request_id,
             user_id=user_id,
             conversation_id=conversation_id,

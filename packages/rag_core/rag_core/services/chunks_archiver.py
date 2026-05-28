@@ -3,8 +3,8 @@
 Protocol + InMemory 구현. 운영 Postgres 구현은 backend가 담당.
 
 흐름:
-  1. find_candidates(tenant_id, threshold_date) → 후보 chunk ids
-  2. archive(tenant_id, chunk_ids, reason) →
+  1. find_candidates(domain_id, threshold_date) → 후보 chunk ids
+  2. archive(domain_id, chunk_ids, reason) →
        a. chunks_archive에 row insert
        b. chunks.archived_at = NOW() (row 보존, search에서는 active filter로 제외)
        c. caller가 별도로 vector_store.set_payload({"archived": True}) 호출
@@ -25,7 +25,7 @@ from rag_core.interfaces.chunk_repository import ChunkRecord
 
 @dataclass
 class ArchivalBatchResult:
-    tenant_id: str
+    domain_id: str
     archived_chunk_ids: list[str] = field(default_factory=list)
     skipped_chunk_ids: list[str] = field(default_factory=list)  # 이미 archived
     reason: str = "valid_until_threshold"
@@ -35,7 +35,7 @@ class ChunksArchiver(Protocol):
     async def find_candidates(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         valid_until_before: date,
     ) -> list[ChunkRecord]:
         """`valid_until < valid_until_before AND archived_at IS NULL` 검색."""
@@ -44,7 +44,7 @@ class ChunksArchiver(Protocol):
     async def archive(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         chunks: list[ChunkRecord],
         reason: str = "valid_until_threshold",
     ) -> ArchivalBatchResult:
@@ -69,14 +69,14 @@ class InMemoryChunksArchiver:
     async def find_candidates(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         valid_until_before: date,
     ) -> list[ChunkRecord]:
         out: list[ChunkRecord] = []
         # InMemoryChunkRepository._chunks: {(tid, doc, ver, parser): [ChunkRecord]}
         chunks_map = getattr(self._repo, "_chunks", {})
         for key, chunks in chunks_map.items():
-            if key[0] != tenant_id:
+            if key[0] != domain_id:
                 continue
             for r in chunks:
                 if r.valid_until is None:
@@ -91,7 +91,7 @@ class InMemoryChunksArchiver:
     async def archive(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         chunks: list[ChunkRecord],
         reason: str = "valid_until_threshold",
     ) -> ArchivalBatchResult:
@@ -104,7 +104,7 @@ class InMemoryChunksArchiver:
                 continue
             self.archive_records.append(
                 {
-                    "tenant_id": c.tenant_id,
+                    "domain_id": c.domain_id,
                     "chunk_id": c.chunk_id,
                     "doc_id": c.doc_id,
                     "doc_version": c.doc_version,
@@ -118,7 +118,7 @@ class InMemoryChunksArchiver:
             c.archived_at = now  # type: ignore[attr-defined]
             archived.append(c.chunk_id)
         return ArchivalBatchResult(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             archived_chunk_ids=archived,
             skipped_chunk_ids=skipped,
             reason=reason,

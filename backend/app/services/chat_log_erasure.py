@@ -5,8 +5,8 @@
   2. mode=mask_only: UPDATE chat_logs SET question=NULL, answer=NULL, retrieved_chunks='[]',
      citations='[]', input_pii_found='[]', output_pii_masked='[]', pii_storage_policy='erased',
      user_id=NULL, rewritten_query=NULL
-     WHERE tenant_id = :tid AND user_id = :uid
-  3. mode=hard_delete: DELETE FROM chat_logs WHERE tenant_id=:tid AND user_id=:uid
+     WHERE domain_id = :tid AND user_id = :uid
+  3. mode=hard_delete: DELETE FROM chat_logs WHERE domain_id=:tid AND user_id=:uid
   4. tenant_lifecycle_logs에 audit row (user_right_to_erasure_executed) — admin engine.
 
 mask_only는 운영 지표(latency/routing/verifier 등)를 보존해 시스템 통계의 의미를 잃지
@@ -48,22 +48,22 @@ class PostgresChatLogEraser:
     async def erase_my_logs(
         self,
         *,
-        tenant_id: str,
+        domain_id: str,
         user_id: str,
         mode: ErasureMode,
         reason: str,
     ) -> ErasureResult:
         async with self._app() as session:
-            await set_tenant_context(session, tenant_id)
+            await set_tenant_context(session, domain_id)
             if mode == ErasureMode.HARD_DELETE:
                 result = await session.execute(
                     text(
                         """
                         DELETE FROM chat_logs
-                         WHERE tenant_id = :tenant_id AND user_id = :user_id
+                         WHERE domain_id = :domain_id AND user_id = :user_id
                         """
                     ),
-                    {"tenant_id": tenant_id, "user_id": user_id},
+                    {"domain_id": domain_id, "user_id": user_id},
                 )
             else:
                 result = await session.execute(
@@ -80,10 +80,10 @@ class PostgresChatLogEraser:
                                output_pii_masked = CAST('[]' AS JSONB),
                                pii_storage_policy = 'erased',
                                user_id = NULL
-                         WHERE tenant_id = :tenant_id AND user_id = :user_id
+                         WHERE domain_id = :domain_id AND user_id = :user_id
                         """
                     ),
-                    {"tenant_id": tenant_id, "user_id": user_id},
+                    {"domain_id": domain_id, "user_id": user_id},
                 )
             affected = result.rowcount or 0
             await session.commit()
@@ -94,16 +94,16 @@ class PostgresChatLogEraser:
                 text(
                     """
                     INSERT INTO tenant_lifecycle_logs (
-                        tenant_id, action, from_state, to_state, actor, reason, details
+                        domain_id, action, from_state, to_state, actor, reason, details
                     )
                     VALUES (
-                        :tenant_id, 'user_right_to_erasure_executed',
+                        :domain_id, 'user_right_to_erasure_executed',
                         NULL, NULL, :actor, :reason, CAST(:details AS JSONB)
                     )
                     """
                 ),
                 {
-                    "tenant_id": tenant_id,
+                    "domain_id": domain_id,
                     "actor": user_id,
                     "reason": reason,
                     "details": json.dumps(
@@ -115,7 +115,7 @@ class PostgresChatLogEraser:
             await audit_session.commit()
 
         return ErasureResult(
-            tenant_id=tenant_id,
+            domain_id=domain_id,
             user_id=user_id,
             mode=mode,
             affected_rows=affected,
