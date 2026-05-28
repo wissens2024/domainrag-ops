@@ -52,6 +52,7 @@ router = APIRouter()
 
 _ACCESS_COOKIE = "domainrag_access"
 _REFRESH_COOKIE = "domainrag_refresh"
+_ID_TOKEN_COOKIE = "domainrag_id_token"  # OIDC RP-Initiated Logout id_token_hint용
 
 
 def _set_cookies(
@@ -80,10 +81,18 @@ def _set_cookies(
             max_age=token.expires_in * 4 if token.expires_in else None,
             **common,
         )
+    if token.id_token:
+        # logout 시 IdP end_session의 id_token_hint로 사용 (ADR-022).
+        response.set_cookie(
+            _ID_TOKEN_COOKIE,
+            token.id_token,
+            max_age=token.expires_in * 4 if token.expires_in else None,
+            **common,
+        )
 
 
 def _clear_cookies(response: Response, *, is_production: bool) -> None:
-    for name in (_ACCESS_COOKIE, _REFRESH_COOKIE):
+    for name in (_ACCESS_COOKIE, _REFRESH_COOKIE, _ID_TOKEN_COOKIE):
         response.delete_cookie(name, path="/", secure=is_production, httponly=True)
 
 
@@ -518,5 +527,9 @@ async def logout(
             "client_id": client_id,
             "post_logout_redirect_uri": f"{auth_cfg.app_base_url.rstrip('/')}/",
         }
+        # AuthFusion은 id_token_hint를 요구 (OIDC RP-Initiated Logout §2).
+        id_token = request.cookies.get(_ID_TOKEN_COOKIE)
+        if id_token:
+            params["id_token_hint"] = id_token
         logout_url = f"{auth_cfg.end_session_endpoint}?{urlencode(params)}"
     return {"logout_url": logout_url}

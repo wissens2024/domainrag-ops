@@ -23,6 +23,7 @@ class TokenResponse:
     expires_in: int
     token_type: str = "Bearer"
     scope: str | None = None
+    id_token: str | None = None  # OIDC — RP-Initiated Logout id_token_hint용 (ADR-022)
     raw: dict[str, Any] | None = None
 
     @classmethod
@@ -33,6 +34,7 @@ class TokenResponse:
             expires_in=int(payload.get("expires_in") or 0),
             token_type=str(payload.get("token_type") or "Bearer"),
             scope=payload.get("scope"),
+            id_token=payload.get("id_token"),
             raw=payload,
         )
 
