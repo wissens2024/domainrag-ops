@@ -2,6 +2,7 @@
  * Document Management — /{tid}/admin/documents (ADR-016 §3.2 + ADR-017 §6).
  *
  * 목록 + 검색·필터·페이징 + reindex(4 mode) + approval patch + upload 진입점.
+ * 디자인 시스템(ui/) + i18n 적용 (ADR-016 보강).
  */
 'use client';
 
@@ -9,27 +10,17 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
-import {
-  listDocuments,
-  patchDocumentApproval,
-  reindexDocument,
-} from '@/lib/api';
-import type {
-  ApprovalStatus,
-  DocumentListResult,
-  ReindexMode,
-} from '@/lib/types';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+import Badge from '@/components/ui/Badge';
+import { useLanguage } from '@/components/LanguageProvider';
+import { listDocuments, patchDocumentApproval, reindexDocument } from '@/lib/api';
+import type { ApprovalStatus, DocumentListResult, ReindexMode } from '@/lib/types';
 
-const STATUS_LABEL: Record<ApprovalStatus, string> = {
-  pending: '대기',
-  approved: '승인',
-  archived: '비활성',
-};
-
-const STATUS_COLOR: Record<ApprovalStatus, string> = {
-  pending: 'bg-yellow-100 text-yellow-700',
-  approved: 'bg-green-100 text-green-700',
-  archived: 'bg-gray-100 text-gray-500',
+const STATUS_TONE: Record<ApprovalStatus, 'warn' | 'success' | 'neutral'> = {
+  pending: 'warn',
+  approved: 'success',
+  archived: 'neutral',
 };
 
 const REINDEX_OPTIONS: { mode: ReindexMode; label: string; desc: string }[] = [
@@ -42,11 +33,18 @@ const REINDEX_OPTIONS: { mode: ReindexMode; label: string; desc: string }[] = [
 export default function DocumentsPage() {
   const params = useParams<{ domainId: string }>();
   const domainId = params.domainId;
+  const { t } = useLanguage();
   const [keyword, setKeyword] = useState('');
   const [approval, setApproval] = useState<ApprovalStatus | ''>('');
   const [page, setPage] = useState(1);
   const pageSize = 20;
   const [reindexFor, setReindexFor] = useState<string | null>(null);
+
+  const statusLabel: Record<ApprovalStatus, string> = {
+    pending: t('documents.statusPending'),
+    approved: t('documents.statusApproved'),
+    archived: t('documents.statusArchived'),
+  };
 
   const swrKey = `documents:${domainId}:${page}:${pageSize}:${keyword}:${approval}`;
   const { data, isLoading, error } = useSWR<DocumentListResult>(
@@ -81,14 +79,16 @@ export default function DocumentsPage() {
   };
 
   return (
-    <div className="p-6">
+    <div className="p-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">문서 관리</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">
+          {t('documents.title')}
+        </h1>
         <Link
           href={`/${domainId}/admin/documents/upload`}
-          className="px-3 py-2 bg-blue-600 text-white rounded text-sm"
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-gray-900 text-white hover:bg-gray-800 dark:bg-brand-600 dark:hover:bg-brand-500"
         >
-          + 문서 업로드
+          {t('documents.upload')}
         </Link>
       </div>
 
@@ -97,8 +97,8 @@ export default function DocumentsPage() {
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && setPage(1)}
-          placeholder="제목 / 부서 / tags 검색"
-          className="flex-1 px-3 py-2 border rounded text-sm"
+          placeholder={t('documents.searchPlaceholder')}
+          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white dark:bg-slate-900 dark:border-slate-600 dark:text-slate-100"
         />
         <select
           value={approval}
@@ -106,147 +106,167 @@ export default function DocumentsPage() {
             setApproval(e.target.value as ApprovalStatus | '');
             setPage(1);
           }}
-          className="px-3 py-2 border rounded text-sm"
+          className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white dark:bg-slate-900 dark:border-slate-600 dark:text-slate-100"
         >
-          <option value="">모든 승인 상태</option>
-          <option value="pending">대기</option>
-          <option value="approved">승인</option>
-          <option value="archived">비활성</option>
+          <option value="">{t('documents.allApproval')}</option>
+          <option value="pending">{t('documents.statusPending')}</option>
+          <option value="approved">{t('documents.statusApproved')}</option>
+          <option value="archived">{t('documents.statusArchived')}</option>
         </select>
       </div>
 
-      {isLoading && <p>로딩 중...</p>}
-      {error && <p className="text-red-600">목록 로드 실패: {error.message}</p>}
+      {isLoading && <p className="text-gray-500 dark:text-slate-400">{t('common.loading')}</p>}
+      {error && (
+        <p className="text-red-600 dark:text-red-400">
+          {t('common.loadFailed')}: {error.message}
+        </p>
+      )}
 
       {data && (
-        <>
+        <Card padded={false} className="overflow-hidden">
           <table className="w-full text-sm border-collapse">
             <thead>
-              <tr className="border-b bg-gray-50 text-left">
-                <th className="p-2">문서명</th>
-                <th className="p-2">input_type</th>
-                <th className="p-2">부서</th>
-                <th className="p-2">보안</th>
-                <th className="p-2">버전</th>
-                <th className="p-2">chunk수</th>
-                <th className="p-2">상태</th>
-                <th className="p-2">최근 색인</th>
-                <th className="p-2">액션</th>
+              <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50 text-left text-gray-500 dark:text-slate-400">
+                <th className="p-3 font-medium">{t('documents.colName')}</th>
+                <th className="p-3 font-medium">{t('documents.colInputType')}</th>
+                <th className="p-3 font-medium">{t('documents.colDept')}</th>
+                <th className="p-3 font-medium">{t('documents.colSecurity')}</th>
+                <th className="p-3 font-medium">{t('documents.colVersion')}</th>
+                <th className="p-3 font-medium">{t('documents.colChunks')}</th>
+                <th className="p-3 font-medium">{t('documents.colStatus')}</th>
+                <th className="p-3 font-medium">{t('documents.colIndexed')}</th>
+                <th className="p-3 font-medium">{t('documents.colActions')}</th>
               </tr>
             </thead>
             <tbody>
               {data.items.map((d) => (
-                <tr key={d.doc_id} className="border-b hover:bg-gray-50">
-                  <td className="p-2">
+                <tr
+                  key={d.doc_id}
+                  className="border-b border-gray-100 dark:border-slate-700/60 hover:bg-gray-50 dark:hover:bg-slate-700/40"
+                >
+                  <td className="p-3">
                     <Link
                       href={`/${domainId}/admin/documents/${d.doc_id}`}
-                      className="font-medium text-blue-600 hover:underline"
+                      className="font-medium text-blue-600 dark:text-brand-400 hover:underline"
                     >
                       {d.title}
                     </Link>
-                    <div className="text-xs text-gray-500">{d.doc_id}</div>
+                    <div className="text-xs text-gray-500 dark:text-slate-400">{d.doc_id}</div>
                   </td>
-                  <td className="p-2 text-xs">{d.input_type || '-'}</td>
-                  <td className="p-2 text-xs">{d.department || '-'}</td>
-                  <td className="p-2 text-xs">{d.security_level || '-'}</td>
-                  <td className="p-2 text-xs">{d.version}</td>
-                  <td className="p-2 text-xs">{d.chunk_count}</td>
-                  <td className="p-2">
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs ${STATUS_COLOR[d.approval_status]}`}
-                    >
-                      {STATUS_LABEL[d.approval_status]}
-                    </span>
+                  <td className="p-3 text-xs">{d.input_type || '-'}</td>
+                  <td className="p-3 text-xs">{d.department || '-'}</td>
+                  <td className="p-3 text-xs">{d.security_level || '-'}</td>
+                  <td className="p-3 text-xs">{d.version}</td>
+                  <td className="p-3 text-xs">{d.chunk_count}</td>
+                  <td className="p-3">
+                    <Badge tone={STATUS_TONE[d.approval_status]}>
+                      {statusLabel[d.approval_status]}
+                    </Badge>
                   </td>
-                  <td className="p-2 text-xs">
+                  <td className="p-3 text-xs">
                     {d.last_indexed_at
                       ? new Date(d.last_indexed_at).toLocaleDateString('ko-KR')
                       : '-'}
                   </td>
-                  <td className="p-2 text-xs space-x-1">
-                    <button
-                      className="px-1 border rounded"
+                  <td className="p-3 text-xs space-x-1 whitespace-nowrap">
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       onClick={() =>
                         setReindexFor(reindexFor === d.doc_id ? null : d.doc_id)
                       }
                     >
-                      재색인
-                    </button>
+                      {t('documents.reindex')}
+                    </Button>
                     {d.approval_status !== 'approved' && (
-                      <button
-                        className="px-1 border rounded"
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         onClick={() => handleApprove(d.doc_id, 'approved')}
                       >
-                        승인
-                      </button>
+                        {t('documents.approve')}
+                      </Button>
                     )}
                     {d.approval_status !== 'archived' && (
-                      <button
-                        className="px-1 border rounded"
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         onClick={() => handleApprove(d.doc_id, 'archived')}
                       >
-                        비활성
-                      </button>
+                        {t('documents.archive')}
+                      </Button>
                     )}
                   </td>
                 </tr>
               ))}
               {data.items.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="p-4 text-center text-gray-500">
-                    문서가 없습니다.
+                  <td colSpan={9} className="p-6 text-center text-gray-500 dark:text-slate-400">
+                    {t('documents.empty')}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </Card>
+      )}
 
-          {reindexFor && (
-            <div className="mt-4 p-4 border rounded bg-gray-50">
-              <p className="text-sm font-bold mb-2">재색인 mode 선택 ({reindexFor})</p>
-              <div className="grid grid-cols-2 gap-2">
-                {REINDEX_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.mode}
-                    onClick={() => void handleReindex(reindexFor, opt.mode)}
-                    className="text-left p-2 border rounded hover:bg-white"
-                  >
-                    <span className="font-mono text-xs font-bold">{opt.label}</span>
-                    <p className="text-xs text-gray-500">{opt.desc}</p>
-                  </button>
-                ))}
-              </div>
+      {reindexFor && (
+        <Card className="mt-4">
+          <p className="text-sm font-bold mb-2 text-gray-900 dark:text-slate-100">
+            {t('documents.reindexSelect')} ({reindexFor})
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {REINDEX_OPTIONS.map((opt) => (
               <button
-                onClick={() => setReindexFor(null)}
-                className="mt-2 text-xs text-gray-500 hover:underline"
+                key={opt.mode}
+                onClick={() => void handleReindex(reindexFor, opt.mode)}
+                className="text-left p-2 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
               >
-                취소
+                <span className="font-mono text-xs font-bold text-gray-900 dark:text-slate-100">
+                  {opt.label}
+                </span>
+                <p className="text-xs text-gray-500 dark:text-slate-400">{opt.desc}</p>
               </button>
-            </div>
-          )}
-
-          <div className="mt-4 flex justify-between items-center text-sm">
-            <span>
-              총 {data.total}건 · {page} / {Math.max(1, Math.ceil(data.total / pageSize))}
-            </span>
-            <div className="flex gap-2">
-              <button
-                disabled={page <= 1}
-                onClick={() => setPage(page - 1)}
-                className="px-2 py-1 border rounded disabled:bg-gray-100 disabled:text-gray-400"
-              >
-                이전
-              </button>
-              <button
-                disabled={page * pageSize >= data.total}
-                onClick={() => setPage(page + 1)}
-                className="px-2 py-1 border rounded disabled:bg-gray-100 disabled:text-gray-400"
-              >
-                다음
-              </button>
-            </div>
+            ))}
           </div>
-        </>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-2"
+            onClick={() => setReindexFor(null)}
+          >
+            {t('documents.cancel')}
+          </Button>
+        </Card>
+      )}
+
+      {data && (
+        <div className="mt-4 flex justify-between items-center text-sm text-gray-600 dark:text-slate-300">
+          <span>
+            {t('common.total')} {data.total ?? 0}
+            {t('common.count')} · {page} /{' '}
+            {Math.max(1, Math.ceil((data.total ?? 0) / pageSize))}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              {t('common.prev')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={page * pageSize >= (data.total ?? 0)}
+              onClick={() => setPage(page + 1)}
+            >
+              {t('common.next')}
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );
