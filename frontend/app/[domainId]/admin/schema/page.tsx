@@ -10,6 +10,8 @@ import { useParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
 import {
   getSchema,
   getSchemaHistory,
@@ -20,7 +22,7 @@ import type { InputSchemaHistory, InputSchemaRecord } from '@/lib/types';
 // Monaco는 SSR 미호환 — dynamic import
 const Editor = dynamic(() => import('@monaco-editor/react').then((m) => m.default), {
   ssr: false,
-  loading: () => <div className="p-4 text-gray-500">에디터 로딩 중...</div>,
+  loading: () => <div className="p-4 text-gray-500 dark:text-slate-400">에디터 로딩 중...</div>,
 });
 
 export default function SchemaEditorPage() {
@@ -101,24 +103,21 @@ export default function SchemaEditorPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold">Schema Editor</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Schema Editor</h1>
           {current && (
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 dark:text-slate-400">
               현재 active version: <code>{current.schema_version}</code>
             </p>
           )}
         </div>
-        <button
-          onClick={() => setShowHistory(!showHistory)}
-          className="text-sm px-3 py-1 border rounded"
-        >
+        <Button variant="secondary" size="sm" onClick={() => setShowHistory(!showHistory)}>
           {showHistory ? '편집기로' : '이력 보기'}
-        </button>
+        </Button>
       </div>
 
       {!showHistory ? (
         <>
-          <div className="border rounded overflow-hidden mb-4" style={{ height: '500px' }}>
+          <div className="border border-gray-200 dark:border-slate-700 rounded overflow-hidden mb-4" style={{ height: '500px' }}>
             <Editor
               language="json"
               theme={editorTheme}
@@ -136,8 +135,8 @@ export default function SchemaEditorPage() {
             <div
               className={`mb-3 p-3 rounded text-sm ${
                 message.type === 'ok'
-                  ? 'bg-green-50 text-green-800'
-                  : 'bg-red-50 text-red-800'
+                  ? 'bg-green-50 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                  : 'bg-red-50 text-red-800 dark:bg-red-900/30 dark:text-red-300'
               }`}
             >
               {message.text}
@@ -145,23 +144,19 @@ export default function SchemaEditorPage() {
           )}
 
           <div className="flex gap-2">
-            <button
-              onClick={handleSave}
-              disabled={submitting}
-              className="px-4 py-2 bg-blue-600 text-white rounded disabled:bg-gray-400"
-            >
+            <Button onClick={handleSave} disabled={submitting}>
               {submitting ? '저장 중...' : '저장'}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="secondary"
               onClick={() => {
                 if (current) {
                   setYamlText(JSON.stringify(current.schema_yaml || {}, null, 2));
                 }
               }}
-              className="px-4 py-2 border rounded"
             >
               초기화
-            </button>
+            </Button>
           </div>
         </>
       ) : (
@@ -169,15 +164,15 @@ export default function SchemaEditorPage() {
           {history?.items.map((r) => (
             <details
               key={r.schema_version}
-              className="border rounded p-3 text-sm"
+              className="border border-gray-200 dark:border-slate-700 rounded p-3 text-sm"
             >
               <summary className="cursor-pointer flex justify-between">
                 <span className="font-bold">v{r.schema_version}</span>
-                <span className="text-gray-500">
+                <span className="text-gray-500 dark:text-slate-400">
                   {r.status} · {new Date(r.created_at).toLocaleString('ko-KR')}
                 </span>
               </summary>
-              <pre className="mt-2 bg-gray-50 p-2 text-xs overflow-x-auto max-h-60">
+              <pre className="mt-2 bg-gray-50 dark:bg-slate-900/50 p-2 text-xs overflow-x-auto max-h-60">
                 {JSON.stringify(r.schema_yaml, null, 2)}
               </pre>
             </details>

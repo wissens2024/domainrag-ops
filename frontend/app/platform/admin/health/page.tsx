@@ -6,6 +6,7 @@
 'use client';
 
 import useSWR from 'swr';
+import Card from '@/components/ui/Card';
 import { getHealthMetrics } from '@/lib/api';
 
 export default function PlatformHealthMetricsPage() {
@@ -17,38 +18,38 @@ export default function PlatformHealthMetricsPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Health Metrics (이 process 한정)</h1>
+      <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-slate-100">Health Metrics (이 process 한정)</h1>
 
-      {isLoading && <p>로딩...</p>}
-      {error && <p className="text-red-600">로드 실패: {String(error)}</p>}
+      {isLoading && <p className="text-gray-500 dark:text-slate-400">로딩...</p>}
+      {error && <p className="text-red-600 dark:text-red-400">로드 실패: {String(error)}</p>}
 
       {data && (
         <div className="grid grid-cols-2 gap-6">
-          <section className="border rounded p-4">
-            <h2 className="font-bold mb-2">Ledger publish</h2>
-            <p className="text-3xl font-bold">{data.ledger.publish_failures_total}</p>
-            <p className="text-sm text-gray-500">총 실패 건</p>
-            <p className="text-xs text-gray-500 mt-2">
+          <Card>
+            <h2 className="font-bold mb-2 text-gray-900 dark:text-slate-100">Ledger publish</h2>
+            <p className="text-3xl font-bold text-gray-900 dark:text-slate-100">{data.ledger.publish_failures_total}</p>
+            <p className="text-sm text-gray-500 dark:text-slate-400">총 실패 건</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-2">
               dead-letter: {data.ledger.dead_letter_count}건 (최근 10건 노출)
             </p>
-            <pre className="text-xs bg-gray-50 p-2 mt-2 max-h-60 overflow-y-auto">
+            <pre className="text-xs bg-gray-50 dark:bg-slate-900/50 p-2 mt-2 max-h-60 overflow-y-auto">
               {JSON.stringify(data.ledger.recent_dead_letters, null, 2)}
             </pre>
-          </section>
+          </Card>
 
-          <section className="border rounded p-4">
-            <h2 className="font-bold mb-2">chat_log writer</h2>
-            <p className="text-3xl font-bold">
+          <Card>
+            <h2 className="font-bold mb-2 text-gray-900 dark:text-slate-100">chat_log writer</h2>
+            <p className="text-3xl font-bold text-gray-900 dark:text-slate-100">
               {data.chat_log_writer.write_failures_total}
             </p>
-            <p className="text-sm text-gray-500">총 실패 건</p>
-            <p className="text-xs text-gray-500 mt-2">
+            <p className="text-sm text-gray-500 dark:text-slate-400">총 실패 건</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-2">
               dead-letter: {data.chat_log_writer.dead_letter_count}건
             </p>
-            <pre className="text-xs bg-gray-50 p-2 mt-2 max-h-60 overflow-y-auto">
+            <pre className="text-xs bg-gray-50 dark:bg-slate-900/50 p-2 mt-2 max-h-60 overflow-y-auto">
               {JSON.stringify(data.chat_log_writer.recent_dead_letters, null, 2)}
             </pre>
-          </section>
+          </Card>
         </div>
       )}
     </div>

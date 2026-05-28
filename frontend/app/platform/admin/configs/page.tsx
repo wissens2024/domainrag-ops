@@ -9,11 +9,12 @@ import dynamic from 'next/dynamic';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 import useSWR, { mutate } from 'swr';
+import Button from '@/components/ui/Button';
 import { getPlatformConfig, putPlatformConfig } from '@/lib/api';
 
 const Editor = dynamic(() => import('@monaco-editor/react').then((m) => m.default), {
   ssr: false,
-  loading: () => <div className="p-4 text-gray-500">에디터 로딩...</div>,
+  loading: () => <div className="p-4 text-gray-500 dark:text-slate-400">에디터 로딩...</div>,
 });
 
 const CATEGORIES = [
@@ -66,7 +67,7 @@ export default function PlatformConfigsPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Platform Configs</h1>
+      <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-slate-100">Platform Configs</h1>
 
       <div className="mb-3 flex gap-2 items-center text-sm">
         <select
@@ -80,12 +81,12 @@ export default function PlatformConfigsPage() {
             </option>
           ))}
         </select>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-gray-500 dark:text-slate-400">
           ⚠ 변경은 모든 tenant에 즉시 영향. 신중히 사용.
         </span>
       </div>
 
-      <div className="border rounded overflow-hidden mb-3" style={{ height: '500px' }}>
+      <div className="border border-gray-200 dark:border-slate-700 rounded overflow-hidden mb-3" style={{ height: '500px' }}>
         <Editor
           language="json"
           theme={editorTheme}
@@ -95,14 +96,11 @@ export default function PlatformConfigsPage() {
         />
       </div>
 
-      {message && <p className="text-sm mb-3">{message}</p>}
+      {message && <p className="text-sm mb-3 text-gray-700 dark:text-slate-300">{message}</p>}
 
-      <button
-        onClick={handleSave}
-        className="px-4 py-2 bg-blue-600 text-white rounded text-sm"
-      >
+      <Button onClick={handleSave}>
         저장 (platform/{category}.yaml 덮어쓰기)
-      </button>
+      </Button>
     </div>
   );
 }

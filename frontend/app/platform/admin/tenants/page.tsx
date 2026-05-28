@@ -8,6 +8,9 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+import Badge from '@/components/ui/Badge';
 import {
   hardDeleteTenant,
   listTenants,
@@ -16,11 +19,11 @@ import {
 } from '@/lib/api';
 import type { TenantListResult, TenantStatus } from '@/lib/types';
 
-const STATUS_COLOR: Record<TenantStatus, string> = {
-  active: 'bg-green-100 text-green-700',
-  suspended: 'bg-yellow-100 text-yellow-700',
-  archived: 'bg-gray-200 text-gray-700',
-  deleted: 'bg-red-100 text-red-700',
+const STATUS_TONE: Record<TenantStatus, 'success' | 'warn' | 'neutral' | 'danger'> = {
+  active: 'success',
+  suspended: 'warn',
+  archived: 'neutral',
+  deleted: 'danger',
 };
 
 export default function PlatformTenantsPage() {
@@ -93,36 +96,34 @@ export default function PlatformTenantsPage() {
   return (
     <div className="p-6">
       <div className="flex justify-between mb-4">
-        <h1 className="text-2xl font-bold">Platform · Tenants</h1>
-        <button
-          onClick={() => setShowRegister(!showRegister)}
-          className="px-3 py-2 bg-blue-600 text-white rounded text-sm"
-        >
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Platform · Tenants</h1>
+        <Button size="sm" onClick={() => setShowRegister(!showRegister)}>
           + 신규 등록
-        </button>
+        </Button>
       </div>
 
-      <div className="text-xs text-gray-500 mb-3">
-        <Link href="/platform/admin/endpoints" className="text-blue-600 hover:underline">
+      <div className="text-xs text-gray-500 dark:text-slate-400 mb-3">
+        <Link href="/platform/admin/endpoints" className="text-blue-600 dark:text-brand-400 hover:underline">
           → Endpoints
         </Link>{' '}
         ·{' '}
-        <Link href="/platform/admin/health" className="text-blue-600 hover:underline">
+        <Link href="/platform/admin/health" className="text-blue-600 dark:text-brand-400 hover:underline">
           Health metrics
         </Link>{' '}
         ·{' '}
         <Link
           href="/platform/admin/analytics/usage"
-          className="text-blue-600 hover:underline"
+          className="text-blue-600 dark:text-brand-400 hover:underline"
         >
           Usage analytics
         </Link>
       </div>
 
       {showRegister && (
+        <Card className="mb-4">
         <form
           onSubmit={handleRegister}
-          className="border rounded p-4 mb-4 grid grid-cols-5 gap-2 text-sm"
+          className="grid grid-cols-5 gap-2 text-sm"
         >
           <input
             value={form.domain_id}
@@ -156,13 +157,11 @@ export default function PlatformTenantsPage() {
             placeholder="modules (csv)"
             className="px-2 py-1 border rounded"
           />
-          <button
-            type="submit"
-            className="col-span-5 px-3 py-1 bg-green-600 text-white rounded"
-          >
+          <Button type="submit" size="sm" className="col-span-5">
             등록 (Qdrant·MinIO·configs 자동 생성)
-          </button>
+          </Button>
         </form>
+        </Card>
       )}
 
       <div className="flex gap-2 mb-3 text-sm">
@@ -179,11 +178,12 @@ export default function PlatformTenantsPage() {
         </select>
       </div>
 
-      {isLoading && <p>로딩...</p>}
+      {isLoading && <p className="text-gray-500 dark:text-slate-400">로딩...</p>}
       {data && (
+        <Card padded={false} className="overflow-hidden">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b bg-gray-50 text-left">
+            <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50 text-left text-gray-500 dark:text-slate-400">
               <th className="p-2">domain_id</th>
               <th className="p-2">display_name</th>
               <th className="p-2">domain</th>
@@ -195,58 +195,41 @@ export default function PlatformTenantsPage() {
           </thead>
           <tbody>
             {data.items.map((t) => (
-              <tr key={t.domain_id} className="border-b hover:bg-gray-50">
+              <tr key={t.domain_id} className="border-b border-gray-100 dark:border-slate-700/60 hover:bg-gray-50 dark:hover:bg-slate-700/40">
                 <td className="p-2 font-mono text-xs">{t.domain_id}</td>
                 <td className="p-2 text-xs">{t.display_name}</td>
                 <td className="p-2 text-xs">{t.domain_type}</td>
                 <td className="p-2 text-xs">{t.embedding_model}</td>
                 <td className="p-2">
-                  <span className={`px-2 py-0.5 rounded text-xs ${STATUS_COLOR[t.status]}`}>
-                    {t.status}
-                  </span>
+                  <Badge tone={STATUS_TONE[t.status]}>{t.status}</Badge>
                 </td>
                 <td className="p-2 text-xs">
                   {new Date(t.created_at).toLocaleDateString('ko-KR')}
                 </td>
-                <td className="p-2 text-xs space-x-1">
+                <td className="p-2 text-xs space-x-1 whitespace-nowrap">
                   {t.status === 'active' && (
-                    <button
-                      onClick={() => void handlePatchStatus(t.domain_id, 'suspended')}
-                      className="px-1 border rounded"
-                    >
+                    <Button variant="secondary" size="sm" onClick={() => void handlePatchStatus(t.domain_id, 'suspended')}>
                       suspend
-                    </button>
+                    </Button>
                   )}
                   {t.status === 'suspended' && (
-                    <button
-                      onClick={() => void handlePatchStatus(t.domain_id, 'active')}
-                      className="px-1 border rounded"
-                    >
+                    <Button variant="secondary" size="sm" onClick={() => void handlePatchStatus(t.domain_id, 'active')}>
                       reactivate
-                    </button>
+                    </Button>
                   )}
                   {(t.status === 'active' || t.status === 'suspended') && (
-                    <button
-                      onClick={() => void handlePatchStatus(t.domain_id, 'archived')}
-                      className="px-1 border rounded"
-                    >
+                    <Button variant="secondary" size="sm" onClick={() => void handlePatchStatus(t.domain_id, 'archived')}>
                       archive
-                    </button>
+                    </Button>
                   )}
                   {t.status === 'archived' && (
                     <>
-                      <button
-                        onClick={() => void handlePatchStatus(t.domain_id, 'active')}
-                        className="px-1 border rounded"
-                      >
+                      <Button variant="secondary" size="sm" onClick={() => void handlePatchStatus(t.domain_id, 'active')}>
                         restore
-                      </button>
-                      <button
-                        onClick={() => void handleHardDelete(t.domain_id)}
-                        className="px-1 border rounded text-red-600"
-                      >
+                      </Button>
+                      <Button variant="danger" size="sm" onClick={() => void handleHardDelete(t.domain_id)}>
                         hard delete
-                      </button>
+                      </Button>
                     </>
                   )}
                 </td>
@@ -254,13 +237,14 @@ export default function PlatformTenantsPage() {
             ))}
             {data.items.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-4 text-center text-gray-500">
+                <td colSpan={7} className="p-4 text-center text-gray-500 dark:text-slate-400">
                   tenants가 없습니다.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        </Card>
       )}
     </div>
   );

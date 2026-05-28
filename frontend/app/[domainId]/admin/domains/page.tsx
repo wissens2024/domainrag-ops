@@ -6,11 +6,16 @@
  *
  * 사용자 배정은 AuthFusion sub(user_id)로 한다. IdP 사용자 디렉터리 검색(email→sub)은
  * AuthFusion admin API 결선이 필요해 후속 작업(현재는 sub 직접 입력).
+ *
+ * 디자인 시스템(ui/) 적용 (ADR-016 보강).
  */
 'use client';
 
 import { useEffect, useState } from 'react';
 import useSWR, { mutate } from 'swr';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+import Badge from '@/components/ui/Badge';
 import {
   assignDomainMember,
   getMyDomains,
@@ -32,20 +37,20 @@ export default function DomainManagementPage() {
   return (
     <div className="p-8 max-w-6xl mx-auto font-sans">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100 tracking-tight">
           도메인 관리
         </h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
           도메인 가입 정책 전환 + 사용자 배정 (admin 전역, ADR-022)
         </p>
       </div>
 
-      {!domains && <div className="text-sm text-gray-500">로딩 중…</div>}
+      {!domains && <div className="text-sm text-gray-500 dark:text-slate-400">로딩 중…</div>}
 
       {domains && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="md:col-span-1">
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+            <Card padded={false} className="overflow-hidden">
               {items.map((d) => (
                 <DomainRow
                   key={d.domain_id}
@@ -55,9 +60,9 @@ export default function DomainManagementPage() {
                 />
               ))}
               {items.length === 0 && (
-                <p className="p-4 text-sm text-gray-400">도메인이 없습니다.</p>
+                <p className="p-4 text-sm text-gray-400 dark:text-slate-500">도메인이 없습니다.</p>
               )}
-            </div>
+            </Card>
           </div>
 
           <div className="md:col-span-2">
@@ -67,7 +72,7 @@ export default function DomainManagementPage() {
                 domain={items.find((d) => d.domain_id === selected)}
               />
             ) : (
-              <p className="text-sm text-gray-400">도메인을 선택하세요.</p>
+              <p className="text-sm text-gray-400 dark:text-slate-500">도메인을 선택하세요.</p>
             )}
           </div>
         </div>
@@ -88,27 +93,25 @@ function DomainRow({
   return (
     <button
       onClick={onClick}
-      className={`flex w-full items-center justify-between px-4 py-3 text-left border-b border-gray-100 last:border-0 ${
+      className={`flex w-full items-center justify-between px-4 py-3 text-left border-b border-gray-100 dark:border-slate-700/60 last:border-0 transition-colors ${
         active
           ? 'bg-gray-900 text-white dark:bg-brand-600'
-          : 'hover:bg-gray-50 text-gray-800 dark:hover:bg-slate-700'
+          : 'hover:bg-gray-50 text-gray-800 dark:text-slate-200 dark:hover:bg-slate-700/60'
       }`}
     >
       <div className="min-w-0">
         <p className="text-sm font-medium truncate">{domain.display_name}</p>
-        <p className={`text-[11px] truncate ${active ? 'text-gray-300' : 'text-gray-400'}`}>
+        <p
+          className={`text-[11px] truncate ${
+            active ? 'text-gray-300 dark:text-brand-100' : 'text-gray-400 dark:text-slate-500'
+          }`}
+        >
           {domain.domain_id}
         </p>
       </div>
-      <span
-        className={`text-[10px] px-1.5 py-0.5 rounded ${
-          domain.enrollment_policy === 'open'
-            ? 'bg-green-100 text-green-700'
-            : 'bg-gray-100 text-gray-600'
-        }`}
-      >
+      <Badge tone={domain.enrollment_policy === 'open' ? 'success' : 'neutral'}>
         {domain.enrollment_policy === 'open' ? '개방' : '배정'}
-      </span>
+      </Badge>
     </button>
   );
 }
@@ -181,33 +184,29 @@ function DomainDetail({
 
   return (
     <div className="space-y-5">
-      <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <Card>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-gray-900">
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
               {domain?.display_name ?? domainId}
             </h2>
-            <p className="text-[11px] text-gray-500 mt-0.5">
+            <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
               가입 정책:{' '}
-              <span className="font-medium">
+              <span className="font-medium text-gray-700 dark:text-slate-200">
                 {domain?.enrollment_policy === 'open'
                   ? '개방 (모든 사용자 자동 접근)'
                   : '배정 (관리자 배정만)'}
               </span>
             </p>
           </div>
-          <button
-            onClick={togglePolicy}
-            disabled={busy || !domain}
-            className="px-3 py-1.5 text-xs rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
-          >
+          <Button variant="secondary" size="sm" onClick={togglePolicy} disabled={busy || !domain}>
             {domain?.enrollment_policy === 'open' ? '배정으로 전환' : '개방으로 전환'}
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-gray-900 mb-3">사용자 배정</h3>
+      <Card>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">사용자 배정</h3>
         <div className="flex flex-wrap gap-2 items-center">
           <input
             value={newUserId}
@@ -225,52 +224,41 @@ function DomainDetail({
             <option value="confidential">confidential</option>
             <option value="secret">secret</option>
           </select>
-          <button
-            onClick={onAssign}
-            disabled={busy || !newUserId.trim()}
-            className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:bg-gray-400"
-          >
+          <Button variant="primary" onClick={onAssign} disabled={busy || !newUserId.trim()}>
             배정
-          </button>
+          </Button>
         </div>
-        {err && <p className="text-xs text-red-600 mt-2">{err}</p>}
-        <p className="text-[11px] text-gray-400 mt-2">
+        {err && <p className="text-xs text-red-600 dark:text-red-400 mt-2">{err}</p>}
+        <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-2">
           이메일→ID 검색은 AuthFusion 디렉터리 연동 후 제공됩니다. 현재는 sub 직접 입력.
         </p>
-      </div>
+      </Card>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-gray-900 mb-3">
+      <Card>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">
           배정된 사용자 ({members.length})
         </h3>
-        {!data && <p className="text-sm text-gray-400">로딩 중…</p>}
+        {!data && <p className="text-sm text-gray-400 dark:text-slate-500">로딩 중…</p>}
         {data && members.length === 0 && (
-          <p className="text-sm text-gray-400">배정된 사용자가 없습니다.</p>
+          <p className="text-sm text-gray-400 dark:text-slate-500">배정된 사용자가 없습니다.</p>
         )}
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-gray-100 dark:divide-slate-700/60">
           {members.map((m) => (
-            <div
-              key={m.user_id}
-              className="flex items-center justify-between py-2"
-            >
+            <div key={m.user_id} className="flex items-center justify-between py-2">
               <div className="min-w-0">
-                <p className="text-sm text-gray-900 truncate">{m.user_id}</p>
-                <p className="text-[11px] text-gray-500">
+                <p className="text-sm text-gray-900 dark:text-slate-100 truncate">{m.user_id}</p>
+                <p className="text-[11px] text-gray-500 dark:text-slate-400">
                   clearance: {m.clearance}
                   {m.department ? ` · ${m.department}` : ''}
                 </p>
               </div>
-              <button
-                onClick={() => onRevoke(m.user_id)}
-                disabled={busy}
-                className="px-2.5 py-1 text-xs rounded-md border border-gray-300 text-gray-600 hover:bg-red-50 hover:border-red-300 hover:text-red-600 disabled:opacity-50"
-              >
+              <Button variant="ghost" size="sm" onClick={() => onRevoke(m.user_id)} disabled={busy}>
                 해제
-              </button>
+              </Button>
             </div>
           ))}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

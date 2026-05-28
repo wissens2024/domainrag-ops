@@ -4,6 +4,7 @@
 'use client';
 
 import useSWR from 'swr';
+import Card from '@/components/ui/Card';
 import { listPlatformEndpoints } from '@/lib/api';
 
 export default function PlatformEndpointsPage() {
@@ -15,13 +16,14 @@ export default function PlatformEndpointsPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Endpoints</h1>
-      {isLoading && <p>로딩...</p>}
-      {error && <p className="text-red-600">로드 실패: {String(error)}</p>}
+      <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-slate-100">Endpoints</h1>
+      {isLoading && <p className="text-gray-500 dark:text-slate-400">로딩...</p>}
+      {error && <p className="text-red-600 dark:text-red-400">로드 실패: {String(error)}</p>}
       {data && (
+        <Card padded={false} className="overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b bg-gray-50 text-left">
+            <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50 text-left text-gray-500 dark:text-slate-400">
               <th className="p-2">name</th>
               <th className="p-2">URL</th>
               <th className="p-2">backend</th>
@@ -30,7 +32,7 @@ export default function PlatformEndpointsPage() {
           </thead>
           <tbody>
             {data.items.map((e) => (
-              <tr key={e.name} className="border-b">
+              <tr key={e.name} className="border-b border-gray-100 dark:border-slate-700/60">
                 <td className="p-2 font-mono text-xs">{e.name}</td>
                 <td className="p-2 font-mono text-xs">{e.url}</td>
                 <td className="p-2 text-xs">{e.backend}</td>
@@ -39,6 +41,7 @@ export default function PlatformEndpointsPage() {
             ))}
           </tbody>
         </table>
+        </Card>
       )}
     </div>
   );

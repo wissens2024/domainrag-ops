@@ -9,6 +9,9 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+import Badge from '@/components/ui/Badge';
 import {
   approveAssessmentItem,
   listAssessmentItems,
@@ -18,11 +21,11 @@ import type {
   AssessmentQualityStatus,
 } from '@/lib/types';
 
-const STATUS_COLOR: Record<AssessmentQualityStatus, string> = {
-  draft: 'bg-gray-100 text-gray-700',
-  reviewed: 'bg-blue-100 text-blue-700',
-  approved: 'bg-green-100 text-green-700',
-  retired: 'bg-gray-200 text-gray-500',
+const STATUS_TONE: Record<AssessmentQualityStatus, 'neutral' | 'info' | 'success'> = {
+  draft: 'neutral',
+  reviewed: 'info',
+  approved: 'success',
+  retired: 'neutral',
 };
 
 export default function ItemBankPage() {
@@ -64,17 +67,17 @@ export default function ItemBankPage() {
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Item Bank</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Item Bank</h1>
         <div className="flex gap-2 text-sm">
           <Link
             href={`/${domainId}/admin/assessment/workbench`}
-            className="px-3 py-1 border rounded"
+            className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700"
           >
             Workbench
           </Link>
           <Link
             href={`/${domainId}/admin/assessment/review-queue`}
-            className="px-3 py-1 border rounded"
+            className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700"
           >
             Review Queue
           </Link>
@@ -132,12 +135,13 @@ export default function ItemBankPage() {
         </select>
       </div>
 
-      {isLoading && <p>로딩...</p>}
+      {isLoading && <p className="text-gray-500 dark:text-slate-400">로딩...</p>}
       {data && (
         <>
+          <Card padded={false} className="overflow-hidden">
           <table className="w-full text-sm border-collapse">
             <thead>
-              <tr className="border-b bg-gray-50 text-left">
+              <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50 text-left text-gray-500 dark:text-slate-400">
                 <th className="p-2">item_id</th>
                 <th className="p-2">문제</th>
                 <th className="p-2">subject</th>
@@ -150,7 +154,7 @@ export default function ItemBankPage() {
             </thead>
             <tbody>
               {data.items.map((it) => (
-                <tr key={it.item_id} className="border-b hover:bg-gray-50">
+                <tr key={it.item_id} className="border-b border-gray-100 dark:border-slate-700/60 hover:bg-gray-50 dark:hover:bg-slate-700/40">
                   <td className="p-2 font-mono text-xs">{it.item_id.slice(0, 12)}…</td>
                   <td className="p-2 text-xs truncate max-w-md">
                     {it.question_text}
@@ -158,11 +162,9 @@ export default function ItemBankPage() {
                   <td className="p-2 text-xs">{it.subject}</td>
                   <td className="p-2 text-xs">{it.difficulty || '-'}</td>
                   <td className="p-2">
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs ${STATUS_COLOR[it.quality_status]}`}
-                    >
+                    <Badge tone={STATUS_TONE[it.quality_status]}>
                       {it.quality_status === 'retired' ? '비활성' : it.quality_status}
-                    </span>
+                    </Badge>
                   </td>
                   <td className="p-2 text-xs">
                     {it.quality_score?.toFixed(2) || '-'}
@@ -171,43 +173,33 @@ export default function ItemBankPage() {
                   <td className="p-2 text-xs">
                     {(it.quality_status === 'draft' ||
                       it.quality_status === 'reviewed') && (
-                      <button
-                        onClick={() => void handleApprove(it.item_id)}
-                        className="px-1 border rounded"
-                      >
+                      <Button variant="secondary" size="sm" onClick={() => void handleApprove(it.item_id)}>
                         approve
-                      </button>
+                      </Button>
                     )}
                   </td>
                 </tr>
               ))}
               {data.items.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="p-4 text-center text-gray-500">
+                  <td colSpan={8} className="p-4 text-center text-gray-500 dark:text-slate-400">
                     조건에 맞는 item이 없습니다.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+          </Card>
 
-          <div className="mt-4 flex justify-between text-sm">
+          <div className="mt-4 flex justify-between items-center text-sm text-gray-600 dark:text-slate-300">
             <span>총 {data.total}건 · {page}쪽</span>
             <div className="flex gap-2">
-              <button
-                disabled={page <= 1}
-                onClick={() => setPage(page - 1)}
-                className="px-2 py-1 border rounded disabled:bg-gray-100"
-              >
+              <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
                 이전
-              </button>
-              <button
-                disabled={page * pageSize >= data.total}
-                onClick={() => setPage(page + 1)}
-                className="px-2 py-1 border rounded disabled:bg-gray-100"
-              >
+              </Button>
+              <Button variant="secondary" size="sm" disabled={page * pageSize >= (data.total ?? 0)} onClick={() => setPage(page + 1)}>
                 다음
-              </button>
+              </Button>
             </div>
           </div>
         </>

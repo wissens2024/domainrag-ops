@@ -8,6 +8,8 @@
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
 import {
   getEvalJob,
   listEvalDatasets,
@@ -18,11 +20,11 @@ import {
 import type { EvalDataset, EvalJob, EvalJobListResult } from '@/lib/types';
 
 const STATUS_COLOR: Record<EvalJob['status'], string> = {
-  pending: 'bg-gray-100 text-gray-700',
-  running: 'bg-blue-100 text-blue-700',
-  completed: 'bg-green-100 text-green-700',
-  failed: 'bg-red-100 text-red-700',
-  promoted: 'bg-purple-100 text-purple-700',
+  pending: 'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-slate-200',
+  running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+  promoted: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
 };
 
 export default function EvaluationPage() {
@@ -87,10 +89,10 @@ export default function EvaluationPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Evaluation Console</h1>
+      <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-slate-100">Evaluation Console</h1>
 
-      <section className="mb-6 border rounded p-4">
-        <h2 className="font-bold mb-2">새 평가 실행</h2>
+      <Card className="mb-6">
+        <h2 className="font-bold mb-2 text-gray-900 dark:text-slate-100">새 평가 실행</h2>
         <div className="flex gap-2 items-center text-sm">
           <select
             value={selectedDataset}
@@ -104,57 +106,55 @@ export default function EvaluationPage() {
               </option>
             ))}
           </select>
-          <button
-            onClick={handleRun}
-            disabled={running || !selectedDataset}
-            className="px-3 py-1 bg-blue-600 text-white rounded disabled:bg-gray-400"
-          >
+          <Button onClick={handleRun} disabled={running || !selectedDataset}>
             ▶ Run
-          </button>
+          </Button>
         </div>
-      </section>
+      </Card>
 
       <div className="grid grid-cols-2 gap-6">
         <section>
-          <h2 className="font-bold mb-2">최근 jobs</h2>
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="border-b bg-gray-50 text-left">
-                <th className="p-2">job_id</th>
-                <th className="p-2">dataset</th>
-                <th className="p-2">status</th>
-                <th className="p-2">완료 시각</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(jobs?.items ?? []).map((j) => (
-                <tr
-                  key={j.job_id}
-                  className={`border-b hover:bg-gray-50 cursor-pointer ${
-                    selectedJob?.job_id === j.job_id ? 'bg-blue-50' : ''
-                  }`}
-                  onClick={() => void handleSelectJob(j.job_id)}
-                >
-                  <td className="p-2 font-mono text-xs">{j.job_id.slice(0, 12)}…</td>
-                  <td className="p-2 text-xs">{j.dataset_name}</td>
-                  <td className="p-2">
-                    <span className={`px-2 py-0.5 rounded text-xs ${STATUS_COLOR[j.status]}`}>
-                      {j.status}
-                    </span>
-                  </td>
-                  <td className="p-2 text-xs">
-                    {j.finished_at
-                      ? new Date(j.finished_at).toLocaleString('ko-KR')
-                      : '-'}
-                  </td>
+          <h2 className="font-bold mb-2 text-gray-900 dark:text-slate-100">최근 jobs</h2>
+          <Card padded={false} className="overflow-hidden">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50 text-left text-gray-500 dark:text-slate-400">
+                  <th className="p-2">job_id</th>
+                  <th className="p-2">dataset</th>
+                  <th className="p-2">status</th>
+                  <th className="p-2">완료 시각</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(jobs?.items ?? []).map((j) => (
+                  <tr
+                    key={j.job_id}
+                    className={`border-b border-gray-100 dark:border-slate-700/60 hover:bg-gray-50 dark:hover:bg-slate-700/40 cursor-pointer ${
+                      selectedJob?.job_id === j.job_id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                    }`}
+                    onClick={() => void handleSelectJob(j.job_id)}
+                  >
+                    <td className="p-2 font-mono text-xs">{j.job_id.slice(0, 12)}…</td>
+                    <td className="p-2 text-xs">{j.dataset_name}</td>
+                    <td className="p-2">
+                      <span className={`px-2 py-0.5 rounded text-xs ${STATUS_COLOR[j.status]}`}>
+                        {j.status}
+                      </span>
+                    </td>
+                    <td className="p-2 text-xs">
+                      {j.finished_at
+                        ? new Date(j.finished_at).toLocaleString('ko-KR')
+                        : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
         </section>
 
         <section>
-          <h2 className="font-bold mb-2">선택된 job</h2>
+          <h2 className="font-bold mb-2 text-gray-900 dark:text-slate-100">선택된 job</h2>
           {selectedJob ? (
             <div className="text-sm space-y-2">
               <p>
@@ -168,7 +168,7 @@ export default function EvaluationPage() {
               {selectedJob.summary && (
                 <details open>
                   <summary className="font-bold cursor-pointer">summary</summary>
-                  <pre className="text-xs bg-gray-50 p-2 mt-1">
+                  <pre className="text-xs bg-gray-50 dark:bg-slate-900/50 p-2 mt-1">
                     {JSON.stringify(selectedJob.summary, null, 2)}
                   </pre>
                 </details>
@@ -180,7 +180,7 @@ export default function EvaluationPage() {
                   </summary>
                   <table className="text-xs mt-1 w-full">
                     <thead>
-                      <tr className="bg-gray-50">
+                      <tr className="bg-gray-50 dark:bg-slate-900/50">
                         <th className="p-1 text-left">metric</th>
                         <th className="p-1 text-left">value</th>
                         <th className="p-1 text-left">threshold</th>
@@ -190,7 +190,7 @@ export default function EvaluationPage() {
                     <tbody>
                       {Object.entries(selectedJob.gate_result.metrics).map(
                         ([name, m]) => (
-                          <tr key={name} className="border-b">
+                          <tr key={name} className="border-b border-gray-100 dark:border-slate-700/60">
                             <td className="p-1">{name}</td>
                             <td className="p-1">{m.value.toFixed(4)}</td>
                             <td className="p-1">{m.threshold.toFixed(4)}</td>
@@ -204,15 +204,12 @@ export default function EvaluationPage() {
               )}
               {selectedJob.status === 'completed' &&
                 selectedJob.gate_result?.passed && (
-                  <button
-                    onClick={handlePromote}
-                    className="px-3 py-1 bg-purple-600 text-white rounded text-sm"
-                  >
+                  <Button onClick={handlePromote} size="sm">
                     🚀 promote
-                  </button>
+                  </Button>
                 )}
               {selectedJob.status === 'promoted' && (
-                <p className="text-purple-700 text-sm">
+                <p className="text-purple-700 dark:text-purple-300 text-sm">
                   promoted ({selectedJob.promotion_target}/{selectedJob.promotion_version}) at{' '}
                   {selectedJob.promoted_at
                     ? new Date(selectedJob.promoted_at).toLocaleString('ko-KR')
@@ -221,7 +218,7 @@ export default function EvaluationPage() {
               )}
             </div>
           ) : (
-            <p className="text-sm text-gray-400">job을 선택하세요.</p>
+            <p className="text-sm text-gray-400 dark:text-slate-500">job을 선택하세요.</p>
           )}
         </section>
       </div>

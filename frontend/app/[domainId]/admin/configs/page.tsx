@@ -8,6 +8,8 @@
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
 import {
   getConfigCategory,
   getConfigHistory,
@@ -93,7 +95,7 @@ export default function TenantConfigsPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Tenant Configs</h1>
+      <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-slate-100">Tenant Configs</h1>
 
       <div className="flex gap-2 mb-4 items-center text-sm">
         <select
@@ -107,25 +109,22 @@ export default function TenantConfigsPage() {
             </option>
           ))}
         </select>
-        <button
-          onClick={handleReload}
-          className="px-3 py-1 border rounded bg-gray-50"
-        >
+        <Button variant="secondary" size="sm" onClick={handleReload}>
           ⟳ reload
-        </button>
+        </Button>
       </div>
 
       <div className="grid grid-cols-2 gap-6">
         <section>
-          <h2 className="font-bold mb-2">현재 effective {category}</h2>
-          {isLoading && <p>로딩...</p>}
-          <pre className="bg-gray-50 border rounded p-3 text-xs overflow-x-auto max-h-96">
+          <h2 className="font-bold mb-2 text-gray-900 dark:text-slate-100">현재 effective {category}</h2>
+          {isLoading && <p className="text-gray-500 dark:text-slate-400">로딩...</p>}
+          <pre className="bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700 rounded p-3 text-xs overflow-x-auto max-h-96 text-gray-700 dark:text-slate-300">
             {data ? JSON.stringify(data, null, 2) : '-'}
           </pre>
         </section>
 
         <section>
-          <h2 className="font-bold mb-2">패치 (dotted path)</h2>
+          <h2 className="font-bold mb-2 text-gray-900 dark:text-slate-100">패치 (dotted path)</h2>
           <div className="space-y-2 text-sm">
             <input
               value={pathInput}
@@ -146,16 +145,13 @@ export default function TenantConfigsPage() {
               placeholder="reason (audit 기록용)"
               className="w-full px-2 py-1 border rounded text-xs"
             />
-            <button
-              onClick={handlePatch}
-              className="px-3 py-1 bg-blue-600 text-white rounded"
-            >
+            <Button onClick={handlePatch}>
               저장
-            </button>
+            </Button>
             {message && (
               <p
                 className={`text-sm ${
-                  message.type === 'ok' ? 'text-green-700' : 'text-red-600'
+                  message.type === 'ok' ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                 }`}
               >
                 {message.text}
@@ -163,24 +159,24 @@ export default function TenantConfigsPage() {
             )}
           </div>
 
-          <h3 className="font-bold mt-6 mb-2">최근 변경 (history)</h3>
+          <h3 className="font-bold mt-6 mb-2 text-gray-900 dark:text-slate-100">최근 변경 (history)</h3>
           <ul className="text-xs space-y-1 max-h-80 overflow-y-auto">
             {history?.items?.map((h, i) => (
-              <li key={i} className="border-b pb-1">
+              <li key={i} className="border-b border-gray-100 dark:border-slate-700/60 pb-1">
                 <span className="font-mono">{h.path}</span>
-                <span className="text-gray-500">
+                <span className="text-gray-500 dark:text-slate-400">
                   {' '}
                   · {h.author} · {new Date(h.changed_at).toLocaleString('ko-KR')}
                 </span>
                 <details className="ml-2">
                   <summary className="cursor-pointer">diff</summary>
-                  <div className="text-xs bg-gray-50 p-1">
+                  <div className="text-xs bg-gray-50 dark:bg-slate-900/50 p-1">
                     old: {JSON.stringify(h.old_value)}
                   </div>
-                  <div className="text-xs bg-blue-50 p-1">
+                  <div className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 p-1">
                     new: {JSON.stringify(h.new_value)}
                   </div>
-                  {h.reason && <div className="text-gray-500">reason: {h.reason}</div>}
+                  {h.reason && <div className="text-gray-500 dark:text-slate-400">reason: {h.reason}</div>}
                 </details>
               </li>
             ))}

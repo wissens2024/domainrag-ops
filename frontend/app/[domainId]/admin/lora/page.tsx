@@ -8,6 +8,9 @@
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import useSWR, { mutate } from 'swr';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+import Badge from '@/components/ui/Badge';
 import {
   activateLoRA,
   deleteLoRA,
@@ -17,10 +20,10 @@ import {
 } from '@/lib/api';
 import type { AdapterRecord, LoRAStatus } from '@/lib/types';
 
-const STATUS_COLOR: Record<LoRAStatus, string> = {
-  registered: 'bg-yellow-100 text-yellow-700',
-  active: 'bg-green-100 text-green-700',
-  retired: 'bg-gray-200 text-gray-700',
+const STATUS_TONE: Record<LoRAStatus, 'warn' | 'success' | 'neutral'> = {
+  registered: 'warn',
+  active: 'success',
+  retired: 'neutral',
 };
 
 export default function LoRARegistryPage() {
@@ -94,14 +97,15 @@ export default function LoRARegistryPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">LoRA Registry</h1>
+      <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-slate-100">LoRA Registry</h1>
 
+      <Card className="mb-6">
       <form
         onSubmit={handleUpload}
-        className="border rounded p-4 mb-6 grid grid-cols-12 gap-2 items-end text-sm"
+        className="grid grid-cols-12 gap-2 items-end text-sm"
       >
         <div className="col-span-3">
-          <label className="block text-xs text-gray-500">adapter_id</label>
+          <label className="block text-xs text-gray-500 dark:text-slate-400">adapter_id</label>
           <input
             value={uploadForm.adapter_id}
             onChange={(e) =>
@@ -112,7 +116,7 @@ export default function LoRARegistryPage() {
           />
         </div>
         <div className="col-span-2">
-          <label className="block text-xs text-gray-500">version</label>
+          <label className="block text-xs text-gray-500 dark:text-slate-400">version</label>
           <input
             value={uploadForm.version}
             onChange={(e) =>
@@ -122,7 +126,7 @@ export default function LoRARegistryPage() {
           />
         </div>
         <div className="col-span-3">
-          <label className="block text-xs text-gray-500">base_model</label>
+          <label className="block text-xs text-gray-500 dark:text-slate-400">base_model</label>
           <input
             value={uploadForm.base_model}
             onChange={(e) =>
@@ -132,21 +136,18 @@ export default function LoRARegistryPage() {
           />
         </div>
         <div className="col-span-3">
-          <label className="block text-xs text-gray-500">weights file</label>
+          <label className="block text-xs text-gray-500 dark:text-slate-400">weights file</label>
           <input
             type="file"
             onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
             className="text-xs"
           />
         </div>
-        <button
-          type="submit"
-          disabled={uploading}
-          className="col-span-1 px-3 py-1 bg-blue-600 text-white rounded disabled:bg-gray-400"
-        >
+        <Button type="submit" disabled={uploading} size="sm" className="col-span-1">
           {uploading ? '...' : '업로드'}
-        </button>
+        </Button>
       </form>
+      </Card>
 
       <div className="flex gap-2 mb-3 text-sm">
         <select
@@ -161,12 +162,13 @@ export default function LoRARegistryPage() {
         </select>
       </div>
 
-      {isLoading && <p>로딩 중...</p>}
+      {isLoading && <p className="text-gray-500 dark:text-slate-400">로딩 중...</p>}
 
       {data && (
+        <Card padded={false} className="overflow-hidden">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b bg-gray-50 text-left">
+            <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50 text-left text-gray-500 dark:text-slate-400">
               <th className="p-2">adapter_id</th>
               <th className="p-2">version</th>
               <th className="p-2">base_model</th>
@@ -178,14 +180,12 @@ export default function LoRARegistryPage() {
           </thead>
           <tbody>
             {data.items.map((r) => (
-              <tr key={r.adapter_id} className="border-b hover:bg-gray-50">
+              <tr key={r.adapter_id} className="border-b border-gray-100 dark:border-slate-700/60 hover:bg-gray-50 dark:hover:bg-slate-700/40">
                 <td className="p-2 font-mono text-xs">{r.adapter_id}</td>
                 <td className="p-2 text-xs">{r.version || '-'}</td>
                 <td className="p-2 text-xs">{r.base_model || '-'}</td>
                 <td className="p-2">
-                  <span className={`px-2 py-0.5 rounded text-xs ${STATUS_COLOR[r.status]}`}>
-                    {r.status}
-                  </span>
+                  <Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>
                 </td>
                 <td className="p-2 font-mono text-xs truncate max-w-xs">
                   {r.keyhub_secret_ref || '-'}
@@ -193,43 +193,35 @@ export default function LoRARegistryPage() {
                 <td className="p-2 text-xs">
                   {new Date(r.created_at).toLocaleString('ko-KR')}
                 </td>
-                <td className="p-2 text-xs space-x-1">
+                <td className="p-2 text-xs space-x-1 whitespace-nowrap">
                   {r.status === 'registered' && (
-                    <button
-                      onClick={() => void handleActivate(r.adapter_id)}
-                      className="px-1 border rounded"
-                    >
+                    <Button variant="secondary" size="sm" onClick={() => void handleActivate(r.adapter_id)}>
                       activate
-                    </button>
+                    </Button>
                   )}
                   {(r.status === 'registered' || r.status === 'active') && (
-                    <button
-                      onClick={() => void handleRetire(r.adapter_id)}
-                      className="px-1 border rounded"
-                    >
+                    <Button variant="secondary" size="sm" onClick={() => void handleRetire(r.adapter_id)}>
                       retire
-                    </button>
+                    </Button>
                   )}
                   {r.status !== 'active' && (
-                    <button
-                      onClick={() => void handleDelete(r.adapter_id)}
-                      className="px-1 border rounded text-red-600"
-                    >
+                    <Button variant="danger" size="sm" onClick={() => void handleDelete(r.adapter_id)}>
                       delete
-                    </button>
+                    </Button>
                   )}
                 </td>
               </tr>
             ))}
             {data.items.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-4 text-center text-gray-500">
+                <td colSpan={7} className="p-4 text-center text-gray-500 dark:text-slate-400">
                   adapter가 없습니다.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        </Card>
       )}
     </div>
   );

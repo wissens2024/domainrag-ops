@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import useSWR from 'swr';
+import Button from '@/components/ui/Button';
 import {
   getDocument,
   hardDeleteDocument,
@@ -64,17 +65,17 @@ export default function DocumentDetailPage() {
     }
   };
 
-  if (isLoading) return <div className="p-6">로딩 중...</div>;
-  if (error) return <div className="p-6 text-red-600">로드 실패: {error.message}</div>;
+  if (isLoading) return <div className="p-6 text-gray-700 dark:text-slate-300">로딩 중...</div>;
+  if (error) return <div className="p-6 text-red-600 dark:text-red-400">로드 실패: {error.message}</div>;
   if (!data) return null;
 
   return (
     <div className="p-6 max-w-4xl">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold">{data.title}</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{data.title}</h1>
         <Link
           href={`/${domainId}/admin/documents`}
-          className="text-sm text-blue-600 hover:underline"
+          className="text-sm text-blue-600 dark:text-brand-400 hover:underline"
         >
           ← 문서 목록
         </Link>
@@ -113,17 +114,19 @@ export default function DocumentDetailPage() {
       </div>
 
       <div className="mb-6">
-        <h2 className="font-bold mb-2">domain metadata</h2>
-        <pre className="bg-gray-50 border rounded p-3 text-xs overflow-x-auto">
+        <h2 className="font-bold mb-2 text-gray-900 dark:text-slate-100">domain metadata</h2>
+        <pre className="bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700 rounded p-3 text-xs overflow-x-auto text-gray-700 dark:text-slate-300">
           {JSON.stringify(data.metadata || {}, null, 2)}
         </pre>
       </div>
 
       <div className="flex gap-2">
-        <button onClick={handleEditMetadata} className="px-3 py-2 border rounded text-sm">
+        <Button variant="secondary" size="sm" onClick={handleEditMetadata}>
           메타 수정
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={async () => {
             try {
               await patchDocumentApproval(domainId, docId, {
@@ -135,11 +138,12 @@ export default function DocumentDetailPage() {
               alert(`승인 실패: ${e instanceof Error ? e.message : ''}`);
             }
           }}
-          className="px-3 py-2 border rounded text-sm"
         >
           승인
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={async () => {
             try {
               await patchDocumentApproval(domainId, docId, {
@@ -151,16 +155,12 @@ export default function DocumentDetailPage() {
               alert(`비활성 실패: ${e instanceof Error ? e.message : ''}`);
             }
           }}
-          className="px-3 py-2 border rounded text-sm"
         >
           비활성
-        </button>
-        <button
-          onClick={handleHardDelete}
-          className="px-3 py-2 border rounded text-sm bg-red-50 text-red-700"
-        >
+        </Button>
+        <Button variant="danger" size="sm" onClick={handleHardDelete}>
           하드 삭제
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -177,8 +177,8 @@ function Field({
 }) {
   return (
     <div>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className={`text-sm ${mono ? 'font-mono' : ''}`}>{value}</p>
+      <p className="text-xs text-gray-500 dark:text-slate-400">{label}</p>
+      <p className={`text-sm text-gray-900 dark:text-slate-200 ${mono ? 'font-mono' : ''}`}>{value}</p>
     </div>
   );
 }

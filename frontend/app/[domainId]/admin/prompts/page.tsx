@@ -10,12 +10,14 @@ import { useParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
 import { listPrompts, patchPrompt, previewPrompt } from '@/lib/api';
 import type { PromptListResult, PromptRecord } from '@/lib/types';
 
 const Editor = dynamic(() => import('@monaco-editor/react').then((m) => m.default), {
   ssr: false,
-  loading: () => <div className="p-4 text-gray-500">에디터 로딩...</div>,
+  loading: () => <div className="p-4 text-gray-500 dark:text-slate-400">에디터 로딩...</div>,
 });
 
 export default function PromptStudioPage() {
@@ -88,11 +90,12 @@ export default function PromptStudioPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Prompt Studio</h1>
+      <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-slate-100">Prompt Studio</h1>
 
       <div className="grid grid-cols-12 gap-4">
-        <aside className="col-span-3 border rounded p-2">
-          <p className="text-xs font-bold mb-2 text-gray-500">prompts</p>
+        <Card className="col-span-3" padded={false}>
+        <aside className="p-2">
+          <p className="text-xs font-bold mb-2 text-gray-500 dark:text-slate-400">prompts</p>
           <ul className="space-y-1 text-sm">
             {data?.items.map((p) => (
               <li
@@ -102,25 +105,26 @@ export default function PromptStudioPage() {
                   selected?.task === p.task &&
                   selected.version === p.version &&
                   selected.ab_slot === p.ab_slot
-                    ? 'bg-blue-100 text-blue-900'
-                    : 'hover:bg-gray-50'
+                    ? 'bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-200'
+                    : 'hover:bg-gray-50 dark:hover:bg-slate-700/60'
                 }`}
               >
                 <div className="font-medium">{p.task}</div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-gray-500 dark:text-slate-400">
                   {p.version}/{p.ab_slot} · {p.source}
                 </div>
               </li>
             ))}
           </ul>
         </aside>
+        </Card>
 
         <div className="col-span-9 space-y-4">
           {selected && (
             <>
               <div>
-                <p className="text-sm font-bold mb-1">system</p>
-                <div className="border rounded overflow-hidden" style={{ height: '160px' }}>
+                <p className="text-sm font-bold mb-1 text-gray-900 dark:text-slate-100">system</p>
+                <div className="border border-gray-200 dark:border-slate-700 rounded overflow-hidden" style={{ height: '160px' }}>
                   <Editor
                     language="markdown"
                     theme={editorTheme}
@@ -131,8 +135,8 @@ export default function PromptStudioPage() {
                 </div>
               </div>
               <div>
-                <p className="text-sm font-bold mb-1">user</p>
-                <div className="border rounded overflow-hidden" style={{ height: '200px' }}>
+                <p className="text-sm font-bold mb-1 text-gray-900 dark:text-slate-100">user</p>
+                <div className="border border-gray-200 dark:border-slate-700 rounded overflow-hidden" style={{ height: '200px' }}>
                   <Editor
                     language="markdown"
                     theme={editorTheme}
@@ -143,12 +147,9 @@ export default function PromptStudioPage() {
                 </div>
               </div>
               <div className="flex gap-2 items-center">
-                <button
-                  onClick={handleSave}
-                  className="px-4 py-2 bg-blue-600 text-white rounded text-sm"
-                >
+                <Button onClick={handleSave}>
                   저장
-                </button>
+                </Button>
                 <input
                   value={previewQ}
                   onChange={(e) => setPreviewQ(e.target.value)}
@@ -164,18 +165,15 @@ export default function PromptStudioPage() {
                   />
                   LLM 호출
                 </label>
-                <button
-                  onClick={handlePreview}
-                  className="px-3 py-2 border rounded text-sm"
-                >
+                <Button variant="secondary" onClick={handlePreview}>
                   ▶ preview
-                </button>
+                </Button>
               </div>
               {savingMessage && (
-                <p className="text-sm text-gray-700">{savingMessage}</p>
+                <p className="text-sm text-gray-700 dark:text-slate-300">{savingMessage}</p>
               )}
               {previewResult ? (
-                <pre className="bg-gray-50 border rounded p-3 text-xs overflow-x-auto max-h-96">
+                <pre className="bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700 rounded p-3 text-xs overflow-x-auto max-h-96 text-gray-700 dark:text-slate-300">
                   {JSON.stringify(previewResult, null, 2)}
                 </pre>
               ) : null}

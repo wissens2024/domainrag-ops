@@ -9,6 +9,8 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import useSWR from 'swr';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
 import { listChatLogs } from '@/lib/api';
 import { useLanguage } from '@/components/LanguageProvider';
 import type { ChatLogListResult, ChatLogRow, SupportType, UiMode } from '@/lib/types';
@@ -61,7 +63,7 @@ export default function ChatLogsPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">{t('chatLogs.title')}</h1>
+      <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-slate-100">{t('chatLogs.title')}</h1>
 
       <div className="grid grid-cols-6 gap-2 mb-4 text-sm">
         <input
@@ -123,21 +125,22 @@ export default function ChatLogsPage() {
         />
         <Link
           href={`/${domainId}/admin/citation-inspector`}
-          className="text-xs text-blue-600 hover:underline self-center col-span-2"
+          className="text-xs text-blue-600 dark:text-brand-400 hover:underline self-center col-span-2"
         >
           {t('chatLogs.toInspector')}
         </Link>
       </div>
 
-      {isLoading && <p>{t('common.loading')}</p>}
-      {error && <p className="text-red-600">{t('common.loadFailed')}: {error.message}</p>}
+      {isLoading && <p className="text-gray-500 dark:text-slate-400">{t('common.loading')}</p>}
+      {error && <p className="text-red-600 dark:text-red-400">{t('common.loadFailed')}: {error.message}</p>}
 
       {data && (
         <div className="flex gap-4">
           <div className="flex-1">
+            <Card padded={false} className="overflow-hidden">
             <table className="w-full text-sm border-collapse">
               <thead>
-                <tr className="border-b bg-gray-50 text-left">
+                <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50 text-left text-gray-500 dark:text-slate-400">
                   <th className="p-2">{t('chatLogs.colTime')}</th>
                   <th className="p-2">{t('chatLogs.colUser')}</th>
                   <th className="p-2">{t('chatLogs.colQuestion')}</th>
@@ -151,8 +154,8 @@ export default function ChatLogsPage() {
                 {data.items.map((r) => (
                   <tr
                     key={r.request_id}
-                    className={`border-b hover:bg-gray-50 cursor-pointer ${
-                      selectedRow?.request_id === r.request_id ? 'bg-blue-50' : ''
+                    className={`border-b border-gray-100 dark:border-slate-700/60 hover:bg-gray-50 dark:hover:bg-slate-700/40 cursor-pointer ${
+                      selectedRow?.request_id === r.request_id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
                     }`}
                     onClick={() => setSelectedRow(r)}
                   >
@@ -162,7 +165,7 @@ export default function ChatLogsPage() {
                     <td className="p-2 text-xs">{r.user_id?.slice(0, 12) || '-'}</td>
                     <td className="p-2 text-xs truncate max-w-xs">
                       {r.fallback_reason && (
-                        <span className="text-yellow-600 text-xs">⚠ </span>
+                        <span className="text-yellow-600 dark:text-yellow-400 text-xs">⚠ </span>
                       )}
                       {r.question?.slice(0, 80) || '(deleted)'}
                     </td>
@@ -194,45 +197,38 @@ export default function ChatLogsPage() {
                 ))}
                 {data.items.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="p-4 text-center text-gray-500">
+                    <td colSpan={7} className="p-4 text-center text-gray-500 dark:text-slate-400">
                       {t('chatLogs.empty')}
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
+            </Card>
 
-            <div className="mt-4 flex justify-between items-center text-sm">
+            <div className="mt-4 flex justify-between items-center text-sm text-gray-600 dark:text-slate-300">
               <span>
-                {t('common.total')} {data.total}{t('common.count')} · {page} /{' '}
-                {Math.max(1, Math.ceil(data.total / pageSize))}
+                {t('common.total')} {data.total ?? 0}{t('common.count')} · {page} /{' '}
+                {Math.max(1, Math.ceil((data.total ?? 0) / pageSize))}
               </span>
               <div className="flex gap-2">
-                <button
-                  disabled={page <= 1}
-                  onClick={() => setPage(page - 1)}
-                  className="px-2 py-1 border rounded disabled:bg-gray-100"
-                >
+                <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
                   {t('common.prev')}
-                </button>
-                <button
-                  disabled={page * pageSize >= data.total}
-                  onClick={() => setPage(page + 1)}
-                  className="px-2 py-1 border rounded disabled:bg-gray-100"
-                >
+                </Button>
+                <Button variant="secondary" size="sm" disabled={page * pageSize >= (data.total ?? 0)} onClick={() => setPage(page + 1)}>
                   {t('common.next')}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
 
           {selectedRow && (
-            <aside className="w-96 border rounded p-3 text-xs h-fit sticky top-4 overflow-y-auto max-h-screen">
+            <Card padded={false} className="w-96 p-3 text-xs h-fit sticky top-4 overflow-y-auto max-h-screen">
               <div className="flex justify-between mb-2">
-                <span className="font-bold">{t('common.detail')}</span>
+                <span className="font-bold text-gray-900 dark:text-slate-100">{t('common.detail')}</span>
                 <button
                   onClick={() => setSelectedRow(null)}
-                  className="text-gray-500"
+                  className="text-gray-500 dark:text-slate-400"
                 >
                   ✕
                 </button>
@@ -301,7 +297,7 @@ export default function ChatLogsPage() {
                   {JSON.stringify(selectedRow.citations, null, 2)}
                 </pre>
               </details>
-            </aside>
+            </Card>
           )}
         </div>
       )}
@@ -320,8 +316,8 @@ function DetailField({
 }) {
   return (
     <div className="mb-1">
-      <span className="text-gray-500">{label}: </span>
-      <span className={mono ? 'font-mono' : ''}>{value}</span>
+      <span className="text-gray-500 dark:text-slate-400">{label}: </span>
+      <span className={`text-gray-900 dark:text-slate-200 ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
   );
 }

@@ -12,6 +12,8 @@ import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
 import { listInputSchemas, uploadDocument } from '@/lib/api';
 import type { InputTypeSchemaJson } from '@/lib/types';
 
@@ -75,23 +77,23 @@ export default function DocumentUploadPage() {
   return (
     <div className="p-6 max-w-3xl">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold">문서 업로드</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">문서 업로드</h1>
         <Link
           href={`/${domainId}/admin/documents`}
-          className="text-sm text-blue-600 hover:underline"
+          className="text-sm text-blue-600 dark:text-brand-400 hover:underline"
         >
           ← 문서 목록
         </Link>
       </div>
 
       {schemaError && (
-        <p className="text-red-600 mb-3">
+        <p className="text-red-600 dark:text-red-400 mb-3">
           input_schema 로드 실패: {schemaError.message}
         </p>
       )}
 
       <div className="mb-4">
-        <label className="block text-sm font-bold mb-1">input_type</label>
+        <label className="block text-sm font-bold mb-1 text-gray-900 dark:text-slate-100">input_type</label>
         <select
           value={selectedType}
           onChange={(e) => {
@@ -108,7 +110,7 @@ export default function DocumentUploadPage() {
           ))}
         </select>
         {data?.items.length === 0 && (
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
             input_type이 아직 정의되지 않았습니다. Schema Editor에서 먼저 정의하세요.
           </p>
         )}
@@ -116,8 +118,8 @@ export default function DocumentUploadPage() {
 
       {currentSchema && (
         <div className="mb-4">
-          <label className="block text-sm font-bold mb-1">메타데이터</label>
-          <div className="border rounded p-3">
+          <label className="block text-sm font-bold mb-1 text-gray-900 dark:text-slate-100">메타데이터</label>
+          <Card padded={false} className="p-3">
             <Form
               schema={currentSchema as RJSFSchema}
               validator={validator}
@@ -127,33 +129,29 @@ export default function DocumentUploadPage() {
             >
               <div />
             </Form>
-          </div>
+          </Card>
         </div>
       )}
 
       <div className="mb-4">
-        <label className="block text-sm font-bold mb-1">파일</label>
+        <label className="block text-sm font-bold mb-1 text-gray-900 dark:text-slate-100">파일</label>
         <input
           type="file"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           className="text-sm"
         />
         {file && (
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
             {file.name} ({(file.size / 1024).toFixed(1)} KB)
           </p>
         )}
       </div>
 
-      {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
+      {error && <p className="text-red-600 dark:text-red-400 text-sm mb-3">{error}</p>}
 
-      <button
-        onClick={handleSubmit}
-        disabled={submitting || !file || !selectedType}
-        className="px-4 py-2 bg-blue-600 text-white rounded disabled:bg-gray-400"
-      >
+      <Button onClick={handleSubmit} disabled={submitting || !file || !selectedType}>
         {submitting ? '업로드 중...' : '업로드'}
-      </button>
+      </Button>
     </div>
   );
 }

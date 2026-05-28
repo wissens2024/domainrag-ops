@@ -7,6 +7,7 @@
 
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
+import Button from '@/components/ui/Button';
 import {
   extractAssessment,
   generateAssessment,
@@ -80,25 +81,24 @@ export default function WorkbenchPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Generation Workbench</h1>
+      <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-slate-100">Generation Workbench</h1>
 
       <div className="flex gap-2 mb-4">
         {(['extract', 'generate', 'hybrid'] as Mode[]).map((m) => (
-          <button
+          <Button
             key={m}
+            variant={mode === m ? 'primary' : 'secondary'}
+            size="sm"
             onClick={() => setMode(m)}
-            className={`px-3 py-1 border rounded text-sm ${
-              mode === m ? 'bg-blue-600 text-white' : 'bg-white'
-            }`}
           >
             {m}
-          </button>
+          </Button>
         ))}
       </div>
 
       <div className="grid grid-cols-5 gap-2 mb-4 text-sm">
         <div>
-          <label className="block text-xs text-gray-500">subject</label>
+          <label className="block text-xs text-gray-500 dark:text-slate-400">subject</label>
           <input
             value={form.subject}
             onChange={(e) => setForm({ ...form, subject: e.target.value })}
@@ -106,7 +106,7 @@ export default function WorkbenchPage() {
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500">chapter</label>
+          <label className="block text-xs text-gray-500 dark:text-slate-400">chapter</label>
           <input
             value={form.chapter}
             onChange={(e) => setForm({ ...form, chapter: e.target.value })}
@@ -114,7 +114,7 @@ export default function WorkbenchPage() {
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500">difficulty</label>
+          <label className="block text-xs text-gray-500 dark:text-slate-400">difficulty</label>
           <select
             value={form.difficulty}
             onChange={(e) => setForm({ ...form, difficulty: e.target.value })}
@@ -126,7 +126,7 @@ export default function WorkbenchPage() {
           </select>
         </div>
         <div>
-          <label className="block text-xs text-gray-500">count</label>
+          <label className="block text-xs text-gray-500 dark:text-slate-400">count</label>
           <input
             type="number"
             value={form.count}
@@ -138,7 +138,7 @@ export default function WorkbenchPage() {
         </div>
         {mode === 'hybrid' && (
           <div>
-            <label className="block text-xs text-gray-500">extract_ratio</label>
+            <label className="block text-xs text-gray-500 dark:text-slate-400">extract_ratio</label>
             <input
               type="number"
               step="0.1"
@@ -154,35 +154,31 @@ export default function WorkbenchPage() {
         )}
       </div>
 
-      <button
-        onClick={handleRun}
-        disabled={running}
-        className="px-4 py-2 bg-blue-600 text-white rounded text-sm disabled:bg-gray-400"
-      >
+      <Button onClick={handleRun} disabled={running}>
         {running ? '실행 중...' : `▶ ${mode}`}
-      </button>
+      </Button>
 
-      {error && <p className="text-red-600 mt-3">{error}</p>}
+      {error && <p className="text-red-600 dark:text-red-400 mt-3">{error}</p>}
 
       {result && (
         <div className="mt-6">
-          <p className="font-bold mb-2">결과 ({result.items.length}건)</p>
+          <p className="font-bold mb-2 text-gray-900 dark:text-slate-100">결과 ({result.items.length}건)</p>
           <ul className="space-y-3">
             {result.items.map((it, i) => (
-              <li key={i} className="border rounded p-3">
-                <div className="font-medium mb-1">{it.question_text}</div>
-                <ul className="text-sm text-gray-700 mb-1">
+              <li key={i} className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl shadow-card p-3">
+                <div className="font-medium mb-1 text-gray-900 dark:text-slate-100">{it.question_text}</div>
+                <ul className="text-sm text-gray-700 dark:text-slate-300 mb-1">
                   {it.choices.map((c, ci) => (
                     <li key={ci}>
                       {String.fromCharCode(65 + ci)}. {c}{' '}
-                      {c === it.answer && <span className="text-green-600">✓</span>}
+                      {c === it.answer && <span className="text-green-600 dark:text-green-400">✓</span>}
                     </li>
                   ))}
                 </ul>
                 {it.explanation && (
-                  <p className="text-xs text-gray-500">해설: {it.explanation}</p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">해설: {it.explanation}</p>
                 )}
-                <p className="text-xs mt-1 text-gray-500">
+                <p className="text-xs mt-1 text-gray-500 dark:text-slate-400">
                   difficulty: {it.difficulty} · status: {it.quality_status} · score:{' '}
                   {it.quality_score?.toFixed(2) || '-'} · mode: {it.generation_mode}
                 </p>

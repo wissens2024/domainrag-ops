@@ -8,6 +8,8 @@
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import useSWR from 'swr';
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
 import {
   getCitationDistribution,
   getCitationSegments,
@@ -74,11 +76,11 @@ export default function CitationInspectorPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Citation Inspector</h1>
+      <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-slate-100">Citation Inspector</h1>
 
       <div className="mb-4 flex gap-2 items-end text-sm">
         <div>
-          <label className="block text-xs text-gray-500">from</label>
+          <label className="block text-xs text-gray-500 dark:text-slate-400">from</label>
           <input
             type="date"
             value={fromDate}
@@ -87,7 +89,7 @@ export default function CitationInspectorPage() {
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500">to</label>
+          <label className="block text-xs text-gray-500 dark:text-slate-400">to</label>
           <input
             type="date"
             value={toDate}
@@ -96,7 +98,7 @@ export default function CitationInspectorPage() {
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500">group_by</label>
+          <label className="block text-xs text-gray-500 dark:text-slate-400">group_by</label>
           <select
             value={groupBy}
             onChange={(e) => setGroupBy(e.target.value as 'day' | 'hour')}
@@ -106,70 +108,69 @@ export default function CitationInspectorPage() {
             <option value="hour">hour</option>
           </select>
         </div>
-        <button
-          onClick={handleReverify}
-          className="px-3 py-1 border rounded bg-yellow-50 ml-2"
-        >
+        <Button variant="secondary" size="sm" onClick={handleReverify} className="ml-2">
           ⟳ 재검증 (max 100건)
-        </button>
+        </Button>
       </div>
 
       {reverifyResult ? (
-        <div className="mb-4 p-3 bg-blue-50 rounded text-sm">
+        <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded text-sm text-blue-800 dark:text-blue-300">
           <p className="font-bold">재검증 결과</p>
           <pre className="text-xs mt-1">{JSON.stringify(reverifyResult, null, 2)}</pre>
         </div>
       ) : null}
 
       <section className="mb-6">
-        <h2 className="font-bold mb-2">4-type 분포</h2>
-        {isLoading && <p>로딩 중...</p>}
-        {error && <p className="text-red-600">로드 실패: {error.message}</p>}
+        <h2 className="font-bold mb-2 text-gray-900 dark:text-slate-100">4-type 분포</h2>
+        {isLoading && <p className="text-gray-500 dark:text-slate-400">로딩 중...</p>}
+        {error && <p className="text-red-600 dark:text-red-400">로드 실패: {error.message}</p>}
         {data && (
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="border-b bg-gray-50 text-left">
-                <th className="p-2">시각 (granularity={data.granularity})</th>
-                {SUPPORT_TYPES.map((t) => (
-                  <th key={t} className="p-2 capitalize">
-                    {t}
-                  </th>
+          <Card padded={false} className="overflow-hidden">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50 text-left text-gray-500 dark:text-slate-400">
+                  <th className="p-2">시각 (granularity={data.granularity})</th>
+                  {SUPPORT_TYPES.map((t) => (
+                    <th key={t} className="p-2 capitalize">
+                      {t}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.buckets.map((b) => (
+                  <tr key={b.bucket} className="border-b border-gray-100 dark:border-slate-700/60">
+                    <td className="p-2 text-xs">{b.bucket}</td>
+                    {SUPPORT_TYPES.map((t) => {
+                      const v = b.counts[t] || 0;
+                      return (
+                        <td key={t} className="p-2 text-xs">
+                          <div className="flex items-center gap-1">
+                            <span
+                              className={`inline-block w-2 h-2 rounded ${COLOR_MAP[t]}`}
+                            />
+                            {v}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.buckets.map((b) => (
-                <tr key={b.bucket} className="border-b">
-                  <td className="p-2 text-xs">{b.bucket}</td>
-                  {SUPPORT_TYPES.map((t) => {
-                    const v = b.counts[t] || 0;
-                    return (
-                      <td key={t} className="p-2 text-xs">
-                        <div className="flex items-center gap-1">
-                          <span
-                            className={`inline-block w-2 h-2 rounded ${COLOR_MAP[t]}`}
-                          />
-                          {v}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-              {data.buckets.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="p-4 text-center text-gray-500">
-                    범위 내 데이터 없음
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                {data.buckets.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="p-4 text-center text-gray-500 dark:text-slate-400">
+                      범위 내 데이터 없음
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </Card>
         )}
       </section>
 
       <section>
-        <h2 className="font-bold mb-2">단건 segments 조회</h2>
+        <h2 className="font-bold mb-2 text-gray-900 dark:text-slate-100">단건 segments 조회</h2>
         <div className="flex gap-2 mb-3">
           <input
             value={messageId}
@@ -177,15 +178,12 @@ export default function CitationInspectorPage() {
             placeholder="message_id (= request_id)"
             className="flex-1 px-2 py-1 border rounded text-sm"
           />
-          <button
-            onClick={handleLoadSegments}
-            className="px-3 py-1 border rounded bg-blue-50 text-sm"
-          >
+          <Button variant="secondary" size="sm" onClick={handleLoadSegments}>
             조회
-          </button>
+          </Button>
         </div>
         {segments ? (
-          <pre className="bg-gray-50 border rounded p-3 text-xs overflow-x-auto max-h-96">
+          <pre className="bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700 rounded p-3 text-xs overflow-x-auto max-h-96 text-gray-700 dark:text-slate-300">
             {JSON.stringify(segments, null, 2)}
           </pre>
         ) : null}

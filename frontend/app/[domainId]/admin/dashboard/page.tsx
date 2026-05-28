@@ -8,6 +8,7 @@
 
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
+import Card from '@/components/ui/Card';
 import { getDashboard } from '@/lib/api';
 import type { DashboardSnapshot, SupportType } from '@/lib/types';
 
@@ -35,10 +36,10 @@ export default function DashboardPage() {
     { refreshInterval: 30000 },
   );
 
-  if (isLoading) return <div className="p-6">로딩 중...</div>;
+  if (isLoading) return <div className="p-6 text-gray-700 dark:text-slate-300">로딩 중...</div>;
   if (error) {
     return (
-      <div className="p-6 text-red-600">
+      <div className="p-6 text-red-600 dark:text-red-400">
         대시보드 로드 실패: {error.message}
       </div>
     );
@@ -54,12 +55,12 @@ export default function DashboardPage() {
     <div className="p-8 max-w-7xl mx-auto font-sans">
       <div className="mb-8 flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">대시보드</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            <span className="font-medium text-gray-700">{domainId}</span> tenant · 오늘 KST 기준
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100 tracking-tight">대시보드</h1>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
+            <span className="font-medium text-gray-700 dark:text-slate-200">{domainId}</span> tenant · 오늘 KST 기준
           </p>
         </div>
-        <span className="text-[11px] text-gray-400">
+        <span className="text-[11px] text-gray-400 dark:text-slate-500">
           30초마다 자동 갱신
         </span>
       </div>
@@ -85,7 +86,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 gap-6">
         <Section title="Citation Type 분포 (오늘)">
           {totalCitations === 0 && (
-            <p className="text-sm text-gray-400">아직 데이터 없음.</p>
+            <p className="text-sm text-gray-400 dark:text-slate-500">아직 데이터 없음.</p>
           )}
           {(['direct', 'synthesis', 'inference', 'conflict'] as SupportType[]).map(
             (t) => {
@@ -106,7 +107,7 @@ export default function DashboardPage() {
 
         <Section title="Fallback Reason 분포">
           {Object.keys(data.fallback_distribution).length === 0 && (
-            <p className="text-sm text-gray-400">아직 fallback 없음.</p>
+            <p className="text-sm text-gray-400 dark:text-slate-500">아직 fallback 없음.</p>
           )}
           {Object.entries(data.fallback_distribution)
             .sort(([, a], [, b]) => b - a)
@@ -123,7 +124,7 @@ export default function DashboardPage() {
 
         <Section title="Routing Decision 분포">
           {Object.keys(data.routing_distribution).length === 0 && (
-            <p className="text-sm text-gray-400">아직 라우팅 결정 없음.</p>
+            <p className="text-sm text-gray-400 dark:text-slate-500">아직 라우팅 결정 없음.</p>
           )}
           {Object.entries(data.routing_distribution)
             .sort(([, a], [, b]) => b - a)
@@ -153,16 +154,16 @@ function KpiCard({
   accent?: 'warn';
 }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 hover:shadow-sm transition-shadow">
-      <p className="text-xs text-gray-500 font-medium">{label}</p>
+    <Card className="rounded-xl px-4 py-3 hover:shadow-sm transition-shadow" padded={false}>
+      <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">{label}</p>
       <p
         className={`text-2xl font-semibold mt-1 ${
-          accent === 'warn' ? 'text-amber-600' : 'text-gray-900'
+          accent === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-slate-100'
         }`}
       >
         {value}
       </p>
-    </div>
+    </Card>
   );
 }
 
@@ -174,10 +175,10 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5">
-      <h2 className="text-sm font-semibold text-gray-900 mb-4">{title}</h2>
+    <Card className="rounded-xl">
+      <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-4">{title}</h2>
       <div className="space-y-3">{children}</div>
-    </div>
+    </Card>
   );
 }
 
