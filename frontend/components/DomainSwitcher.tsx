@@ -72,7 +72,9 @@ export default function DomainSwitcher({
   const go = (target: string) => {
     setOpen(false);
     if (target === domainId) return;
-    router.push(`/${target}/${section}`);
+    // admin 섹션의 index는 /admin/dashboard (/admin 자체는 페이지 없음 → 404 회피).
+    const sub = section === 'admin' ? 'admin/dashboard' : 'chat';
+    router.push(`/${target}/${sub}`);
   };
 
   const chipClass =
