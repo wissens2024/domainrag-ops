@@ -261,6 +261,15 @@ export async function getCurrentUser(): Promise<UserContext> {
   return request<UserContext>(`/api/auth/me`);
 }
 
+// ADR-016 — 로그인 후 역할-aware 착지(단일 진실 소스). 콜백·/console·랜딩이 공유.
+// 관리자를 채팅에 강제 경유시키지 않고 역할대로 바로 보낸다. 채팅은 관리 화면의
+// 명시적 링크/도메인 칩으로 접근 유지.
+export function postLoginDestination(user: UserContext): string {
+  if (user.is_platform_admin) return '/platform/admin/tenants';
+  if (user.is_admin || user.is_auditor) return `/${user.domain_id}/admin/dashboard`;
+  return `/${user.domain_id}/chat`;
+}
+
 export async function getMyDomains(): Promise<MyDomainsResult> {
   // ADR-022 §7 — 내가 접근 가능한 도메인 목록 (도메인 switcher).
   return request<MyDomainsResult>(`/api/auth/me/domains`);

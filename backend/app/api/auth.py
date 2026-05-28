@@ -125,6 +125,7 @@ def _resolve_client_id(auth_cfg: AuthConfig, domain_id: str) -> str:
 async def build_authorize_url(
     domain_id: str,
     redirect: bool = Query(default=False),
+    prompt: str | None = Query(default=None),
     settings: Settings = Depends(get_settings),
     state_store: InMemoryOAuthStateStore = Depends(get_oauth_state_store),
 ):
@@ -133,6 +134,9 @@ async def build_authorize_url(
     기본은 JSON({authorize_url, state, domain_id}) — frontend SPA가 직접
     navigation을 다룰 때. `?redirect=1`이면 그 URL로 302 redirect — Next.js
     middleware나 일반 브라우저 navigation이 그대로 사용 가능.
+
+    `?prompt=login`이면 OIDC prompt 파라미터를 IdP authorize에 전달 — 활성 SSO
+    세션이 있어도 재인증(로그인 폼)을 강제한다(계정 전환용, ADR-018).
     """
     auth_cfg = AuthConfigLoader.load(settings)
 
@@ -178,6 +182,9 @@ async def build_authorize_url(
         "code_challenge": challenge,
         "code_challenge_method": "S256",
     }
+    # OIDC prompt (login|none|consent|select_account) — 계정 전환 시 prompt=login.
+    if prompt in {"login", "none", "consent", "select_account"}:
+        params["prompt"] = prompt
     authorize_url = f"{auth_cfg.authorize_endpoint}?{urlencode(params)}"
     if redirect:
         return RedirectResponse(url=authorize_url, status_code=302)

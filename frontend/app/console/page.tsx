@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { API_BASE, logout } from '@/lib/api';
+import { API_BASE, postLoginDestination } from '@/lib/api';
 import type { UserContext } from '@/lib/types';
 
 const DEFAULT_TENANT = process.env.NEXT_PUBLIC_DEFAULT_TENANT || 'security';
@@ -36,10 +36,10 @@ export default function ConsoleEntry() {
         if (!res.ok) return;
         const body = (await res.json()) as UserContext;
         setUser(body);
-        if (body.is_platform_admin) {
-          router.replace('/platform/admin/tenants');
-        } else if (body.is_admin) {
-          router.replace(`/${body.domain_id}/admin/dashboard`);
+        // 관리/감사 권한자는 역할-aware 착지로 보냄(ADR-016). 권한 없는 USER는
+        // 아래의 "권한 없음" 안내 UI에 머문다(콘솔을 명시적으로 찾아온 사용자).
+        if (body.is_platform_admin || body.is_admin || body.is_auditor) {
+          router.replace(postLoginDestination(body));
         }
       })
       .catch(() => {})
@@ -51,15 +51,12 @@ export default function ConsoleEntry() {
     };
   }, [router]);
 
-  const switchAccount = async () => {
+  const switchAccount = () => {
     if (!user) return;
     setSwitching(true);
-    try {
-      await logout(user.domain_id);
-    } catch {
-      // 실패해도 SSO 재시작은 진행
-    }
-    window.location.href = `${API_BASE}/api/auth/authorize/${user.domain_id}?redirect=1`;
+    // prompt=login으로 IdP 재인증 강제 (ADR-018). 활성 SSO 세션이 있어도 로그인 폼이
+    // 떠서 다른 계정으로 전환 가능. SP 쿠키는 콜백이 새 토큰으로 덮어쓴다.
+    window.location.href = `${API_BASE}/api/auth/authorize/${user.domain_id}?redirect=1&prompt=login`;
   };
 
   if (isLoading) {

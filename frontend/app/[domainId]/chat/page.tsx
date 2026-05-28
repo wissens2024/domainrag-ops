@@ -262,15 +262,14 @@ export default function ChatPage() {
           )}
         </div>
 
-        {(me?.is_admin || me?.is_platform_admin) && (
+        {(me?.is_admin || me?.is_auditor || me?.is_platform_admin) && (
           <div className="px-3 py-2 border-b border-gray-200">
-            <p className="text-[11px] text-gray-400 leading-relaxed">
-              관리자는{' '}
-              <Link href="/console" className="text-brand-600 hover:underline font-medium">
-                /console
-              </Link>
-              {' '}로 접속
-            </p>
+            <Link
+              href="/console"
+              className="text-[11px] text-gray-500 hover:text-gray-900 font-medium"
+            >
+              관리자 콘솔 →
+            </Link>
           </div>
         )}
 

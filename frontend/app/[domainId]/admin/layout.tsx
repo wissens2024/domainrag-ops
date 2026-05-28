@@ -24,16 +24,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     swrFetcher,
   );
 
+  // ADR-022 §3 — admin/platform_admin은 read-write, auditor는 read-only 전역 접근.
+  const canAccessConsole =
+    !!user && (user.is_admin || user.is_platform_admin || user.is_auditor);
+
   useEffect(() => {
-    if (!isLoading && user && !user.is_admin && !user.is_platform_admin) {
+    if (!isLoading && user && !canAccessConsole) {
       router.replace(`/${domainId}/chat`);
     }
-  }, [user, isLoading, router, domainId]);
+  }, [user, isLoading, router, domainId, canAccessConsole]);
 
   if (isLoading || !user) {
     return <div className="p-6 text-sm text-gray-500">권한 확인 중…</div>;
   }
-  if (!user.is_admin && !user.is_platform_admin) {
+  if (!canAccessConsole) {
     return <div className="p-6 text-sm text-gray-500">권한 없음 — 이동 중…</div>;
   }
 

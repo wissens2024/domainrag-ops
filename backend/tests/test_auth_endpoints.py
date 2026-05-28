@@ -167,6 +167,26 @@ def test_authorize_builds_url_with_pkce_in_authfusion_mode():
     assert "client_id=client-security" in url
     # state는 server-side store에 저장됨 — 후속 callback에서 사용
     assert body["state"]
+    # 기본은 prompt 없음
+    assert "prompt=" not in url
+
+
+def test_authorize_passes_prompt_login_for_account_switch():
+    """ADR-018 — ?prompt=login → IdP authorize에 prompt=login 전달 (계정 전환)."""
+    _force_authfusion_mode(_MockTokenClient())
+    with TestClient(app) as client:
+        resp = client.get("/api/auth/authorize/security?prompt=login")
+    assert resp.status_code == 200, resp.text
+    assert "prompt=login" in resp.json()["authorize_url"]
+
+
+def test_authorize_ignores_invalid_prompt():
+    """허용 목록 외 prompt 값은 무시 (injection 방지)."""
+    _force_authfusion_mode(_MockTokenClient())
+    with TestClient(app) as client:
+        resp = client.get("/api/auth/authorize/security?prompt=evil")
+    assert resp.status_code == 200, resp.text
+    assert "prompt=" not in resp.json()["authorize_url"]
 
 
 def test_callback_exchanges_code_and_sets_cookies():

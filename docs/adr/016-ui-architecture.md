@@ -348,6 +348,13 @@ KPI 카드 + 차트:
 - **Platform Configs**: platform/* yaml 편집 (모든 tenant 영향, 배포 단계로 적용)
 - **Cross-tenant Analytics**: BYPASSRLS로 통계 (검색 결과 노출 아님)
 
+### 4.5 로그인 착지 + 로그아웃 (ADR-022 보강, 2026-05-28)
+
+- **역할-aware 착지**: 로그인 후 목적지는 역할로 결정한다(단일 진실 소스 `postLoginDestination`). `platform_admin → /platform/admin/tenants`, `admin·auditor → /{domain}/admin/dashboard`, `user → /{domain}/chat`. 콜백·`/console`이 모두 이 함수로 수렴 — 관리자를 채팅으로 강제 경유시키지 않는다(이전엔 콜백이 무조건 `/{domain}/chat`로 보냄). 채팅은 관리 화면의 명시 링크("관리자 콘솔 →"/도메인 칩)로 접근 유지.
+- **로그아웃 = SP + IdP 둘 다 종료** (OIDC RP-Initiated Logout): SP 쿠키 삭제 + 토큰 revoke + AuthFusion `end_session_endpoint`로 이동(`id_token_hint` 필수). SP 쿠키만 지우면 IdP SSO 세션이 살아 `/console` 재진입 시 silent 재인증되어 "로그아웃이 안 되는" 것처럼 보임. `post_logout_redirect_uri`는 IdP에 사전 등록된 경우에만 첨부(`post_logout_redirect_registered`).
+- **계정 전환**(switchAccount)은 `authorize?prompt=login` — 활성 SSO 세션이 있어도 재인증 강제.
+- auditor는 콘솔 read-only 접근(전역). 쓰기 endpoint는 backend `require_admin`이 403으로 차단.
+
 ### 5. 응답 상태별 UX
 
 | 상태 | UX |

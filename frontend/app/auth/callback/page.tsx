@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, getCurrentUser, postLoginDestination } from '@/lib/api';
 
 type Status = 'exchanging' | 'success' | 'error';
 
@@ -115,7 +115,14 @@ export default function AuthCallbackPage() {
         }
         const body = (await res.json()) as { domain_id: string };
         setStatus('success');
-        window.location.replace(`/${body.domain_id}/chat`);
+        // ADR-016 — 역할-aware 착지. 콜백은 domain_id만 알므로 /api/auth/me로 역할을
+        // 받아 분기(관리자는 콘솔 직행, 사용자는 채팅). 실패 시 채팅으로 안전 fallback.
+        try {
+          const me = await getCurrentUser();
+          window.location.replace(postLoginDestination(me));
+        } catch {
+          window.location.replace(`/${body.domain_id}/chat`);
+        }
       })
       .catch((err) => {
         setStatus('error');
