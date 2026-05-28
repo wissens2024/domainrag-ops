@@ -109,6 +109,17 @@ export const translations = {
       reindexSelect: '재색인 mode 선택',
       cancel: '취소',
     },
+    indexing: {
+      title: '인덱싱 모니터링',
+      allStatus: '모든 상태',
+      colStatus: '상태',
+      colProgress: '진행률',
+      colStarted: '시작',
+      colActions: '액션',
+      expand: '상세',
+      collapse: '접기',
+      empty: '조건에 맞는 잡이 없습니다.',
+    },
   },
   en: {
     nav: {
@@ -214,6 +225,17 @@ export const translations = {
       empty: 'No documents.',
       reindexSelect: 'Select reindex mode',
       cancel: 'Cancel',
+    },
+    indexing: {
+      title: 'Indexing Monitor',
+      allStatus: 'All statuses',
+      colStatus: 'Status',
+      colProgress: 'Progress',
+      colStarted: 'Started',
+      colActions: 'Actions',
+      expand: 'Detail',
+      collapse: 'Collapse',
+      empty: 'No matching jobs.',
     },
   },
 } as const;
