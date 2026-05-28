@@ -10,6 +10,7 @@ import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import useSWR from 'swr';
 import { listChatLogs } from '@/lib/api';
+import { useLanguage } from '@/components/LanguageProvider';
 import type { ChatLogListResult, ChatLogRow, SupportType, UiMode } from '@/lib/types';
 
 const SUPPORT_TYPE_COLORS: Record<SupportType, string> = {
@@ -22,6 +23,7 @@ const SUPPORT_TYPE_COLORS: Record<SupportType, string> = {
 export default function ChatLogsPage() {
   const params = useParams<{ domainId: string }>();
   const domainId = params.domainId;
+  const { t } = useLanguage();
   const [filters, setFilters] = useState({
     keyword: '',
     user_id: '',
@@ -59,17 +61,17 @@ export default function ChatLogsPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Chat Logs</h1>
+      <h1 className="text-2xl font-bold mb-4">{t('chatLogs.title')}</h1>
 
       <div className="grid grid-cols-6 gap-2 mb-4 text-sm">
         <input
-          placeholder="keyword"
+          placeholder={t('chatLogs.keyword')}
           value={filters.keyword}
           onChange={(e) => update('keyword', e.target.value)}
           className="px-2 py-1 border rounded col-span-2"
         />
         <input
-          placeholder="user_id"
+          placeholder={t('chatLogs.userId')}
           value={filters.user_id}
           onChange={(e) => update('user_id', e.target.value)}
           className="px-2 py-1 border rounded"
@@ -79,7 +81,7 @@ export default function ChatLogsPage() {
           onChange={(e) => update('citation_type', e.target.value as SupportType | '')}
           className="px-2 py-1 border rounded"
         >
-          <option value="">모든 type</option>
+          <option value="">{t('chatLogs.allTypes')}</option>
           <option value="direct">direct</option>
           <option value="synthesis">synthesis</option>
           <option value="inference">inference</option>
@@ -90,7 +92,7 @@ export default function ChatLogsPage() {
           onChange={(e) => update('ui_mode', e.target.value as UiMode | '')}
           className="px-2 py-1 border rounded"
         >
-          <option value="">모든 mode</option>
+          <option value="">{t('chatLogs.allModes')}</option>
           <option value="chat_structured">structured</option>
           <option value="chat_streaming">streaming</option>
         </select>
@@ -101,10 +103,10 @@ export default function ChatLogsPage() {
             onChange={(e) => update('fallback_only', e.target.checked)}
             className="mr-1"
           />
-          fallback only
+          {t('chatLogs.fallbackOnly')}
         </label>
         <input
-          placeholder="min conf"
+          placeholder={t('chatLogs.minConf')}
           type="number"
           step="0.05"
           value={filters.min_confidence}
@@ -112,7 +114,7 @@ export default function ChatLogsPage() {
           className="px-2 py-1 border rounded"
         />
         <input
-          placeholder="max conf"
+          placeholder={t('chatLogs.maxConf')}
           type="number"
           step="0.05"
           value={filters.max_confidence}
@@ -123,12 +125,12 @@ export default function ChatLogsPage() {
           href={`/${domainId}/admin/citation-inspector`}
           className="text-xs text-blue-600 hover:underline self-center col-span-2"
         >
-          → Citation Inspector (4-type 분포·재검증)
+          {t('chatLogs.toInspector')}
         </Link>
       </div>
 
-      {isLoading && <p>로딩 중...</p>}
-      {error && <p className="text-red-600">로드 실패: {error.message}</p>}
+      {isLoading && <p>{t('common.loading')}</p>}
+      {error && <p className="text-red-600">{t('common.loadFailed')}: {error.message}</p>}
 
       {data && (
         <div className="flex gap-4">
@@ -136,13 +138,13 @@ export default function ChatLogsPage() {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b bg-gray-50 text-left">
-                  <th className="p-2">시각</th>
-                  <th className="p-2">user</th>
-                  <th className="p-2">question</th>
-                  <th className="p-2">confidence</th>
-                  <th className="p-2">types</th>
-                  <th className="p-2">feedback</th>
-                  <th className="p-2">mode</th>
+                  <th className="p-2">{t('chatLogs.colTime')}</th>
+                  <th className="p-2">{t('chatLogs.colUser')}</th>
+                  <th className="p-2">{t('chatLogs.colQuestion')}</th>
+                  <th className="p-2">{t('chatLogs.colConfidence')}</th>
+                  <th className="p-2">{t('chatLogs.colTypes')}</th>
+                  <th className="p-2">{t('chatLogs.colFeedback')}</th>
+                  <th className="p-2">{t('chatLogs.colMode')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -184,14 +186,16 @@ export default function ChatLogsPage() {
                       {!r.feedback && '-'}
                     </td>
                     <td className="p-2 text-xs">
-                      {r.ui_mode === 'chat_structured' ? '구조화' : '스트림'}
+                      {r.ui_mode === 'chat_structured'
+                        ? t('chatLogs.modeStructured')
+                        : t('chatLogs.modeStreaming')}
                     </td>
                   </tr>
                 ))}
                 {data.items.length === 0 && (
                   <tr>
                     <td colSpan={7} className="p-4 text-center text-gray-500">
-                      조건에 맞는 로그가 없습니다.
+                      {t('chatLogs.empty')}
                     </td>
                   </tr>
                 )}
@@ -200,7 +204,8 @@ export default function ChatLogsPage() {
 
             <div className="mt-4 flex justify-between items-center text-sm">
               <span>
-                총 {data.total}건 · {page} / {Math.max(1, Math.ceil(data.total / pageSize))}
+                {t('common.total')} {data.total}{t('common.count')} · {page} /{' '}
+                {Math.max(1, Math.ceil(data.total / pageSize))}
               </span>
               <div className="flex gap-2">
                 <button
@@ -208,14 +213,14 @@ export default function ChatLogsPage() {
                   onClick={() => setPage(page - 1)}
                   className="px-2 py-1 border rounded disabled:bg-gray-100"
                 >
-                  이전
+                  {t('common.prev')}
                 </button>
                 <button
                   disabled={page * pageSize >= data.total}
                   onClick={() => setPage(page + 1)}
                   className="px-2 py-1 border rounded disabled:bg-gray-100"
                 >
-                  다음
+                  {t('common.next')}
                 </button>
               </div>
             </div>
@@ -224,7 +229,7 @@ export default function ChatLogsPage() {
           {selectedRow && (
             <aside className="w-96 border rounded p-3 text-xs h-fit sticky top-4 overflow-y-auto max-h-screen">
               <div className="flex justify-between mb-2">
-                <span className="font-bold">상세</span>
+                <span className="font-bold">{t('common.detail')}</span>
                 <button
                   onClick={() => setSelectedRow(null)}
                   className="text-gray-500"
