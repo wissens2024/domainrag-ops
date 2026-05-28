@@ -95,8 +95,8 @@ export default function PlatformAdminLayout({
           {user && (
             <button
               onClick={async () => {
-                await logout(user.domain_id);
-                window.location.href = '/';
+                const url = await logout(user.domain_id);
+                window.location.href = url || '/';
               }}
               className="block w-full text-left px-3 py-1.5 rounded-md text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700"
             >

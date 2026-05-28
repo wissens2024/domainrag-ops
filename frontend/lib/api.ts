@@ -360,13 +360,22 @@ export const account = {
  * Logout — backend가 access/refresh 쿠키의 token을 revoke + 쿠키 삭제 (ADR-018 §6).
  * 호출자가 navigation은 직접. domain_id는 backend가 client_id resolve에 필요.
  */
-export async function logout(domainId: string): Promise<void> {
-  await fetch(`${API_BASE}/api/auth/logout`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ domain_id: domainId }),
-  });
+// ADR-022 — SP 쿠키 삭제 + IdP end_session URL 반환. caller는 반환된 URL로 이동해야
+// AuthFusion SSO 세션까지 종료된다(아니면 다음 진입 시 silent 재로그인). 없으면 null.
+export async function logout(domainId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain_id: domainId }),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { logout_url?: string } | null;
+    return body?.logout_url ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================================

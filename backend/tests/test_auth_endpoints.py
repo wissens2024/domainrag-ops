@@ -123,6 +123,7 @@ def _authfusion_auth_config(**overrides) -> AuthConfig:
         revoke_endpoint="https://sso.test/oauth2/revoke",
         authorize_endpoint="https://sso.test/oauth2/authorize",
         userinfo_endpoint=None,
+        end_session_endpoint="https://sso.test/oauth2/logout",
         discovery_url=None,
         scopes=["openid", "profile"],
         state_ttl_seconds=600,
@@ -262,7 +263,12 @@ def test_logout_calls_revoke_for_both_tokens():
         state = auth_resp.json()["state"]
         client.get(f"/api/auth/callback?code=x&state={state}")
         resp = client.post("/api/auth/logout", json={"domain_id": "security"})
-    assert resp.status_code == 204
+    assert resp.status_code == 200
+    # ADR-022 — IdP end_session URL 반환 (RP-Initiated Logout)
+    logout_url = resp.json()["logout_url"]
+    assert logout_url is not None
+    assert logout_url.startswith("https://sso.test/oauth2/logout")
+    assert "post_logout_redirect_uri=" in logout_url
     # access + refresh 두 번 revoke
     assert len(token_client.calls.revokes) == 2
     type_hints = {c["token_type_hint"] for c in token_client.calls.revokes}

@@ -478,7 +478,7 @@ class LogoutRequest(BaseModel):
     domain_id: str
 
 
-@router.post("/logout", status_code=204)
+@router.post("/logout")
 async def logout(
     req: LogoutRequest,
     request: Request,
@@ -486,15 +486,21 @@ async def logout(
     settings: Settings = Depends(get_settings),
     token_client: AuthFusionTokenClient | None = Depends(get_authfusion_token_client),
 ):
-    """ADR-018 §6 — token revoke + 쿠키 삭제. revoke 실패는 swallow (RFC 7009)."""
+    """ADR-018 §6 + ADR-022 — token revoke + 쿠키 삭제 + IdP 세션 종료 URL 반환.
+
+    SP 쿠키만 지우면 AuthFusion SSO 세션이 살아있어 다음 /console 진입 시 *재로그인 없이*
+    silent 재인증된다(로그아웃이 안 되는 것처럼 보임). 따라서 OIDC RP-Initiated Logout
+    (end_session_endpoint)으로 IdP 세션까지 종료시킨다. frontend는 반환된 logout_url로
+    브라우저를 이동시킨다. end_session 미설정 시 logout_url=None → frontend는 landing으로.
+    """
     auth_cfg = AuthConfigLoader.load(settings)
     is_production = settings.env == "production"
 
     access = request.cookies.get(_ACCESS_COOKIE)
     refresh = request.cookies.get(_REFRESH_COOKIE)
+    client_id = _resolve_client_id(auth_cfg, req.domain_id)
 
     if token_client is not None:
-        client_id = _resolve_client_id(auth_cfg, req.domain_id)
         if access:
             await token_client.revoke(
                 token=access, client_id=client_id, token_type_hint="access_token"
@@ -505,5 +511,12 @@ async def logout(
             )
 
     _clear_cookies(response, is_production=is_production)
-    response.status_code = 204
-    return None
+
+    logout_url: str | None = None
+    if auth_cfg.end_session_endpoint:
+        params = {
+            "client_id": client_id,
+            "post_logout_redirect_uri": f"{auth_cfg.app_base_url.rstrip('/')}/",
+        }
+        logout_url = f"{auth_cfg.end_session_endpoint}?{urlencode(params)}"
+    return {"logout_url": logout_url}

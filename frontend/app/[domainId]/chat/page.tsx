@@ -344,8 +344,8 @@ export default function ChatPage() {
             </Link>
             <button
               onClick={async () => {
-                await logout(domainId);
-                window.location.href = '/';
+                const url = await logout(domainId);
+                window.location.href = url || '/';
               }}
               className="w-full mt-1 px-2 py-1.5 text-[11px] text-gray-500 hover:bg-gray-100 hover:text-gray-700 rounded-lg text-left"
             >

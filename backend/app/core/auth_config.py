@@ -39,6 +39,7 @@ class AuthConfig:
     revoke_endpoint: str | None
     authorize_endpoint: str | None
     userinfo_endpoint: str | None  # AuthFusion OIDC discovery에서 채워짐
+    end_session_endpoint: str | None  # OIDC RP-initiated logout (ADR-022) — IdP 세션 종료
     discovery_url: str | None  # 미설정 시 None (env override fallback)
     scopes: list[str]
     state_ttl_seconds: int
@@ -183,6 +184,11 @@ class AuthConfigLoader:
             _resolve_env_ref(af.get("userinfo_endpoint_env"), settings)
             or discovered.get("userinfo_endpoint")
         )
+        end_session_endpoint = (
+            _resolve_env_ref(af.get("end_session_endpoint_env"), settings)
+            or getattr(settings, "authfusion_end_session_endpoint", None)
+            or discovered.get("end_session_endpoint")
+        )
         scopes = list(af.get("scopes") or ["openid", "profile", "email"])
         state_ttl_seconds = int(af.get("state_ttl_seconds", 600))
 
@@ -253,6 +259,7 @@ class AuthConfigLoader:
             revoke_endpoint=revoke_endpoint,
             authorize_endpoint=authorize_endpoint,
             userinfo_endpoint=userinfo_endpoint,
+            end_session_endpoint=end_session_endpoint,
             discovery_url=discovery_url,
             scopes=scopes,
             state_ttl_seconds=state_ttl_seconds,
