@@ -222,8 +222,8 @@ export interface DocumentDetail extends DocumentSummary {
   metadata: Record<string, unknown>;
   chunks_summary?: {
     total: number;
-    archived: number;
-    failed: number;
+    // 백엔드는 approval_status별 분포를 반환 (archived/failed 같은 단일 카운트 아님)
+    approval_status_distribution: Record<string, number>;
   };
 }
 
@@ -537,8 +537,8 @@ export interface AssessmentItem {
   quality_score: number | null;
   used_count: number;
   last_used_at: string | null;
-  generation_mode: 'manual' | 'extracted' | 'generated';
-  source_item_ids: string[];
+  // 백엔드 assessment_items.source 컬럼 (예: manual/extracted/generated). DB·repo가 source로 보관.
+  source: string;
   reference_item_ids: string[];
   validator_results: Record<string, unknown>;
   created_at: string;

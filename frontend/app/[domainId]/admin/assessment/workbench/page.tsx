@@ -180,7 +180,7 @@ export default function WorkbenchPage() {
                 )}
                 <p className="text-xs mt-1 text-gray-500 dark:text-slate-400">
                   difficulty: {it.difficulty} · status: {it.quality_status} · score:{' '}
-                  {it.quality_score?.toFixed(2) || '-'} · mode: {it.generation_mode}
+                  {it.quality_score?.toFixed(2) || '-'} · source: {it.source}
                 </p>
               </li>
             ))}

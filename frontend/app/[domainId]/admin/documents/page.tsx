@@ -244,9 +244,8 @@ export default function DocumentsPage() {
       {data && (
         <div className="mt-4 flex justify-between items-center text-sm text-gray-600 dark:text-slate-300">
           <span>
-            {t('common.total')} {data.total ?? 0}
-            {t('common.count')} · {page} /{' '}
-            {Math.max(1, Math.ceil((data.total ?? 0) / pageSize))}
+            {page} 페이지 · {data.items?.length ?? 0}
+            {t('common.count')}
           </span>
           <div className="flex gap-2">
             <Button
@@ -260,7 +259,7 @@ export default function DocumentsPage() {
             <Button
               variant="secondary"
               size="sm"
-              disabled={page * pageSize >= (data.total ?? 0)}
+              disabled={(data.items?.length ?? 0) < pageSize}
               onClick={() => setPage(page + 1)}
             >
               {t('common.next')}

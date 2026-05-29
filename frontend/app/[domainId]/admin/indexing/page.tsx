@@ -63,7 +63,8 @@ export default function IndexingPage() {
     }
   };
 
-  const total = data?.total ?? 0;
+  // 백엔드가 total을 안 주므로 hasMore 방식: 이 페이지 항목 수로 다음 페이지 가용 판단.
+  const pageItems = data?.items?.length ?? 0;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -196,8 +197,8 @@ export default function IndexingPage() {
 
           <div className="mt-4 flex justify-between items-center text-sm text-gray-600 dark:text-slate-300">
             <span>
-              {t('common.total')} {total}
-              {t('common.count')} · {page} / {Math.max(1, Math.ceil(total / pageSize))}
+              {page} 페이지 · {pageItems}
+              {t('common.count')}
             </span>
             <div className="flex gap-2">
               <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
@@ -206,7 +207,7 @@ export default function IndexingPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={page * pageSize >= total}
+                disabled={pageItems < pageSize}
                 onClick={() => setPage(page + 1)}
               >
                 {t('common.next')}

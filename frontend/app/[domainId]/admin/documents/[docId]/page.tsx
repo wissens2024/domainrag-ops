@@ -96,7 +96,13 @@ export default function DocumentDetailPage() {
         <Field label="valid_until" value={data.valid_until || '-'} />
         <Field
           label="chunk_count"
-          value={`${data.chunk_count} (archived: ${data.chunks_summary?.archived || 0}, failed: ${data.chunks_summary?.failed || 0})`}
+          value={`${data.chunk_count}${
+            data.chunks_summary?.approval_status_distribution
+              ? ` (${Object.entries(data.chunks_summary.approval_status_distribution)
+                  .map(([k, v]) => `${k}: ${v}`)
+                  .join(', ')})`
+              : ''
+          }`}
         />
         <Field label="object_storage_path" value={data.object_storage_path} mono />
         <Field
