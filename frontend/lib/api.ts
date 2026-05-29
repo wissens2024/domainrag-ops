@@ -602,7 +602,14 @@ export async function retryIndexingJob(
 
 export async function listInputSchemas(
   domainId: string,
-): Promise<{ items: Array<{ name: string; json_schema: InputTypeSchemaJson }> }> {
+): Promise<{
+  domain_id: string;
+  input_types: Array<{
+    name: string;
+    display_name: string;
+    schema: InputTypeSchemaJson;
+  }>;
+}> {
   return request(`/api/${domainId}/admin/input_schemas`);
 }
 

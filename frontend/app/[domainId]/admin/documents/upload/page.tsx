@@ -19,7 +19,8 @@ import type { InputTypeSchemaJson } from '@/lib/types';
 
 interface SchemaListItem {
   name: string;
-  json_schema: InputTypeSchemaJson;
+  display_name: string;
+  schema: InputTypeSchemaJson;
 }
 
 export default function DocumentUploadPage() {
@@ -27,10 +28,14 @@ export default function DocumentUploadPage() {
   const domainId = params.domainId;
   const router = useRouter();
 
-  const { data, error: schemaError } = useSWR<{ items: SchemaListItem[] }>(
+  const { data, error: schemaError } = useSWR<{ input_types: SchemaListItem[] }>(
     domainId ? `input_schemas:${domainId}` : null,
     () => listInputSchemas(domainId),
   );
+
+  // 백엔드 응답 형태: { domain_id, input_types: [{name, display_name, schema}] } (ADR-017 §6).
+  // 항상 배열로 정규화해 undefined.find/map 크래시 방지.
+  const inputTypes: SchemaListItem[] = data?.input_types ?? [];
 
   const [selectedType, setSelectedType] = useState<string>('');
   const [metadata, setMetadata] = useState<Record<string, unknown>>({});
@@ -39,12 +44,12 @@ export default function DocumentUploadPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (data?.items?.length && !selectedType) {
-      setSelectedType(data.items[0].name);
+    if (inputTypes.length && !selectedType) {
+      setSelectedType(inputTypes[0].name);
     }
-  }, [data, selectedType]);
+  }, [inputTypes, selectedType]);
 
-  const currentSchema = data?.items.find((s) => s.name === selectedType)?.json_schema;
+  const currentSchema = inputTypes.find((s) => s.name === selectedType)?.schema;
 
   const handleSubmit = async () => {
     if (!file) {
@@ -103,13 +108,13 @@ export default function DocumentUploadPage() {
           className="w-full px-3 py-2 border rounded"
         >
           <option value="">선택해주세요</option>
-          {data?.items.map((s) => (
+          {inputTypes.map((s) => (
             <option key={s.name} value={s.name}>
-              {s.json_schema.title || s.name}
+              {s.display_name || s.schema?.title || s.name}
             </option>
           ))}
         </select>
-        {data?.items.length === 0 && (
+        {data && inputTypes.length === 0 && (
           <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
             input_type이 아직 정의되지 않았습니다. Schema Editor에서 먼저 정의하세요.
           </p>
