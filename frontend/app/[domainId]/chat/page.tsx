@@ -1,10 +1,10 @@
 /**
  * 사용자 채팅 화면 — `/{domainId}/chat` (ADR-016 §2).
  *
- * 기능:
- *   - chat_structured / chat_streaming 모드 전환 (ModeSelector)
+ * 기능 (ADR-023 — 단일 대화 파이프라인, 모드 토글 없음):
+ *   - 항상 /chat 호출 → 서버가 근거 유무로 grounded/ungrounded 자동 분기
  *   - 좌측: 대화 목록 (Conversation API 연동)
- *   - 중앙: 답변 + 4-type citation marker
+ *   - 중앙: 답변 + 4-type citation marker + grounded/ungrounded 배지
  *   - 우측: CitationPanel
  */
 'use client';
@@ -16,10 +16,8 @@ import useSWR from 'swr';
 import AnswerCard from '@/components/AnswerCard';
 import CitationPanel from '@/components/CitationPanel';
 import DomainSwitcher from '@/components/DomainSwitcher';
-import ModeSelector from '@/components/ModeSelector';
 import {
   chat,
-  chatStream,
   deleteConversation,
   getConversation,
   listConversations,
@@ -38,13 +36,9 @@ export default function ChatPage() {
     | { role: 'user'; content: string }
     | { role: 'assistant'; response: ChatResponse };
   const [thread, setThread] = useState<ThreadItem[]>([]);
-  // 진행 중 streaming 응답 (token 누적용 — onComplete 시 thread에 commit)
-  const [streamingResponse, setStreamingResponse] = useState<ChatResponse | null>(null);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
-  // 일반 사용자 default는 '일반 대화' (자유 대화). 문서 검색은 명시 선택 시.
-  const [mode, setMode] = useState<'structured' | 'streaming'>('streaming');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,74 +71,16 @@ export default function ChatPage() {
     setThread((prev) => [...prev, { role: 'user', content: q }]);
     setQuestion('');
     try {
-      if (mode === 'streaming') {
-        // chat_streaming: SSE, citation 없음 (ADR-013 §6). token을 누적해 진행 응답 표시,
-        // onComplete 시 thread에 commit.
-        let acc = '';
-        let convId = currentConversationId;
-        const initial: ChatResponse = {
-          status: 'success',
-          conversation_id: convId ?? '',
-          message_id: '',
-          answer: '',
-          answer_segments: [{ text: '', citations: [] }],
-          citations: [],
-          metadata: {
-            ui_mode: 'chat_streaming',
-            llm_model: '(streaming)',
-            latency_ms: 0,
-            confidence: 0,
-          },
-        };
-        setStreamingResponse(initial);
-        await chatStream(
-          domainId,
-          { question: q, conversation_id: currentConversationId ?? undefined },
-          {
-            onToken: (t) => {
-              acc += t;
-              setStreamingResponse((prev) =>
-                prev && prev.status === 'success'
-                  ? { ...prev, answer: acc, answer_segments: [{ text: acc, citations: [] }] }
-                  : prev,
-              );
-            },
-            onComplete: (payload) => {
-              const meta = (payload.metadata ?? {}) as Record<string, unknown>;
-              convId = (meta.conversation_id as string) ?? convId;
-              if (convId) setCurrentConversationId(convId);
-              const finalRes: ChatResponse = {
-                ...initial,
-                answer: acc,
-                answer_segments: [{ text: acc, citations: [] }],
-                message_id: String(payload.message_id ?? ''),
-                conversation_id: convId ?? '',
-                metadata: { ...initial.metadata, ...meta } as ChatResponse['metadata'],
-              };
-              setThread((prev) => [...prev, { role: 'assistant', response: finalRes }]);
-              setStreamingResponse(null);
-            },
-            onFallback: (payload) => {
-              setError(`fallback: ${JSON.stringify(payload)}`);
-              setStreamingResponse(null);
-            },
-            onError: (payload) => {
-              setError(`stream error: ${JSON.stringify(payload)}`);
-              setStreamingResponse(null);
-            },
-          },
-        );
-        void refreshConversations();
-      } else {
-        const res = await chat(domainId, {
-          question: q,
-          conversation_id: currentConversationId ?? undefined,
-          ui_mode_request: mode,
-        });
-        setThread((prev) => [...prev, { role: 'assistant', response: res }]);
-        setCurrentConversationId(res.conversation_id);
-        void refreshConversations();
-      }
+      // ADR-023 — 단일 입구. 모드 선택 없이 항상 /chat 호출. 서버가 근거 유무로
+      // grounded(citation) / ungrounded(일반 대화)를 자동 분기하고, AnswerCard가
+      // 배지로 구분 표시한다.
+      const res = await chat(domainId, {
+        question: q,
+        conversation_id: currentConversationId ?? undefined,
+      });
+      setThread((prev) => [...prev, { role: 'assistant', response: res }]);
+      setCurrentConversationId(res.conversation_id);
+      void refreshConversations();
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류');
     } finally {
@@ -155,7 +91,6 @@ export default function ChatPage() {
   const handleNewConversation = () => {
     setCurrentConversationId(null);
     setThread([]);
-    setStreamingResponse(null);
     setSelectedCitation(null);
     setQuestion('');
     setError(null);
@@ -165,7 +100,6 @@ export default function ChatPage() {
     setCurrentConversationId(cid);
     setLoading(true);
     setError(null);
-    setStreamingResponse(null);
     try {
       const detail = await getConversation(domainId, cid);
       // 전체 messages를 thread로 복원 (user → assistant 순서, ADR-017 §4)
@@ -230,7 +164,7 @@ export default function ChatPage() {
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [thread, streamingResponse, loading]);
+  }, [thread, loading]);
 
   // textarea 자동 높이 + Enter 전송 (Shift+Enter 줄바꿈)
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -364,14 +298,11 @@ export default function ChatPage() {
             <span className="text-gray-300 hidden sm:inline">·</span>
             <DomainSwitcher domainId={domainId} section="chat" />
           </div>
-          <div className="flex gap-2 items-center">
-            <ModeSelector value={mode} onChange={setMode} />
-          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-            {thread.length === 0 && !loading && !streamingResponse && (
+            {thread.length === 0 && !loading && (
               <div className="text-center mt-24 animate-fade-in">
                 <div className="w-12 h-12 mx-auto rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white text-2xl mb-4">
                   ✦
@@ -403,18 +334,7 @@ export default function ChatPage() {
                 </div>
               ),
             )}
-            {streamingResponse && (
-              <div className="flex justify-start animate-fade-in">
-                <div className="max-w-full w-full">
-                  <AnswerCard
-                    response={streamingResponse}
-                    domainId={domainId}
-                    onCitationClick={setSelectedCitation}
-                  />
-                </div>
-              </div>
-            )}
-            {loading && !streamingResponse && (
+            {loading && (
               <div className="flex justify-start animate-fade-in">
                 <div className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-1">
                   <span className="inline-block w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]" />

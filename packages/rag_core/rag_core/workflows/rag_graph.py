@@ -51,6 +51,9 @@ class RAGState:
     selected_lora: str | None = None
     use_rag: bool = True
     ui_mode: str = "chat_structured"
+    # ADR-023 §4 — 근거 유무 분기 결과. grounded=4-type citation 검증 경로,
+    # ungrounded=일반 대화(인용 없음, UI 배지로 명시). status=success일 때만 의미.
+    grounding: str = "grounded"
 
     # query rewrite
     rewritten_query: str = ""
@@ -204,21 +207,22 @@ def build_chat_structured_full(deps) -> Any:
         detect_conflict_heuristic_node,
         detect_unsupported_node,
         fallback_node,
+        gate_1_full_router,
         gate_1_node,
-        gate_1_router,
         gate_2_node,
         gate_2_router,
         generate_answer_node,
+        generate_ungrounded_node,
         judge_inference_node,
         load_tenant_config_node,
         mask_response_pii_node,
         model_router_node,
         parse_response_node,
+        post_mask_grounding_router,
         query_rewrite_node,
         retrieve_context_node,
         save_chat_log_node,
         tenant_resolver_node,
-        ui_mode_router,
         verify_tier1_node,
         verify_tier2_node,
     )
@@ -242,6 +246,9 @@ def build_chat_structured_full(deps) -> Any:
 
     async def _generate(s):
         return await generate_answer_node(s, deps)
+
+    async def _generate_ungrounded(s):
+        return await generate_ungrounded_node(s, deps)
 
     async def _verify_tier2(s):
         return await verify_tier2_node(s, deps)
@@ -280,6 +287,7 @@ def build_chat_structured_full(deps) -> Any:
     graph.add_node("retrieve_context", _retrieve)
     graph.add_node("gate_1", gate_1_node)
     graph.add_node("generate_answer", _generate)
+    graph.add_node("generate_ungrounded", _generate_ungrounded)
     graph.add_node("parse_response", parse_response_node)
     graph.add_node("verify_tier1", verify_tier1_node)
     graph.add_node("detect_conflict_heuristic", _detect_conflict)
@@ -303,18 +311,20 @@ def build_chat_structured_full(deps) -> Any:
     )
     graph.add_edge("build_acl_filter", "classify_query")
     graph.add_edge("classify_query", "model_router")
-    graph.add_conditional_edges(
-        "model_router",
-        ui_mode_router,
-        {"streaming_redirect": "fallback", "continue": "query_rewrite"},
-    )
+    # ADR-023: ui_mode 기반 streaming redirect 폐기 — 항상 검색으로 진행.
+    graph.add_edge("model_router", "query_rewrite")
     graph.add_edge("query_rewrite", "retrieve_context")
     graph.add_edge("retrieve_context", "gate_1")
+    # ADR-023 §3: Gate 1 = 분기점. pass → grounded(citation), fail → ungrounded(대화).
     graph.add_conditional_edges(
         "gate_1",
-        gate_1_router,
-        {"generate_answer": "generate_answer", "fallback": "fallback"},
+        gate_1_full_router,
+        {
+            "generate_answer": "generate_answer",
+            "generate_ungrounded": "generate_ungrounded",
+        },
     )
+    graph.add_edge("generate_ungrounded", "mask_response_pii")
     graph.add_edge("generate_answer", "parse_response")
     graph.add_edge("parse_response", "verify_tier1")
     graph.add_edge("verify_tier1", "detect_conflict_heuristic")
@@ -323,7 +333,15 @@ def build_chat_structured_full(deps) -> Any:
     graph.add_edge("judge_inference", "detect_unsupported")
     graph.add_edge("detect_unsupported", "assemble_response")
     graph.add_edge("assemble_response", "mask_response_pii")
-    graph.add_edge("mask_response_pii", "compute_confidence")
+    # ADR-023 §3: ungrounded는 verify/Gate 2를 건너뛰고 바로 저장(인용 없음).
+    graph.add_conditional_edges(
+        "mask_response_pii",
+        post_mask_grounding_router,
+        {
+            "compute_confidence": "compute_confidence",
+            "save_chat_log": "save_chat_log",
+        },
+    )
     graph.add_edge("compute_confidence", "gate_2")
     graph.add_conditional_edges(
         "gate_2",

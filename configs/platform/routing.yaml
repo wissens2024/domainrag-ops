@@ -10,15 +10,11 @@ default:
   use_rag: true
   ui_mode: chat_structured
 
+# ADR-023: free_chat→streaming redirect 및 low_retrieval_confidence→refusal 룰 폐기.
+# 모든 질의는 항상 검색하고, 근거 유무(Gate 1)로 grounded/ungrounded를 자동 분기한다.
+# query_type=free_chat은 매칭 룰이 없으면 default(use_rag=true)로 흘러 검색 후
+# 근거가 없으면 ungrounded 대화 경로로 처리된다.
 rules:
-  - name: free_chat_streaming
-    when:
-      query_type: free_chat
-    use_model: tenant_slm
-    use_lora: false
-    use_rag: false
-    ui_mode: chat_streaming               # citation 비활성
-
   - name: simple_document_qa
     when:
       query_type: document_qa
@@ -55,8 +51,3 @@ rules:
     use_rag: true
     ui_mode: chat_structured
     require_similarity_check: true        # ADR-014
-
-  - name: low_retrieval_confidence
-    when:
-      retrieval_confidence_below: 0.35    # Gate 1 직접 fallback (citation.yaml과 별도 트리거)
-    action: fallback_refusal              # 모델 호출 skip

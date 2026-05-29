@@ -255,6 +255,8 @@ def _build_chat_response(
 
     base_meta = {
         "ui_mode": "chat_structured",
+        # ADR-023 §4 — grounded(citation 검증) vs ungrounded(일반 대화, 근거 없음).
+        "grounding": state.get("grounding") or "grounded",
         "llm_model": state.get("selected_model"),
         "lora_adapter": state.get("selected_lora"),
         "latency_ms": latency_ms,
@@ -287,15 +289,6 @@ def _build_chat_response(
                 "blocked_categories": state.get("blocked_categories") or [],
                 "suggested_actions": [
                     "민감 정보(주민번호·계좌·API key 등)를 제거하고 다시 시도하세요.",
-                ],
-            }
-        elif fallback_reason == "ui_mode_streaming_required":
-            fallback_block = {
-                "reason": fallback_reason,
-                "redirect_to_endpoint": f"/api/{domain_id}/chat/stream",
-                "suggested_actions": [
-                    "이 질문은 streaming 모드로 라우팅되었습니다.",
-                    "/chat/stream 엔드포인트로 다시 요청해 주세요.",
                 ],
             }
         else:

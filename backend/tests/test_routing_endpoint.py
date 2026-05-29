@@ -238,8 +238,12 @@ def test_dryrun_with_custom_routing_config_preview():
     assert d_resp.json()["decision"]["model"] == "shared_llm"
 
 
-def test_dryrun_retrieval_confidence_below_rule_triggers():
-    """retrieval_confidence < threshold일 때 fallback_refusal rule이 매칭."""
+def test_dryrun_low_retrieval_confidence_no_routing_refusal():
+    """ADR-023: low_retrieval_confidence→fallback_refusal 룰 폐기.
+
+    낮은 retrieval_confidence는 라우팅에서 거부되지 않고 default로 진행된다.
+    근거 부족은 Gate 1(런타임)이 ungrounded 경로로 처리한다.
+    """
     with TestClient(app) as client:
         resp = client.post(
             "/api/security/admin/routing/dryrun",
@@ -251,8 +255,8 @@ def test_dryrun_retrieval_confidence_below_rule_triggers():
         )
     assert resp.status_code == 200
     decision = resp.json()["decision"]
-    assert decision["matched_rule"] == "low_retrieval_confidence"
-    assert decision["action"] == "fallback_refusal"
+    assert decision["matched_rule"] == "default"
+    assert decision["action"] is None
 
 
 def test_dryrun_invalid_routing_config_422():

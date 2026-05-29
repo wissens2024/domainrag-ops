@@ -607,48 +607,45 @@ async def test_layer2_gdpr_strict_forces_mask_overriding_plain(populated_corpus)
     assert "user@example.com" not in log.question
 
 
-async def test_chat_redirects_to_stream_endpoint_when_routing_picks_streaming(
-    populated_corpus,
-):
-    """ADR-013 §6 — sync /chat이 routing rule에서 ui_mode=chat_streaming으로 결정되면 fallback
-    path로 단축하여 redirect_to_endpoint를 응답에 노출 (LLM 호출 없이 단축)."""
-    from rag_core.services.model_router import ModelRouter
-    from rag_core.services.query_classifier import (
-        ClassifierTier2Prompt,
-        QueryClassifier,
-    )
+async def test_gate1_fail_routes_to_ungrounded_conversation(populated_corpus):
+    """ADR-023 §3 — Gate 1 미통과 시 redirect/거부가 아니라 ungrounded 대화 경로.
 
-    llm = InMemoryLLMClient(responses=["never_called"])
+    근거가 약하면(여기선 retrieval gate를 불가능한 임계로 강제) 일반 지식 대화형
+    답변을 생성한다. citation 없음, grounding='ungrounded', fallback_reason 없음
+    (정상 success). "근거 없음"은 UI 배지로 구분(ADR-023 §4)되며, redirect 안내문이나
+    '확인 불가' fallback이 아니다.
+    """
+    conversational = "안녕하세요! 무엇을 도와드릴까요?"
+    llm = InMemoryLLMClient(responses=[conversational])
     deps = _build_deps(populated_corpus, llm)
-    deps.model_router = ModelRouter()
-    # tier2 prompt는 placeholder — tier1 매치되거나 deps.query_classifier=None이면 호출 안 됨
-    deps.query_classifier = None
 
-    def _loader_streaming(_tid: str) -> dict:
+    def _loader_gate1_impossible(_tid: str) -> dict:
         cfg = _config_loader(_tid)
-        cfg["routing"] = {
-            "default": {"model": "tenant_slm", "ui_mode": "chat_streaming"},
-            "rules": [],
+        # Gate 1을 통과 불가로 강제 → 항상 ungrounded 분기 (결정론적).
+        cfg["citation"].setdefault("gates", {})["retrieval"] = {
+            "min_top1_rerank": 9.0,
+            "min_strong_chunks": 99,
+            "strong_chunk_threshold": 0.5,
         }
         return cfg
 
-    deps.config_loader = _loader_streaming
+    deps.config_loader = _loader_gate1_impossible
     graph = build_chat_structured_full(deps)
     state = RAGState(
-        request_id="r-redir-1", domain_id="security", user_id="u1",
-        question="패스워드 정책은?", user_context=_user_context(),
+        request_id="r-ungrounded-1", domain_id="security", user_id="u1",
+        question="안녕", user_context=_user_context(),
     )
     result = await graph.ainvoke(state)
 
-    assert result["fallback_reason"] == "ui_mode_streaming_required"
-    # LLM은 호출되지 않음 (model_router 다음 fallback 분기)
+    assert result["grounding"] == "ungrounded"
+    assert result["fallback_reason"] is None        # 거부가 아니라 정상 응답
+    assert result["citations"] == []
+    assert result["citation_types"] == []
+    assert result["final_answer"] == conversational
+    # 대화형 생성은 guided_json_schema 없이 1회 호출
     generate_calls = [c for c in llm.calls if c["kind"] == "generate"]
-    assert len(generate_calls) == 0
-    # final_answer는 안내 메시지
-    assert "/chat/stream" in result["final_answer"]
-    # routing decision 자체는 정상 기록
-    assert result["selected_model"] == "tenant_slm"
-    assert result["ui_mode"] == "chat_streaming"
+    assert len(generate_calls) == 1
+    assert generate_calls[0].get("guided_json_schema") is None
 
 
 async def test_layer1_blocks_input_with_rrn(populated_corpus):

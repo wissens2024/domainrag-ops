@@ -38,8 +38,8 @@ DomainRAG Ops는 **테넌트별 입력 스키마**로 도메인 지식을 구조
 1. **멀티테넌트 first-class**: 모든 데이터·정책·검색·로그에 `tenant_id` 1차 분기. cross-tenant 검색은 본 시스템에서 지원하지 않는다.
 2. **격리 3중 방어** (ADR-022 갱신): collection-per-tenant + PostgreSQL Row-Level Security + **membership/path 게이트** (URL path가 활성 도메인 결정 → RLS context; 전역역할 admin/auditor/platform_admin은 membership 우회, 일반 user는 membership 없으면 403). 공용 client라 client_id↔path mirror는 실효 → 제거. cross-tenant(도메인) 검색은 본 시스템에서 지원하지 않는다.
 3. **4-type citation**: direct / synthesis / inference / conflict. 마커 syntax는 `[1]` / `[종합: 1,2,3]` / `[추론: 1,2,3] 🔍` / `[충돌: 1 vs 2]` (ADR-010).
-4. **검증된 인용만 노출** (chat_structured 모드 한정): `support_level`/`verified` 필드는 ADR-010 산출 규칙으로 계산. weak는 응답에서 제거, medium은 ⚠ 호버. **chat_streaming 모드는 RAG 미사용 자유 대화 모드로 citation 책임 없음** (`citation_disabled: true`, ADR-013 §6).
-5. **원칙 8 (재해석)**: 근거 없는 추측은 금지한다. 다만 (a) 직접 인용, (b) 검증된 종합, (c) **명시적 추론 + LLM-as-judge 통과 + 강한 caveat**, (d) 명시적 충돌 표시는 허용. 그 외는 "확인 불가" fallback.
+4. **검증된 인용만 노출** (grounded 응답 한정): `support_level`/`verified` 필드는 ADR-010 산출 규칙으로 계산. weak는 응답에서 제거, medium은 ⚠ 호버. **사용자 모드 토글은 폐기** — 항상 검색하고 근거 유무(Gate 1)로 시스템이 grounded/ungrounded를 자동 분기한다 (ADR-023). ungrounded 응답은 citation 책임이 없으나 UI에 "근거 없음"을 명시 구분한다.
+5. **원칙 8 (재해석)**: 근거 없는 추측을 *근거 있는 것처럼* 내보내는 것은 금지한다. grounded 응답은 (a) 직접 인용, (b) 검증된 종합, (c) **명시적 추론 + LLM-as-judge 통과 + 강한 caveat**, (d) 명시적 충돌 표시만 허용. 근거가 없을 때는 `grounding="ungrounded"`로 **UI에 명시 구분**된 대화형 답변(caveat 포함)을 허용한다 (ADR-023). fabricated citation은 절대 금지.
 6. **완제품 단일 설계**: ADR/코드에 "MVP", "Phase 2", "추후 검토", "MVP 한정" 같은 phasing 표현 금지. 기능을 *제외*하는 결정은 가능하지만 명시적 "본 시스템에서 X는 지원하지 않는다"로 못 박는다.
 7. **Protocol/Adapter 패턴**: LLMClient · Embedder · Retriever · Reranker · VectorStore · DocumentParser · Chunker · AuthAdapter 모두 Protocol. 구현체 교체는 configs 변경.
 8. **Configs 분리**: 모델·임계치·prompt·라우팅 모두 platform/tenants 계층 yaml + DB hybrid (ADR-009). 코드 하드코딩 금지.
@@ -78,6 +78,7 @@ DomainRAG Ops는 **테넌트별 입력 스키마**로 도메인 지식을 구조
 | [ADR-020](docs/adr/020-pii-and-audit-integration.md) | PII Detection & Audit Integration | Accepted (M1 PII 공백 해결) |
 | [ADR-021](docs/adr/021-operational-bootstrap.md) | Operational Bootstrap (lifespan·LISTEN/NOTIFY·cron·Docker) | Accepted |
 | [ADR-022](docs/adr/022-domain-terminology-and-access-model.md) | **Domain 용어 + User/Domain 접근 모델** (admin/auditor 전역·user 도메인-스코프·enrollment) | Accepted (ADR-018 §1·§8 supersede) |
+| [ADR-023](docs/adr/023-unified-conversational-pipeline.md) | **Unified Conversational Pipeline** (항상 검색→근거 유무로 자동 분기, 모드 토글 폐기, ungrounded UI 명시) | Accepted (ADR-013 §6·§2·ADR-016 §6 supersede) |
 
 작업 시작 전에 **관련 ADR을 먼저 읽는다**. 다중 ADR이 관련되면 *최신·미-supersede ADR*을 단일 진실 소스로 따른다.
 

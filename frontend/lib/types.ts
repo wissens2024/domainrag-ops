@@ -50,8 +50,13 @@ export interface AnswerSegment {
 
 export type UiMode = 'chat_structured' | 'chat_streaming';
 
+// ADR-023 §4 — 근거 유무. grounded=문서 근거 + 4-type citation,
+// ungrounded=일반 대화(인용 없음). UI가 명확히 구분 표시한다.
+export type Grounding = 'grounded' | 'ungrounded';
+
 export interface ChatMetadata {
   ui_mode: UiMode;
+  grounding?: Grounding;
   llm_model: string;
   lora_adapter?: string;
   embedding_model?: string;

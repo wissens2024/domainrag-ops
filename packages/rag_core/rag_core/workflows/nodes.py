@@ -191,12 +191,10 @@ async def model_router_node(
         "ui_mode": decision.ui_mode,
     }
     # action: fallback_refusal 등 — 본 라우팅이 모델 호출 자체를 skip해야 한다는 신호.
+    # ADR-023: query_type=free_chat의 streaming redirect는 폐기됐다. 근거 유무는
+    # Gate 1이 분기하며(grounded/ungrounded), 라우팅은 ui_mode로 경로를 바꾸지 않는다.
     if decision.action:
         out["fallback_reason"] = f"routing_{decision.action}"
-    # ADR-013 §6.3 — sync /chat에서 ui_mode=chat_streaming 결정 시 fallback path로 단축하여
-    # 클라이언트가 /chat/stream을 사용하도록 안내. ui_mode_router가 본 reason을 보고 분기.
-    elif (decision.ui_mode or "").lower() == "chat_streaming":
-        out["fallback_reason"] = "ui_mode_streaming_required"
     return out
 
 
@@ -399,6 +397,83 @@ async def generate_answer_node(
     }
 
 
+async def generate_ungrounded_node(
+    state: RAGState, deps: RAGGraphDeps
+) -> dict[str, Any]:
+    """ADR-023 §3 — Gate 1 미통과(근거 약/없음) 시 일반 대화형 답변.
+
+    citable context 없이 GenerationService.generate_conversational을 호출해 자유
+    텍스트 답변을 만든다. 인용 없음(citations=[]), verify/judge skip. grounding=
+    'ungrounded'로 표시하고 Gate 1이 세팅한 fallback_reason은 해제한다 — 이것은
+    거부(fallback)가 아니라 정상 success 응답이며, "근거 없음"은 UI 배지로 구분한다.
+
+    대화형 생성마저 실패하면 그때는 진짜 fallback(low_generation_quality)으로 떨어진다.
+    """
+    selected_model = state.selected_model or "tenant_slm"
+    selected_lora = state.selected_lora
+    failure_chain = list(state.model_failure_chain or [])
+    try:
+        text = await deps.generation_service.generate_conversational(
+            question=state.question,
+            lora_adapter=selected_lora,
+            domain_id=state.domain_id,
+            model_override=selected_model,
+        )
+    except Exception as exc:  # noqa: BLE001 — graceful: 진짜 fallback으로 전환
+        failure_chain.append(
+            {
+                "model": selected_model,
+                "lora": selected_lora,
+                "label": "ungrounded",
+                "reason": type(exc).__name__,
+                "detail": str(exc),
+            }
+        )
+        return {
+            "grounding": "ungrounded",
+            "answer_segments": [],
+            "final_answer": "",
+            "citations": [],
+            "citation_types": [],
+            "confidence": 0.0,
+            "fallback_reason": "low_generation_quality",
+            "error": "ungrounded_generation_failed",
+            "model_failure_chain": failure_chain,
+        }
+
+    body = (text or "").strip()
+    return {
+        "grounding": "ungrounded",
+        "raw_response": text or "",
+        "answer_segments": [{"text": body, "citations": []}],
+        "final_answer": body,
+        "citations": [],
+        "citation_types": [],
+        "confidence": 0.0,
+        # Gate 1이 세팅한 retrieval_unavailable/gate1_failed를 해제 — success 응답.
+        "fallback_reason": None,
+        "model_failure_chain": failure_chain,
+    }
+
+
+def gate_1_full_router(state: RAGState) -> str:
+    """ADR-023 §3 — full 그래프 Gate 1 분기.
+
+    pass → grounded 생성(generate_answer), fail → ungrounded 대화(generate_ungrounded).
+    (slice 그래프는 기존 gate_1_router를 그대로 쓴다 — fail 시 fallback.)
+    """
+    return "generate_answer" if state.gate1_passed else "generate_ungrounded"
+
+
+def post_mask_grounding_router(state: RAGState) -> str:
+    """ADR-023 §3 — mask_response_pii 이후 grounding으로 합류점 분기.
+
+    ungrounded는 verify/Gate 2(citation 게이트)를 건너뛰고 바로 저장한다 —
+    인용이 없어 Gate 2가 fallback으로 오판하는 것을 막는다.
+    """
+    return "save_chat_log" if state.grounding == "ungrounded" else "compute_confidence"
+
+
 def _dict_to_chunk(d: dict[str, Any]):
     """final_contexts dict → RetrievedChunk 역변환 (GenerationService 입력용)."""
     from ..interfaces.retriever import RetrievedChunk
@@ -471,6 +546,7 @@ async def save_chat_log_node(
             "selected_lora": state.selected_lora,
             "use_rag": state.use_rag,
             "ui_mode": state.ui_mode,
+            "grounding": state.grounding,  # ADR-023 §4
         },
         classifier_decision=dict(state.classifier_decision or {}),
         model_failure_chain=list(state.model_failure_chain or []),
@@ -491,26 +567,21 @@ _FALLBACK_INPUT_PII_TEXT = (
     "개인정보로 보이는 정보가 포함되어 있습니다. "
     "민감한 정보를 제거하고 다시 시도해 주세요."
 )
-_FALLBACK_STREAMING_REDIRECT_TEXT = (
-    "이 질문은 streaming 모드(자유 대화)로 라우팅되었습니다. "
-    "/chat/stream 엔드포인트로 다시 요청해 주세요."
-)
 
 
 async def fallback_node(state: RAGState) -> dict[str, Any]:
     """Gate 1·2 미통과·생성 실패·routing 결정 등 fallback 응답을 채운다.
 
     - input_pii_blocked: ADR-020 §3 사용자 안내
-    - ui_mode_streaming_required: ADR-013 §6.2/§6.3 — routing이 streaming 결정 시 endpoint 안내
-    - 그 외: ADR-010 일반 fallback
+    - 그 외: ADR-010 일반 fallback (생성 chain 전체 실패 등)
+
+    ADR-023: 근거 미확보(Gate 1 fail)는 더 이상 fallback(거부)이 아니라 ungrounded
+    대화 경로로 처리된다. 본 노드는 PII 차단·생성 실패 등 진짜 거부 사유만 담당한다.
     """
     reason = state.fallback_reason or "unknown"
     if reason == "input_pii_blocked":
         text = _FALLBACK_INPUT_PII_TEXT
         support = "input_pii_blocked"
-    elif reason == "ui_mode_streaming_required":
-        text = _FALLBACK_STREAMING_REDIRECT_TEXT
-        support = "ui_mode_streaming_required"
     else:
         text = _FALLBACK_DEFAULT_TEXT
         support = "fallback"
@@ -522,15 +593,6 @@ async def fallback_node(state: RAGState) -> dict[str, Any]:
         "final_answer": text,
         "confidence": 0.0,
     }
-
-
-def ui_mode_router(state: RAGState) -> str:
-    """ADR-013 §6 — model_router가 fallback_reason='ui_mode_streaming_required'를 설정한 경우
-    sync /chat을 fallback path로 단축하여 클라이언트가 /chat/stream을 사용하도록 안내한다.
-    """
-    if state.fallback_reason == "ui_mode_streaming_required":
-        return "streaming_redirect"
-    return "continue"
 
 
 # --------------------------------------------------------------------------- #

@@ -15,8 +15,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import ConflictBox from './ConflictBox';
 import InferenceJudgePopover from './InferenceJudgePopover';
+import Badge from './ui/Badge';
 import { postFeedback } from '@/lib/api';
-import type { ChatResponse, Citation } from '@/lib/types';
+import type { ChatResponse, Citation, Grounding } from '@/lib/types';
 
 interface Props {
   response: ChatResponse;
@@ -105,11 +106,32 @@ export default function AnswerCard({ response, domainId, onCitationClick }: Prop
   const conflictCitations = citations.filter((c) => c.support_type === 'conflict');
 
   // citation marker가 있는 segment는 inline node로, 없는 경우는 markdown으로.
-  // streaming/일반 대화에는 citations[]이 비어 markdown 전용 렌더 사용.
+  // 일반 대화(ungrounded)에는 citations[]이 비어 markdown 전용 렌더 사용.
   const hasCitations = citations.length > 0;
+
+  // ADR-023 §4 — 근거 유무를 UI로 명확히 구분. 시스템이 근거 여부를 판단·표시한다
+  // (사용자가 추측하지 않는다). 과거 대화 복원처럼 grounding 미상이면 배지를 숨긴다.
+  const grounding: Grounding | undefined =
+    response.metadata.grounding ?? (hasCitations ? 'grounded' : undefined);
 
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-bl-md px-5 py-4 my-1 text-sm shadow-sm">
+      {grounding && (
+        <div className="mb-2">
+          {grounding === 'grounded' ? (
+            <Badge tone="info" title="등록된 문서에서 근거를 찾아 인용했습니다.">
+              📑 문서 근거
+            </Badge>
+          ) : (
+            <Badge
+              tone="warn"
+              title="등록된 문서에서 근거를 찾지 못해 일반 지식으로 답했습니다. 도메인 사실은 담당 부서 확인을 권장합니다."
+            >
+              💬 일반 대화 · 등록 문서 근거 없음
+            </Badge>
+          )}
+        </div>
+      )}
       <div className="prose prose-sm max-w-none prose-headings:font-semibold prose-headings:text-gray-900 prose-p:my-2 prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:text-xs prose-code:before:hidden prose-code:after:hidden prose-code:bg-gray-100 prose-code:text-gray-800 prose-code:font-normal prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px] prose-a:text-brand-600 prose-a:no-underline hover:prose-a:underline prose-strong:text-gray-900">
         {!hasCitations ? (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>

@@ -68,23 +68,34 @@ def test_assessment_generation_rule():
     assert d.require_similarity_check is True
 
 
-def test_free_chat_streaming_rule():
+def test_free_chat_falls_to_default_no_streaming_redirect():
+    """ADR-023: free_chat_streaming 룰 폐기 — free_chat은 default로 흘러 검색을 켠다.
+
+    streaming redirect/use_rag=false는 더 이상 발생하지 않는다. 근거 유무는 Gate 1이
+    grounded/ungrounded로 분기한다.
+    """
     cfg = _platform_routing()
     cls = ClassificationResult(query_type="free_chat", complexity="trivial")
     d = ModelRouter.decide(classification=cls, routing_config=cfg)
-    assert d.matched_rule == "free_chat_streaming"
-    assert d.use_rag is False
-    assert d.ui_mode == "chat_streaming"
+    assert d.matched_rule == "default"
+    assert d.use_rag is True
+    assert d.ui_mode == "chat_structured"
+    assert d.action is None
 
 
-def test_low_retrieval_confidence_action():
+def test_low_retrieval_confidence_no_routing_refusal():
+    """ADR-023: low_retrieval_confidence→fallback_refusal 룰 폐기.
+
+    낮은 retrieval_confidence는 라우팅 단계에서 거부되지 않고 default로 진행되며,
+    근거 부족은 Gate 1(런타임)이 ungrounded 경로로 처리한다.
+    """
     cfg = _platform_routing()
     cls = ClassificationResult(query_type="document_qa", complexity="medium")
     d = ModelRouter.decide(
         classification=cls, routing_config=cfg, retrieval_confidence=0.3
     )
-    assert d.matched_rule == "low_retrieval_confidence"
-    assert d.action == "fallback_refusal"
+    assert d.matched_rule == "default"
+    assert d.action is None
 
 
 def test_lora_resolution_from_tenant_model_config():
