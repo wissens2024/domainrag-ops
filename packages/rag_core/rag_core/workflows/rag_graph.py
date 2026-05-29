@@ -62,6 +62,9 @@ class RAGState:
     retrieved_chunks: list[dict] = field(default_factory=list)
     reranked_chunks: list[dict] = field(default_factory=list)
     final_contexts: list[dict] = field(default_factory=list)
+    # ADR-023 §3 — 검색 인프라(임베더·리랭커·벡터스토어) 장애 메시지. 설정 시 retrieval을
+    # 빈 결과로 강등하고 ungrounded 경로로 분기(500 대신 일반 대화). 관측용으로 chat_logs 보존.
+    retrieval_error: str | None = None
 
     # gate 1 (ADR-010)
     gate1_passed: bool = False

@@ -19,6 +19,7 @@ mask_response_pii, gate_2, save_chat_log 등)는 이후 ADR-010·013·020 후속
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date
@@ -41,6 +42,8 @@ from ..services.verifier_service import VerifierService, VerifierThresholds
 from .rag_graph import RAGState
 
 ConfigLoader = Callable[[str], Awaitable[dict[str, Any]] | dict[str, Any]]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -233,12 +236,28 @@ async def retrieve_context_node(
     cfg = _retrieval_config_from_tenant(state.tenant_config or {})
     # ADR-011 §5 — query_rewrite 노드가 채운 rewritten_query를 우선 사용 (없으면 원 question)
     query = state.rewritten_query or state.question
-    result = await deps.retrieval_service.retrieve(
-        domain_id=state.domain_id,
-        question=query,
-        acl_filter=state.acl_filter or {},
-        config=cfg,
-    )
+    try:
+        result = await deps.retrieval_service.retrieve(
+            domain_id=state.domain_id,
+            question=query,
+            acl_filter=state.acl_filter or {},
+            config=cfg,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # ADR-023 §3 — 검색 인프라(임베더·리랭커·벡터스토어) 장애를 500으로 흘리지 않는다.
+        # 빈 결과로 강등 → Gate 1 미통과 → ungrounded 경로(LLM 일반 대화 + '근거 없음' 배지).
+        # 장애 자체는 logging + retrieval_error(state)로 관측. 임베더 다운 같은 인프라 이슈는
+        # 사용자 경험을 깨지 않고 별도 모니터링으로 처리한다.
+        logger.warning(
+            "retrieve_context failed (%s: %s) — degrading to ungrounded path",
+            type(exc).__name__, exc,
+        )
+        return {
+            "retrieved_chunks": [],
+            "reranked_chunks": [],
+            "final_contexts": [],
+            "retrieval_error": f"{type(exc).__name__}: {exc}",
+        }
     return {
         "retrieved_chunks": [_chunk_to_dict(c) for c in result.fused],
         "reranked_chunks": [_chunk_to_dict(c) for c in result.reranked],
@@ -547,6 +566,7 @@ async def save_chat_log_node(
             "use_rag": state.use_rag,
             "ui_mode": state.ui_mode,
             "grounding": state.grounding,  # ADR-023 §4
+            "retrieval_error": state.retrieval_error,  # ADR-023 §3 (None=정상)
         },
         classifier_decision=dict(state.classifier_decision or {}),
         model_failure_chain=list(state.model_failure_chain or []),

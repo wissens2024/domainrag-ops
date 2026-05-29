@@ -56,6 +56,7 @@ ADR-010 §4 Gate 1(retrieval 품질 검사)의 **결과 처리만** 바꾼다. �
 - ungrounded 경로는 **citable context를 주입하지 않는다** — 근거 없는 답에 마커가 새지 않도록. (약한 chunk를 비인용 background로 넣는 것은 tenant config 옵션, 기본 off.)
 - "근거 없음"은 **§4의 UI 배지로 명시**한다. 답변 본문에 caveat 문구를 강제 삽입하지 않는다 — 인사말 등에서 어색하고, 구분은 UI 책임(시스템이 책임지고 표시)이기 때문이다. 생성 프롬프트에는 도메인 사실(수치·조항·절차)을 단정하지 말라는 지침을 둔다.
 - **진짜 fallback(거부)은 별도 사유로만 유지**: `input_pii_blocked`(ADR-020), `low_generation_quality`(생성 chain 전체 실패, ADR-013 §7). 이 둘은 ungrounded 대화 답변이 아니라 명시적 거부/안내다.
+- **검색 인프라 장애 resilience**: 임베더·리랭커·벡터스토어 연결 실패(예: TEI 다운)는 500/internal_error로 사용자에게 새지 않는다. `retrieve_context`가 예외를 삼켜 빈 결과 + `retrieval_error`(관측용, chat_logs 보존)로 강등 → Gate 1 미통과 → ungrounded 경로. LLM이 살아 있으면 일반 대화 답변이 나가고 UI는 "근거 없음" 배지를 표시한다. 인프라 장애는 로그·`retrieval_error`로 별도 모니터링한다.
 
 ### 4. `grounding`은 1급 응답 필드 — 시스템이 책임지고 UI로 구분
 

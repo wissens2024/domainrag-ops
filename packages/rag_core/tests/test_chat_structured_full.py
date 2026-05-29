@@ -648,6 +648,35 @@ async def test_gate1_fail_routes_to_ungrounded_conversation(populated_corpus):
     assert generate_calls[0].get("guided_json_schema") is None
 
 
+async def test_retrieval_failure_degrades_to_ungrounded(populated_corpus):
+    """ADR-023 §3 — 검색 인프라 장애(임베더/리랭커 다운 등)는 500이 아니라 ungrounded로 강등.
+
+    retrieve가 예외를 던지면 retrieve_context_node가 빈 결과 + retrieval_error로 강등하고
+    Gate 1 미통과 → ungrounded 일반 대화 답변. 사용자에게 internal_error 대신 답변이 나간다.
+    """
+    conversational = "안녕하세요! 무엇을 도와드릴까요?"
+    llm = InMemoryLLMClient(responses=[conversational])
+    deps = _build_deps(populated_corpus, llm)
+
+    class _FailingRetrieval:
+        async def retrieve(self, **kwargs):
+            raise ConnectionError("embedder unreachable")
+
+    deps.retrieval_service = _FailingRetrieval()
+    graph = build_chat_structured_full(deps)
+    state = RAGState(
+        request_id="r-retrfail-1", domain_id="security", user_id="u1",
+        question="패스워드 정책은?", user_context=_user_context(),
+    )
+    result = await graph.ainvoke(state)
+
+    assert result["grounding"] == "ungrounded"
+    assert result["fallback_reason"] is None         # 500/거부가 아니라 정상 응답
+    assert result["citations"] == []
+    assert result["final_answer"] == conversational
+    assert "ConnectionError" in (result["retrieval_error"] or "")
+
+
 async def test_layer1_blocks_input_with_rrn(populated_corpus):
     """ADR-020 §3 — 질문에 주민번호가 있으면 retrieval 직전에 차단되어 fallback.
 
