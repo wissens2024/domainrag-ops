@@ -61,13 +61,23 @@ def _set_cookies(
     token: TokenResponse,
     is_production: bool,
 ) -> None:
-    """access/refresh를 httpOnly Secure 쿠키로 set. local dev는 Secure 끔."""
+    """access/refresh를 httpOnly Secure 쿠키로 set. local dev는 Secure 끔.
+
+    세션 길이(ADR-018 §6): access 쿠키는 access 토큰 TTL(짧음)을 그대로 따르되,
+    refresh/id 쿠키는 AuthFusion이 주는 *실제 refresh 토큰 수명*(`refresh_expires_in`)을
+    max-age로 쓴다. 미제공 시 expires_in*4 fallback. access 쿠키가 만료돼도 refresh 쿠키가
+    살아있으면 middleware가 통과시키고 api interceptor가 조용히 갱신한다(잦은 재로그인 방지).
+    """
     common = {
         "httponly": True,
         "secure": is_production,
         "samesite": "lax",
         "path": "/",
     }
+    # refresh/id 쿠키 수명 — AuthFusion refresh_expires_in 우선, 없으면 expires_in*4.
+    refresh_max_age = token.refresh_expires_in or (
+        token.expires_in * 4 if token.expires_in else None
+    )
     response.set_cookie(
         _ACCESS_COOKIE,
         token.access_token,
@@ -78,7 +88,7 @@ def _set_cookies(
         response.set_cookie(
             _REFRESH_COOKIE,
             token.refresh_token,
-            max_age=token.expires_in * 4 if token.expires_in else None,
+            max_age=refresh_max_age,
             **common,
         )
     if token.id_token:
@@ -86,7 +96,7 @@ def _set_cookies(
         response.set_cookie(
             _ID_TOKEN_COOKIE,
             token.id_token,
-            max_age=token.expires_in * 4 if token.expires_in else None,
+            max_age=refresh_max_age,
             **common,
         )
 

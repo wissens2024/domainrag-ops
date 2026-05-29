@@ -21,6 +21,9 @@ class TokenResponse:
     access_token: str
     refresh_token: str | None
     expires_in: int
+    # AuthFusion(Keycloak 계열) refresh token 수명(초). 미제공 시 0 → 쿠키 max-age는
+    # caller가 expires_in 기반 fallback을 적용한다 (auth._set_cookies).
+    refresh_expires_in: int = 0
     token_type: str = "Bearer"
     scope: str | None = None
     id_token: str | None = None  # OIDC — RP-Initiated Logout id_token_hint용 (ADR-022)
@@ -32,6 +35,7 @@ class TokenResponse:
             access_token=str(payload["access_token"]),
             refresh_token=payload.get("refresh_token"),
             expires_in=int(payload.get("expires_in") or 0),
+            refresh_expires_in=int(payload.get("refresh_expires_in") or 0),
             token_type=str(payload.get("token_type") or "Bearer"),
             scope=payload.get("scope"),
             id_token=payload.get("id_token"),

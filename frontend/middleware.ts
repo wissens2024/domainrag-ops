@@ -23,6 +23,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const ACCESS_COOKIE = 'domainrag_access';
+const REFRESH_COOKIE = 'domainrag_refresh';
 const TENANT_CHAT_RE = /^\/([^/]+)\/chat(?:\/|$)/;
 const TENANT_ADMIN_RE = /^\/([^/]+)\/admin(?:\/|$)/;
 const PLATFORM_ADMIN_RE = /^\/platform\/admin(?:\/|$)/;
@@ -44,6 +45,13 @@ export function middleware(req: NextRequest) {
 
   const hasAccess = req.cookies.get(ACCESS_COOKIE)?.value;
   if (hasAccess) return NextResponse.next();
+
+  // ADR-018 §6 — access 쿠키가 만료(짧은 TTL)됐어도 refresh 쿠키가 살아있으면 로그인으로
+  // 튕기지 않는다. 페이지를 통과시키면 api.ts 401 interceptor가 첫 요청에서 조용히 refresh →
+  // 새 access 쿠키 발급. 이렇게 해야 access TTL마다 재로그인하는 문제가 사라진다.
+  // (refresh 쿠키 수명 = AuthFusion refresh_expires_in. 둘 다 없을 때만 실제 로그아웃.)
+  const hasRefresh = req.cookies.get(REFRESH_COOKIE)?.value;
+  if (hasRefresh) return NextResponse.next();
 
   // 미인증 — /platform/admin/* 은 backend가 'platform' tenant를 인식 안 함 (special).
   // /console 페이지가 자체 SSO 흐름(default tenant authorize)을 가지므로 그쪽으로 보낸다.

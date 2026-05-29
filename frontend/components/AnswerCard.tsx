@@ -192,15 +192,10 @@ export default function AnswerCard({ response, domainId, onCitationClick }: Prop
       ))}
 
       <div className="mt-3 pt-2 border-t border-gray-200 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500">
-        <span>모델: {response.metadata.llm_model}</span>
+        {/* 모델·confidence·LoRA는 사용자에겐 디버그 정보 — 관리자 뷰(Citation Inspector·
+            chat_logs)에만 노출. 사용자에겐 응답 시간만. (ADR-016 user/admin 분리) */}
         {response.metadata.latency_ms > 0 && (
           <span>{(response.metadata.latency_ms / 1000).toFixed(2)}s</span>
-        )}
-        {response.metadata.confidence > 0 && (
-          <span>confidence {response.metadata.confidence.toFixed(2)}</span>
-        )}
-        {response.metadata.lora_adapter && (
-          <span>LoRA: {response.metadata.lora_adapter}</span>
         )}
         <div className="ml-auto flex items-center gap-1">
           <button
@@ -216,7 +211,7 @@ export default function AnswerCard({ response, domainId, onCitationClick }: Prop
             className={`px-2 py-1 rounded hover:bg-gray-200 ${
               feedbackSent === 'good' ? 'bg-green-100 text-green-700' : 'text-gray-500'
             }`}
-            title="좋아요"
+            title="도움이 됐어요 — 답변 품질 개선에 활용됩니다"
           >
             👍
           </button>
@@ -226,7 +221,7 @@ export default function AnswerCard({ response, domainId, onCitationClick }: Prop
             className={`px-2 py-1 rounded hover:bg-gray-200 ${
               feedbackSent === 'bad' ? 'bg-red-100 text-red-700' : 'text-gray-500'
             }`}
-            title="별로예요"
+            title="별로예요 — 답변 품질 개선에 활용됩니다"
           >
             👎
           </button>
