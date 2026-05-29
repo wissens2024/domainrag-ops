@@ -179,7 +179,7 @@ export default function LoRARegistryPage() {
             </tr>
           </thead>
           <tbody>
-            {data.items.map((r) => (
+            {(data?.items ?? []).map((r) => (
               <tr key={r.adapter_id} className="border-b border-gray-100 dark:border-slate-700/60 hover:bg-gray-50 dark:hover:bg-slate-700/40">
                 <td className="p-2 font-mono text-xs">{r.adapter_id}</td>
                 <td className="p-2 text-xs">{r.version || '-'}</td>
@@ -212,7 +212,7 @@ export default function LoRARegistryPage() {
                 </td>
               </tr>
             ))}
-            {data.items.length === 0 && (
+            {(data?.items?.length ?? 0) === 0 && (
               <tr>
                 <td colSpan={7} className="p-4 text-center text-gray-500 dark:text-slate-400">
                   adapter가 없습니다.

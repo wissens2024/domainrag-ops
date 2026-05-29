@@ -39,7 +39,7 @@ export default function PromptStudioPage() {
   );
 
   useEffect(() => {
-    if (data?.items.length && !selected) {
+    if (data?.items?.length && !selected) {
       setSelected(data.items[0]);
     }
   }, [data, selected]);

@@ -1156,7 +1156,9 @@ export async function getPlatformHealth(): Promise<{ items: EndpointHealthRow[] 
   return request('/api/platform/admin/analytics/health');
 }
 
-export async function getPlatformConfig(category: string): Promise<Record<string, unknown>> {
+export async function getPlatformConfig(
+  category: string,
+): Promise<{ category: string; value: Record<string, unknown>; exists: boolean }> {
   return request(`/api/platform/admin/configs/${category}`);
 }
 

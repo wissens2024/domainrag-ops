@@ -38,13 +38,14 @@ export default function PlatformConfigsPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const swrKey = `platform-config:${category}`;
-  const { data } = useSWR<Record<string, unknown>>(
+  const { data } = useSWR(
     swrKey,
     () => getPlatformConfig(category),
   );
 
   useEffect(() => {
-    if (data) setText(JSON.stringify(data, null, 2));
+    // 백엔드 응답은 {category, value, exists} 래퍼 — 에디터엔 value(실제 config)만 표시.
+    if (data) setText(JSON.stringify(data.value ?? {}, null, 2));
   }, [data]);
 
   const handleSave = async () => {

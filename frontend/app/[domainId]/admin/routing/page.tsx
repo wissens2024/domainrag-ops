@@ -154,13 +154,14 @@ export default function RoutingPage() {
           </Button>
         </div>
 
-        {dryrunResult && (
+        {dryrunResult?.decision && (
           <div className="mt-4 p-3 bg-gray-50 dark:bg-slate-900/50 rounded text-sm text-gray-700 dark:text-slate-300">
-            <p><b>matched_rule:</b> {dryrunResult.matched_rule || '(default)'}</p>
-            <p><b>selected_model:</b> {dryrunResult.selected_model}</p>
-            <p><b>selected_lora:</b> {dryrunResult.selected_lora || 'none'}</p>
-            <p><b>fallback_chain_used:</b> {String(dryrunResult.fallback_chain_used)}</p>
-            {dryrunResult.action && <p><b>action:</b> {dryrunResult.action}</p>}
+            <p><b>matched_rule:</b> {dryrunResult.decision.matched_rule || '(default)'}</p>
+            <p><b>model:</b> {dryrunResult.decision.model}</p>
+            <p><b>lora_adapter:</b> {dryrunResult.decision.lora_adapter || 'none'}</p>
+            <p><b>ui_mode:</b> {dryrunResult.decision.ui_mode}</p>
+            <p><b>use_rag:</b> {String(dryrunResult.decision.use_rag)}</p>
+            {dryrunResult.decision.action && <p><b>action:</b> {dryrunResult.decision.action}</p>}
           </div>
         )}
       </div>

@@ -161,7 +161,7 @@ export default function SchemaEditorPage() {
         </>
       ) : (
         <div className="space-y-3">
-          {history?.items.map((r) => (
+          {history?.items?.map((r) => (
             <details
               key={r.schema_version}
               className="border border-gray-200 dark:border-slate-700 rounded p-3 text-sm"

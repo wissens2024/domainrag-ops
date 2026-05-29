@@ -26,7 +26,7 @@ export default function PlatformEndpointsPage() {
             <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50 text-left text-gray-500 dark:text-slate-400">
               <th className="p-2">name</th>
               <th className="p-2">URL</th>
-              <th className="p-2">backend</th>
+              <th className="p-2">kind</th>
               <th className="p-2">status</th>
             </tr>
           </thead>
@@ -35,7 +35,7 @@ export default function PlatformEndpointsPage() {
               <tr key={e.name} className="border-b border-gray-100 dark:border-slate-700/60">
                 <td className="p-2 font-mono text-xs">{e.name}</td>
                 <td className="p-2 font-mono text-xs">{e.url}</td>
-                <td className="p-2 text-xs">{e.backend}</td>
+                <td className="p-2 text-xs">{e.kind}</td>
                 <td className="p-2 text-xs">{e.status}</td>
               </tr>
             ))}

@@ -392,12 +392,26 @@ export interface RoutingConfig {
   rules: RoutingRule[];
 }
 
-export interface DryrunResult {
+// 백엔드 routing_decision_to_dict 형태 (backend/app/services/routing_config_service.py)
+export interface RoutingDecisionDict {
   matched_rule: string | null;
-  selected_model: string;
-  selected_lora: string | null;
-  fallback_chain_used: boolean;
-  action?: string;
+  model: string;
+  use_lora: boolean;
+  use_rag: boolean;
+  ui_mode: string;
+  require_judge: boolean;
+  require_similarity_check: boolean;
+  action: string | null;
+  lora_adapter: string | null;
+  matched_signals: Record<string, unknown>;
+}
+
+// 백엔드 /routing/dryrun 응답: { domain_id, sample_query, classifier_decision, decision }
+export interface DryrunResult {
+  domain_id: string;
+  sample_query?: string;
+  classifier_decision: Record<string, unknown>;
+  decision: RoutingDecisionDict;
 }
 
 // ----------------------------------------------------------------------------
@@ -583,7 +597,7 @@ export interface TenantListResult {
 export interface EndpointHealthRow {
   name: string;
   url: string;
-  backend: string;
+  kind: string;
   status: string;
 }
 

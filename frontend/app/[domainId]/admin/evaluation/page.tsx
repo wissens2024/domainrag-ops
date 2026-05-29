@@ -173,7 +173,7 @@ export default function EvaluationPage() {
                   </pre>
                 </details>
               )}
-              {selectedJob.gate_result && (
+              {selectedJob.gate_result?.metrics && (
                 <details open>
                   <summary className="font-bold cursor-pointer">
                     gate_result {selectedJob.gate_result.passed ? '✓ PASSED' : '✗ FAILED'}
