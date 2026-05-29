@@ -10,9 +10,11 @@ ADR-011 정합:
 
 from __future__ import annotations
 
-import asyncio
+import logging
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class TEIBgeM3Embedder:
@@ -41,6 +43,10 @@ class TEIBgeM3Embedder:
         self._timeout = timeout_seconds
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=timeout_seconds)
+        # ADR-011 hybrid은 sparse가 있으면 DBSF fusion, 없으면 dense-only로 degrade한다.
+        # TEI 임베더가 /embed_sparse(SPLADE)를 지원 안 하면 첫 실패 후 비활성화하여
+        # dense-only로 동작 (매 호출 sparse 에러 반복 방지).
+        self._sparse_enabled = True
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -91,23 +97,48 @@ class TEIBgeM3Embedder:
         if not texts:
             return []
         payload = {"inputs": texts}
-        dense_task = self._post("/embed", payload)
-        sparse_task = self._post("/embed_sparse", payload)
-        dense_resp, sparse_resp = await asyncio.gather(dense_task, sparse_task)
-
+        # dense는 필수. sparse는 best-effort — 임베더가 미지원이면 dense-only로 degrade.
+        dense_resp = await self._post("/embed", payload)
         if len(dense_resp) != len(texts):
             raise RuntimeError(
                 f"TEI /embed returned {len(dense_resp)} for {len(texts)} inputs"
             )
-        if len(sparse_resp) != len(texts):
-            raise RuntimeError(
-                f"TEI /embed_sparse returned {len(sparse_resp)} for {len(texts)} inputs"
-            )
+        sparse_resp = await self._maybe_embed_sparse(payload, len(texts))
 
         out: list[tuple[list[float], dict[int, float]]] = []
-        for d, s in zip(dense_resp, sparse_resp):
-            out.append(([float(x) for x in d], self._parse_sparse(s)))
+        for i, d in enumerate(dense_resp):
+            s = self._parse_sparse(sparse_resp[i]) if sparse_resp is not None else {}
+            out.append(([float(x) for x in d], s))
         return out
+
+    async def _maybe_embed_sparse(
+        self, payload: dict, expected: int
+    ) -> list | None:
+        """sparse 임베딩을 best-effort로 가져온다. 미지원/실패 시 None(→dense-only).
+
+        TEI가 SPLADE pooling 미지원이면 /embed_sparse가 에러를 반환한다. 이때 한 번
+        경고 후 sparse를 비활성화하고 dense-only로 degrade한다(ADR-011 §3 hybrid은
+        sparse 복구 시 자동 재개). 검색 자체가 깨지는 것보다 dense-only가 낫다.
+        """
+        if not self._sparse_enabled:
+            return None
+        try:
+            sparse_resp = await self._post("/embed_sparse", payload)
+        except Exception as exc:  # noqa: BLE001
+            self._sparse_enabled = False
+            logger.warning(
+                "TEI /embed_sparse unavailable (%s) — dense-only retrieval로 degrade",
+                exc,
+            )
+            return None
+        if len(sparse_resp) != expected:
+            self._sparse_enabled = False
+            logger.warning(
+                "TEI /embed_sparse returned %d for %d inputs — dense-only degrade",
+                len(sparse_resp), expected,
+            )
+            return None
+        return sparse_resp
 
     async def embed_query(self, text: str) -> tuple[list[float], dict[int, float]]:
         result = await self.embed_batch([text])

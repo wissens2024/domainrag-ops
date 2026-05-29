@@ -29,7 +29,9 @@ reranker:
   # bge-reranker 시리즈가 모두 XLM-RoBERTa 기반이라 TEI FlashBert backend와
   # 비호환인 환경에선 platform_admin이 bypass: true로 전환 (또는 tenant override).
   # bypass=true이면 LangGraph rerank_context 노드 skip, Gate 1은 fused_score 기준.
-  bypass: false                         # 운영 환경 reranker 가용 시 false 유지
+  # 2026-05-29: 174에 reranker 컨테이너 미배포 → bypass=true. dense(+sparse) fused_score로
+  # 검색·Gate 1 동작. reranker 기동 시 false로 복구. (한국어 RAG에서 reranker는 8순위 보정)
+  bypass: true
 
 query_rewriting:                        # ADR-011 §5 — tenant overrides로 활성화
   enable: false                         # 기본 false (도메인 평가 후 활성화)

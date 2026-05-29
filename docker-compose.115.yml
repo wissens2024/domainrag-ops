@@ -50,10 +50,12 @@ services:
       # 같은 내부망 — DNS(174.local) 의존 끊고 IP 직접
       - TENANT_SLM_BASE_URL=http://192.168.0.174:8000/v1
       - SHARED_LLM_BASE_URL=http://192.168.0.174:8000/v1
-      - EMBEDDING_SERVER_URL=http://192.168.0.174:8082
-      - RERANKER_SERVER_URL=http://192.168.0.174:8083
-      # 174 vLLM(8000) 가동 확인됨. embedding/reranker(8082/8083)는 미가동
-      # — retrieval은 fail하지만 chat_streaming mode는 LLM만 호출하므로 동작
+      # 174 임베더(domainrag-tei-embedder, bge-m3)는 8002에서 가동 중 (2026-05-29 확인).
+      # dense(/embed)만 제공, sparse(/embed_sparse)는 SPLADE 미지원 → 클라이언트가 dense-only로 degrade.
+      - EMBEDDING_SERVER_URL=http://192.168.0.174:8002
+      # 리랭커 컨테이너는 174에 미배포 — retrieval.yaml reranker.bypass=true로 우회(ADR-011 §6).
+      # URL은 보존하되 bypass 동안 호출 안 함. 리랭커 기동 시 bypass=false로 복구.
+      - RERANKER_SERVER_URL=http://192.168.0.174:8003
       - RAG_BACKEND=production
       # 174 vLLM의 실제 model id (`Qwen/Qwen2.5-7B-Instruct-AWQ`)와 일치시킴
       - RAG_DEFAULT_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ

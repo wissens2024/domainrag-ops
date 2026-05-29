@@ -105,29 +105,44 @@ class QdrantVectorStore:
         top_k: int = 50,
     ) -> list[dict[str, Any]]:
         """ADR-011 §3 Qdrant DBSF fusion. prefetch limit은 top_k와 동일하게 둠
-        (호출측에서 dense/sparse top_k를 따로 제어할 수 있도록 추후 확장 여지)."""
+        (호출측에서 dense/sparse top_k를 따로 제어할 수 있도록 추후 확장 여지).
+
+        sparse_query가 비어있으면(임베더가 SPLADE 미지원/비활성) dense-only로 우회한다 —
+        hybrid를 강제하지 않고 degrade한다. sparse 복구 시 자동으로 DBSF fusion 재개.
+        """
         qfilter = _to_filter(acl_filter)
-        result = await self._client.query_points(
-            collection_name=_collection_name(domain_id),
-            prefetch=[
-                models.Prefetch(
-                    query=dense_query,
-                    using="dense",
-                    limit=top_k,
-                    filter=qfilter,
-                ),
-                models.Prefetch(
-                    query=_to_sparse(sparse_query),
-                    using="sparse",
-                    limit=top_k,
-                    filter=qfilter,
-                ),
-            ],
-            query=models.FusionQuery(fusion=models.Fusion.DBSF),
-            query_filter=qfilter,
-            limit=top_k,
-            with_payload=True,
-        )
+        if sparse_query:
+            result = await self._client.query_points(
+                collection_name=_collection_name(domain_id),
+                prefetch=[
+                    models.Prefetch(
+                        query=dense_query,
+                        using="dense",
+                        limit=top_k,
+                        filter=qfilter,
+                    ),
+                    models.Prefetch(
+                        query=_to_sparse(sparse_query),
+                        using="sparse",
+                        limit=top_k,
+                        filter=qfilter,
+                    ),
+                ],
+                query=models.FusionQuery(fusion=models.Fusion.DBSF),
+                query_filter=qfilter,
+                limit=top_k,
+                with_payload=True,
+            )
+        else:
+            # dense-only fallback
+            result = await self._client.query_points(
+                collection_name=_collection_name(domain_id),
+                query=dense_query,
+                using="dense",
+                query_filter=qfilter,
+                limit=top_k,
+                with_payload=True,
+            )
         return [
             {
                 "id": str(p.id),

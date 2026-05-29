@@ -98,6 +98,38 @@ async def test_parses_indices_values_dict_form(mock_async_client):
     assert sparse == {1: 0.4, 2: 0.6}
 
 
+@pytest.mark.asyncio
+async def test_sparse_unavailable_degrades_to_dense_only(mock_async_client):
+    """ADR-011 — TEI가 /embed_sparse(SPLADE) 미지원이면 raise 대신 dense-only로 degrade.
+
+    운영 임베더(bge-m3, dense 전용)에서 /embed_sparse가 400을 반환하는 케이스. 검색이
+    깨지지 않고 빈 sparse({})로 진행되며, 첫 실패 후 sparse 호출을 비활성화한다.
+    """
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.setdefault("paths", []).append(request.url.path)
+        if request.url.path == "/embed":
+            return httpx.Response(200, json=[[0.1, 0.2]])
+        if request.url.path == "/embed_sparse":
+            return httpx.Response(
+                400,
+                json={"error": "Model is not an embedding model with SPLADE pooling"},
+            )
+        return httpx.Response(404)
+
+    async with mock_async_client(handler) as client:
+        emb = TEIBgeM3Embedder(base_url="http://embedder", dense_dim=2, client=client)
+        dense, sparse = await emb.embed_query("x")
+        assert dense == [0.1, 0.2]
+        assert sparse == {}
+        # 첫 실패 후 sparse 비활성화 — 두 번째 호출은 /embed_sparse를 더 부르지 않음
+        await emb.embed_query("y")
+
+    assert captured["paths"].count("/embed_sparse") == 1
+    assert captured["paths"].count("/embed") == 2
+
+
 def test_properties():
     emb = TEIBgeM3Embedder(base_url="http://embedder", model_name="bge-m3", dense_dim=1024)
     assert emb.model_name == "bge-m3"
