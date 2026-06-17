@@ -79,6 +79,7 @@ DomainRAG Ops는 **테넌트별 입력 스키마**로 도메인 지식을 구조
 | [ADR-021](docs/adr/021-operational-bootstrap.md) | Operational Bootstrap (lifespan·LISTEN/NOTIFY·cron·Docker) | Accepted |
 | [ADR-022](docs/adr/022-domain-terminology-and-access-model.md) | **Domain 용어 + User/Domain 접근 모델** (admin/auditor 전역·user 도메인-스코프·enrollment) | Accepted (ADR-018 §1·§8 supersede) |
 | [ADR-023](docs/adr/023-unified-conversational-pipeline.md) | **Unified Conversational Pipeline** (항상 검색→근거 유무로 자동 분기, 모드 토글 폐기, ungrounded UI 명시) | Accepted (ADR-013 §6·§2·ADR-016 §6 supersede) |
+| [ADR-024](docs/adr/024-document-at-rest-encryption.md) | **Document At-Rest Encryption** (MinIO SSE-KMS, per-tenant key + tenant encryption context) | Accepted (ADR-008/019 보완) |
 
 작업 시작 전에 **관련 ADR을 먼저 읽는다**. 다중 ADR이 관련되면 *최신·미-supersede ADR*을 단일 진실 소스로 따른다.
 

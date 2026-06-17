@@ -59,6 +59,19 @@ class Settings(BaseSettings):
     minio_bucket: str = Field(default="domainrag", alias="MINIO_BUCKET")
     minio_use_ssl: bool = Field(default=False, alias="MINIO_USE_SSL")
 
+    # 문서 원본 at-rest 암호화 (ADR-024). 기본 none — MinIO KMS/KES 프로비저닝 후
+    # 운영에서 MINIO_SSE_MODE=sse_kms로 전환. configs/platform/storage.yaml 참조.
+    minio_sse_mode: str = Field(default="none", alias="MINIO_SSE_MODE")
+    minio_sse_kms_key_prefix: str = Field(
+        default="domainrag-", alias="MINIO_SSE_KMS_KEY_PREFIX"
+    )
+    minio_sse_per_tenant_key: bool = Field(
+        default=True, alias="MINIO_SSE_PER_TENANT_KEY"
+    )
+    minio_sse_bind_tenant_context: bool = Field(
+        default=True, alias="MINIO_SSE_BIND_TENANT_CONTEXT"
+    )
+
     # vLLM endpoints — ADR-019 §3·§4: 174번 단일 vLLM instance를 tenant/shared가 alias 공유
     tenant_slm_base_url: str = Field(
         default="http://localhost:8000/v1", alias="TENANT_SLM_BASE_URL"

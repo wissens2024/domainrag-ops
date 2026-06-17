@@ -1,0 +1,32 @@
+# ============================================================================
+# Object Storage — 문서 원본 at-rest 암호화 (ADR-024)
+# ----------------------------------------------------------------------------
+# MinIO에 적재되는 업로드 원본 파일(prefix-per-tenant)의 server-side 암호화 정책.
+# at-rest 암호화의 단일 진실 소스 (configs/security.yaml의 encryption 블록은
+# 초기 스캐폴드 잔재 dead config — 사용 금지).
+#
+# 인프라 연결값(endpoint/credential)은 env(MINIO_*)로 주입하고, 본 yaml은 *정책*을
+# 기술한다. backend Settings(minio_sse_*)가 env override를 받아 StorageEncryptionPolicy
+# 를 구성한다 (backend/app/deps.py).
+# ============================================================================
+schema_version: 1
+
+object_storage:
+  encryption:
+    # sse_kms | none
+    #   - sse_kms : 모든 원본을 MinIO SSE-KMS로 암호화 (운영 표준).
+    #   - none    : 평문. dev / KMS 미프로비저닝 환경의 명시적 설정값.
+    # MinIO 서버에 KMS/KES가 선행 구성돼야 sse_kms가 동작한다 (ADR-024 §5).
+    mode: ${MINIO_SSE_MODE:-none}
+
+    # KMS 키 식별자 접두. per_tenant_key=true면 key_id = {prefix}{domain_id}.
+    kms_key_prefix: ${MINIO_SSE_KMS_KEY_PREFIX:-domainrag-}
+
+    # true  : 테넌트별 KMS 키(`domainrag-<domain_id>`) → 암호학적 cross-tenant 격리.
+    #         MinIO KES + KeyHub(또는 Vault) 백엔드 필요. tenant_register.sh가 키 생성.
+    # false : 단일 마스터 키(`{prefix}default`, MinIO 내장 KMS). at-rest 암호화만 보장.
+    per_tenant_key: ${MINIO_SSE_PER_TENANT_KEY:-true}
+
+    # encryption context(AAD)로 객체를 tenant_id에 암호학적으로 바인딩.
+    # 단일 키 환경에서도 context 불일치 복호를 거부 → 객체-테넌트 결속 유지.
+    bind_tenant_context: ${MINIO_SSE_BIND_TENANT_CONTEXT:-true}

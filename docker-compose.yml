@@ -66,6 +66,11 @@ services:
     environment:
       - MINIO_ROOT_USER=domainrag
       - MINIO_ROOT_PASSWORD=changeme_minio_root
+      # 내장 단일키 KMS (ADR-024 §5, per_tenant_key=false 경로). 아래 주석 해제 시 활성.
+      # 빈 값으로 두면 MinIO 기동이 깨질 수 있어 미설정(주석) 유지. 값 형식:
+      #   MINIO_KMS_SECRET_KEY=domainrag-default:<base64-32B>  (openssl rand -base64 32)
+      # KES + KeyHub로 per-tenant 키를 쓰는 운영에서는 본 줄 대신 KES 연동 env 사용.
+      # - MINIO_KMS_SECRET_KEY=${MINIO_KMS_SECRET_KEY}
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
@@ -190,6 +195,11 @@ services:
       - MINIO_ACCESS_KEY=domainrag
       - MINIO_SECRET_KEY=changeme_minio_root
       - MINIO_BUCKET=domainrag
+      # 문서 원본 at-rest 암호화 (ADR-024). 기본 none — minio 서버에 KMS 구성 후 sse_kms로.
+      - MINIO_SSE_MODE=${MINIO_SSE_MODE:-none}
+      - MINIO_SSE_KMS_KEY_PREFIX=${MINIO_SSE_KMS_KEY_PREFIX:-domainrag-}
+      - MINIO_SSE_PER_TENANT_KEY=${MINIO_SSE_PER_TENANT_KEY:-true}
+      - MINIO_SSE_BIND_TENANT_CONTEXT=${MINIO_SSE_BIND_TENANT_CONTEXT:-true}
       # vLLM — 통합 instance를 alias로 공유 (gpu profile 활성 시에만 의미)
       - TENANT_SLM_BASE_URL=http://vllm:8000/v1
       - SHARED_LLM_BASE_URL=http://vllm:8000/v1

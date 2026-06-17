@@ -1014,7 +1014,7 @@ def _build_production_orchestrator(settings: Settings) -> IndexingOrchestrator:
         PostgresDocumentRepository,
         PostgresIndexingJobRepository,
     )
-    from app.services.document_storage import MinIOStorage
+    from app.services.document_storage import MinIOStorage, StorageEncryptionPolicy
     from app.services.rag_service import (
         _build_pii_service,
         _config_loader_from_tenant_config_service,
@@ -1060,6 +1060,13 @@ def _build_production_orchestrator(settings: Settings) -> IndexingOrchestrator:
         client=minio_client,
         bucket=settings.minio_bucket,
         cache_dir=Path(tempfile.gettempdir()) / "domainrag-uploads",
+        # ADR-024 — 문서 원본 at-rest 암호화 정책(SSE-KMS, per-tenant key).
+        encryption=StorageEncryptionPolicy(
+            mode=settings.minio_sse_mode,
+            kms_key_prefix=settings.minio_sse_kms_key_prefix,
+            per_tenant_key=settings.minio_sse_per_tenant_key,
+            bind_tenant_context=settings.minio_sse_bind_tenant_context,
+        ),
     )
 
     return IndexingOrchestrator(
