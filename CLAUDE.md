@@ -81,6 +81,7 @@ DomainRAG Ops는 **테넌트별 입력 스키마**로 도메인 지식을 구조
 | [ADR-023](docs/adr/023-unified-conversational-pipeline.md) | **Unified Conversational Pipeline** (항상 검색→근거 유무로 자동 분기, 모드 토글 폐기, ungrounded UI 명시) | Accepted (ADR-013 §6·§2·ADR-016 §6 supersede) |
 | [ADR-024](docs/adr/024-document-at-rest-encryption.md) | **Document At-Rest Encryption** (MinIO SSE-KMS, per-tenant key + tenant encryption context) | Accepted (ADR-008/019 보완) |
 | [ADR-025](docs/adr/025-assessment-multimodal-ingestion.md) | **Assessment Multimodal Ingestion & Figure-Reuse Generation** (이미지 자산 item 모델·PDF ingestion·그림 재사용 생성·Qwen Vision·dedup/승인 게이팅·검수 엔드포인트) | Accepted (ADR-014/015 확장) |
+| [ADR-026](docs/adr/026-assessment-llm-extraction.md) | **Assessment Item LLM/VLM Extraction** (포맷 무관 LLM 추출 Protocol·정답표 교차검증·신뢰도 게이팅 자동승인. 규칙 파서는 고정포맷 어댑터로 보존) | Accepted (ADR-025 §2 extraction 대체·보완) |
 
 작업 시작 전에 **관련 ADR을 먼저 읽는다**. 다중 ADR이 관련되면 *최신·미-supersede ADR*을 단일 진실 소스로 따른다.
 
