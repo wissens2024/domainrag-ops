@@ -21,7 +21,7 @@ import time
 import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.timezone import iso_kst
@@ -32,6 +32,7 @@ from app.deps import (
     get_assessment_extract_service,
     get_assessment_generate_service,
     get_assessment_hybrid_service,
+    get_assessment_import_service,
     get_assessment_item_repository,
     get_assessment_logger,
     get_ledger_audit_service,
@@ -504,3 +505,55 @@ async def analytics(
     await _tenant_guard(domain_id, user)
     summary = await repo.analytics_summary(domain_id=domain_id)
     return {"domain_id": domain_id, **summary}
+
+
+@admin_router.post("/import", status_code=201)
+async def import_pdf(
+    domain_id: str,
+    file: UploadFile = File(...),
+    item_id_prefix: str = Form(...),
+    answer_page_index: int | None = Form(None),
+    default_quality_status: Literal["draft", "reviewed", "approved"] = Form("draft"),
+    tags: str | None = Form(None),
+    user: UserContext = Depends(require_admin),
+    service=Depends(get_assessment_import_service),
+):
+    """ADR-025 §2 — 기출 PDF 업로드 → 그림 crop·자산 저장 + draft item 일괄 생성.
+
+    item_id_prefix: 생성 item_id 접두 (예 "gisa-2022-2-w-" → "gisa-2022-2-w-037").
+    answer_page_index(0-based): 정답표 페이지. 미지정 시 마지막 페이지.
+    모든 결과는 사람 검수 전제(기본 draft) — Review Queue에서 확인·승인.
+    """
+    await _tenant_guard(domain_id, user)
+    pdf_bytes = await file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail={"error": "empty_file"})
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+    result = await service.import_pdf(
+        domain_id=domain_id,
+        pdf_bytes=pdf_bytes,
+        item_id_prefix=item_id_prefix,
+        answer_page_index=answer_page_index,
+        default_quality_status=default_quality_status,
+        tags=tag_list,
+    )
+    return {
+        "domain_id": domain_id,
+        "created": result.created,
+        "figures_stored": result.figures_stored,
+        "parsed_count": result.parsed_count,
+        "answer_key_count": result.answer_key_count,
+        "items": [
+            {
+                "item_id": it.item_id,
+                "number": it.number,
+                "subject": it.subject,
+                "figure_dependent": it.figure_dependent,
+                "asset_count": it.asset_count,
+                "has_answer": it.has_answer,
+                "quality_status": it.quality_status,
+                "flags": it.flags,
+            }
+            for it in result.items
+        ],
+    }

@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 
 from app.core.auth_adapter import UserContext, get_user_context
 from app.deps import (
+    get_assessment_import_service,
     reset_assessment_item_repository,
     reset_assessment_logger,
     reset_authfusion_token_client,
@@ -276,6 +277,73 @@ def test_admin_analytics_summary():
     assert body["total_items"] == 3
     assert body["by_difficulty"]["medium"] == 2
     assert body["by_quality_status"]["approved"] == 2
+
+
+class _FakeImportService:
+    async def import_pdf(
+        self, *, domain_id, pdf_bytes, item_id_prefix,
+        answer_page_index=None, default_quality_status="draft", tags=None,
+    ):
+        from app.services.assessment_import_service import (
+            ImportItemResult,
+            ImportResult,
+        )
+
+        self.last_pdf_len = len(pdf_bytes)
+        return ImportResult(
+            created=1, figures_stored=1, parsed_count=1, answer_key_count=1,
+            items=[
+                ImportItemResult(
+                    item_id=f"{item_id_prefix}001", number=1,
+                    subject="software_design", figure_dependent=True,
+                    asset_count=1, quality_status=default_quality_status,
+                    has_answer=True, flags=[],
+                )
+            ],
+        )
+
+
+def test_admin_import_pdf_returns_summary():
+    fake = _FakeImportService()
+    app.dependency_overrides[get_assessment_import_service] = lambda: fake
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/security/admin/assessment/import",
+            files={"file": ("exam.pdf", b"%PDF-1.4 fake", "application/pdf")},
+            data={"item_id_prefix": "gisa-2022-2-w-", "default_quality_status": "draft"},
+            headers={"Authorization": "Bearer mock-token"},
+        )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["created"] == 1
+    assert body["figures_stored"] == 1
+    assert body["items"][0]["item_id"] == "gisa-2022-2-w-001"
+    assert body["items"][0]["figure_dependent"] is True
+    assert fake.last_pdf_len == len(b"%PDF-1.4 fake")
+
+
+def test_admin_import_empty_file_400():
+    app.dependency_overrides[get_assessment_import_service] = lambda: _FakeImportService()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/security/admin/assessment/import",
+            files={"file": ("exam.pdf", b"", "application/pdf")},
+            data={"item_id_prefix": "p-"},
+            headers={"Authorization": "Bearer mock-token"},
+        )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error"] == "empty_file"
+
+
+def test_admin_import_requires_admin():
+    app.dependency_overrides[get_user_context] = _non_admin_user
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/security/admin/assessment/import",
+            files={"file": ("exam.pdf", b"x", "application/pdf")},
+            data={"item_id_prefix": "p-"},
+        )
+    assert resp.status_code == 403
 
 
 def test_admin_endpoints_require_admin():

@@ -46,6 +46,7 @@ _assessment_extract_service = None
 _assessment_generate_service = None
 _assessment_hybrid_service = None
 _assessment_logger = None
+_assessment_import_service = None
 _keyhub_adapter = None
 _chat_log_eraser = None
 _oauth_state_store = None
@@ -321,10 +322,63 @@ def get_assessment_item_repository(settings: Settings = Depends(get_settings)):
 def reset_assessment_item_repository() -> None:
     global _assessment_repo, _assessment_extract_service
     global _assessment_generate_service, _assessment_hybrid_service
+    global _assessment_import_service
     _assessment_repo = None
     _assessment_extract_service = None
     _assessment_generate_service = None
     _assessment_hybrid_service = None
+    _assessment_import_service = None
+
+
+def _build_document_storage(settings: Settings):
+    """DocumentStorage 구성 — 운영 MinIO(ADR-024 암호화) / dev LocalFilesystem.
+
+    문서 인덱싱 orchestrator와 동일한 저장 계층. assessment 그림 자산도 동일 저장소를
+    재사용한다(items/<domain>/<item_id>/assets/<asset_id>.png, prefix-per-tenant).
+    """
+    import tempfile
+    from pathlib import Path
+
+    if settings.rag_backend == "inmemory":
+        from app.services.document_storage import LocalFilesystemStorage
+
+        return LocalFilesystemStorage(
+            base_dir=Path(tempfile.gettempdir()) / "domainrag-assessment-assets"
+        )
+    from minio import Minio
+
+    from app.services.document_storage import MinIOStorage, StorageEncryptionPolicy
+
+    client = Minio(
+        endpoint=settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+        secure=settings.minio_use_ssl,
+    )
+    return MinIOStorage(
+        client=client,
+        bucket=settings.minio_bucket,
+        cache_dir=Path(tempfile.gettempdir()) / "domainrag-assessment-assets",
+        encryption=StorageEncryptionPolicy(
+            mode=settings.minio_sse_mode,
+            kms_key_prefix=settings.minio_sse_kms_key_prefix,
+            per_tenant_key=settings.minio_sse_per_tenant_key,
+            bind_tenant_context=settings.minio_sse_bind_tenant_context,
+        ),
+    )
+
+
+def get_assessment_import_service(settings: Settings = Depends(get_settings)):
+    """ADR-025 §2 — 기출 PDF → draft item 적재 서비스."""
+    global _assessment_import_service
+    if _assessment_import_service is None:
+        from app.services.assessment_import_service import AssessmentImportService
+
+        _assessment_import_service = AssessmentImportService(
+            repository=get_assessment_item_repository(settings),
+            storage=_build_document_storage(settings),
+        )
+    return _assessment_import_service
 
 
 def get_assessment_logger(settings: Settings = Depends(get_settings)):
