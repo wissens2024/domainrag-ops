@@ -562,7 +562,7 @@ from rag_core.implementations import (
 )
 
 # 컴포넌트 초기화
-llm = VLLMClient("http://vllm:8000/v1", "qwen3-14b")
+llm = VLLMClient("http://vllm:8000/v1", "qwen2.5-7b-awq")
 embedder = SentenceTransformersEmbedder("bge-m3")
 vector_store = QdrantVectorStore("http://qdrant:6333")
 reranker = CrossEncoderReranker("bge-reranker-v2-m3")

@@ -49,7 +49,7 @@ async def test_judge_passes_high_confidence(real_prompt):
         ensure_ascii=False,
     )
     llm = InMemoryLLMClient(responses=[response])
-    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen-14b")
+    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen2.5-7b-awq")
 
     result = await svc.judge(
         claim_text="이로부터 보안성이 매우 높다고 추론됩니다",
@@ -71,7 +71,7 @@ async def test_judge_fails_low_confidence(real_prompt):
         }
     )
     llm = InMemoryLLMClient(responses=[response])
-    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen-14b")
+    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen2.5-7b-awq")
 
     result = await svc.judge(
         claim_text="claim",
@@ -87,7 +87,7 @@ async def test_judge_invalid_decision(real_prompt):
         {"valid": False, "confidence": 0.2, "reasoning": "근거 부재"}
     )
     llm = InMemoryLLMClient(responses=[response])
-    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen-14b")
+    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen2.5-7b-awq")
     result = await svc.judge(claim_text="x", cited_chunks=[_chunk("c1", "y")])
     assert result.valid is False
     assert result.passes(min_confidence=0.6) is False
@@ -95,7 +95,7 @@ async def test_judge_invalid_decision(real_prompt):
 
 async def test_judge_handles_invalid_json(real_prompt):
     llm = InMemoryLLMClient(responses=["not a json"])
-    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen-14b")
+    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen2.5-7b-awq")
     result = await svc.judge(claim_text="x", cited_chunks=[_chunk("c1", "y")])
     assert result.parse_ok is False
     assert result.valid is False
@@ -105,7 +105,7 @@ async def test_judge_handles_invalid_json(real_prompt):
 async def test_judge_handles_schema_violation(real_prompt):
     # confidence 누락
     llm = InMemoryLLMClient(responses=['{"valid": true, "reasoning": "x"}'])
-    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen-14b")
+    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen2.5-7b-awq")
     result = await svc.judge(claim_text="x", cited_chunks=[_chunk("c1", "y")])
     assert result.parse_ok is False
     assert result.valid is False
@@ -116,7 +116,7 @@ async def test_judge_passes_lora_independent(real_prompt):
     """judge는 LoRA를 사용하지 않는다 (shared_llm은 multi_lora=false)."""
     response = json.dumps({"valid": True, "confidence": 0.8, "reasoning": "ok"})
     llm = InMemoryLLMClient(responses=[response])
-    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen-14b")
+    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen2.5-7b-awq")
     await svc.judge(claim_text="x", cited_chunks=[_chunk("c1", "y")])
     assert llm.calls[0]["lora_adapter"] is None
 
@@ -124,7 +124,7 @@ async def test_judge_passes_lora_independent(real_prompt):
 async def test_judge_renders_prompt_with_claim_and_chunks(real_prompt):
     response = json.dumps({"valid": True, "confidence": 0.7, "reasoning": "ok"})
     llm = InMemoryLLMClient(responses=[response])
-    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen-14b")
+    svc = JudgeService(llm=llm, prompt=real_prompt, model="qwen2.5-7b-awq")
     await svc.judge(
         claim_text="추론 결론",
         cited_chunks=[_chunk("c1", "근거1"), _chunk("c2", "근거2")],

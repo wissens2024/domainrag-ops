@@ -520,7 +520,7 @@ def _build_production_service(
     _model_aliases = {
         "tenant_slm": settings.rag_default_model,
         "shared_llm": settings.rag_default_model,
-        "qwen3-14b": settings.rag_default_model,
+        "qwen2.5-7b-awq": settings.rag_default_model,
         "qwen3-7b-instruct": settings.rag_default_model,
     }
     tenant_llm = VllmLLMClient(
@@ -541,7 +541,7 @@ def _build_production_service(
     judge = JudgeService(
         llm=shared_llm,
         prompt=_build_judge_prompt(settings),
-        model="qwen3-14b",  # ADR-013 §4 shared_llm base_model — configs로 분리 가능
+        model="qwen2.5-7b-awq",  # ADR-013 §4 shared_llm base_model(=Qwen2.5-7B-Instruct-AWQ) — configs로 분리 가능
     )
     classifier = QueryClassifier(
         llm=tenant_llm,                       # ADR-013 §3 tier2.endpoint=tenant_slm

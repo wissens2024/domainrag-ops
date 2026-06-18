@@ -112,7 +112,7 @@ def _build_deps(populated, gen_llm, *, classifier_llm) -> RAGGraphDeps:
     )
     judge = JudgeService(
         llm=InMemoryLLMClient(responses=['{"valid": false, "confidence": 0.0, "reasoning": "n/a"}']),
-        prompt=judge_prompt, model="qwen-14b",
+        prompt=judge_prompt, model="qwen2.5-7b-awq",
     )
     classifier_prompt = QueryClassifier.load_tier2_prompt(
         REPO / "configs/platform/prompts/query_classifier_tier2.yaml"

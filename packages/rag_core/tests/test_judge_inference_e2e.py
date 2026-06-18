@@ -109,7 +109,7 @@ def _build_deps(populated, gen_llm, judge_llm) -> RAGGraphDeps:
         prompt_yaml=REPO / "configs/platform/prompts/inference_judge.yaml",
         schema_json=REPO / "configs/platform/prompts/inference_judge_schema.json",
     )
-    judge = JudgeService(llm=judge_llm, prompt=judge_prompt, model="qwen-14b")
+    judge = JudgeService(llm=judge_llm, prompt=judge_prompt, model="qwen2.5-7b-awq")
     return RAGGraphDeps(
         retrieval_service=retrieval,
         generation_service=generation,
