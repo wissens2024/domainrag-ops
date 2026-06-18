@@ -13,6 +13,7 @@ from rag_core.services.assessment_extractor import (
     LlmItemExtractor,
     RuleBasedExamExtractor,
     answer_label_to_index,
+    parse_transposed_answer_grid,
 )
 
 
@@ -111,6 +112,63 @@ def test_question_aware_chunking_keeps_questions_whole():
         assert _re.match(r"^\s*\d+\.\s", ch.split("\n")[0])
     # 2번 문항이 한 청크 안에 온전히 (지문+보기)
     assert any("2. 두 번째 문제 지문 길게" in c and "② d" in c for c in chunks)
+
+
+def _grid_page(numbers, answers):
+    """세로 전치 그리드 한 블록: 번호들 세로 + 정답들 세로."""
+    return "\n".join([str(x) for x in numbers] + [str(a) for a in answers])
+
+
+def test_grid_parser_digit_answers():
+    # 1~10 번호 뒤 1~4 맨숫자 정답 (LLM이 가장 자주 실패하는 형태)
+    page = _grid_page(range(1, 11), [2, 3, 2, 1, 2, 4, 2, 3, 4, 3])
+    grid = parse_transposed_answer_grid(["문항 페이지", page])
+    assert grid[1] == 1 and grid[2] == 2 and grid[6] == 3 and grid[10] == 2
+    assert len(grid) == 10
+
+
+def test_grid_parser_korean_answers():
+    # 가나다라 정답
+    page = _grid_page(range(1, 11), ["나", "다", "가", "라", "라", "나", "라", "가", "라", "나"])
+    grid = parse_transposed_answer_grid([page])
+    assert grid[1] == 1 and grid[3] == 0 and grid[4] == 3 and grid[10] == 1
+
+
+def test_grid_parser_multiple_blocks_with_headers():
+    # 과목 헤더가 블록을 끊어도 각 블록을 독립 복구
+    page = "\n".join([
+        "제1과목 : 데이터베이스",
+        _grid_page(range(1, 11), [1, 2, 3, 4, 1, 2, 3, 4, 1, 2]),
+        "제2과목 : 운영체제",
+        _grid_page(range(11, 21), ["①", "②", "③", "④", "①", "②", "③", "④", "①", "②"]),
+    ])
+    grid = parse_transposed_answer_grid([page])
+    assert len(grid) == 20
+    assert grid[1] == 0 and grid[11] == 0 and grid[14] == 3
+
+
+def test_grid_parser_ignores_body_numbering():
+    # 본문의 "1." 번호·붙은 보기 마커는 그리드로 오검출하지 않음
+    body = "\n".join(["1. 어떤 문제인가?", "① 보기일", "② 보기이", "③ 보기삼", "④ 보기사"])
+    assert parse_transposed_answer_grid([body]) == {}
+
+
+def test_llm_extractor_uses_grid_when_present():
+    # LLM 정답표가 비어도 전치 그리드가 있으면 정답 검증됨 (전치형 PDF 시나리오)
+    questions = {"items": [
+        {"number": n, "question_text": f"문제{n}", "choices": ["A", "B", "C", "D"],
+         "subject": "database"} for n in (1, 2, 3)
+    ]}
+    llm = _FakeLLM(questions, {"answers": []})  # LLM 정답표는 비어 있음
+    ext = LlmItemExtractor(llm_client=llm)
+    answer_grid_page = _grid_page([1, 2, 3], [2, 4, 1])  # ②④① → idx 1,3,0
+    res = asyncio.run(
+        ext.extract(page_texts=["문항 페이지", answer_grid_page], answer_page_index=1)
+    )
+    by = {it.number: it for it in res.items}
+    assert by[1].answer_index == 1 and "answer_verified" in by[1].flags
+    assert by[2].answer_index == 3 and "answer_verified" in by[2].flags
+    assert by[3].answer_index == 0 and "answer_verified" in by[3].flags
 
 
 def test_rule_based_extractor_delegates():

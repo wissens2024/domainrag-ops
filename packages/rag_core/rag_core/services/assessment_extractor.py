@@ -48,6 +48,68 @@ def answer_label_to_index(label: str | None) -> int | None:
     return None
 
 
+_GRID_NUM_RE = re.compile(r"\d{1,3}")
+
+
+def parse_transposed_answer_grid(page_texts: list[str]) -> dict[int, int]:
+    """세로 전치(transposed) 그리드형 정답표를 결정론적으로 파싱한다 (ADR-026 §3 보강).
+
+    상당수 기출 PDF의 정답표는 LLM이 읽기 어려운 형태다: 문항 번호 N개가 한 줄에
+    하나씩 세로로 나열된 뒤, 같은 개수의 정답이 다시 세로로 이어진다. 정답 표기는
+    ①②③④ / 1~4 / 가나다라가 혼재하며, 특히 '맨숫자(1~4)' 정답은 문항 번호와 글자가
+    같아 LLM이 번호와 정답을 구분하지 못해 통째로 실패한다(운영 검증: 해당 PDF appr=0).
+
+    구조를 이용해 복구한다: 오름차순 연속 정수 run을 '문항 번호 블록'으로 보고, 바로
+    뒤따르는 같은 길이의 블록을 '정답 블록'으로 페어링한다. 정답 토큰은 라벨(①/1/가)이
+    거나 맨숫자(1~4)다. 모호한 매칭은 버린다.
+
+    Returns:
+        {문항 번호: 0-based 정답 인덱스}. 그리드를 못 찾으면 빈 dict.
+    """
+    # 정답 영역 외 본문에서 단독 정수/라벨 줄은 드물다(본문 번호는 "1." 처럼 점이 붙고,
+    # 보기 마커는 텍스트에 붙어 있다). 따라서 단독 줄만 토큰화하면 오검출이 낮다.
+    tokens: list[tuple[str, int]] = []  # ("num", n) | ("ans", idx)
+    for text in page_texts:
+        for line in text.split("\n"):
+            s = line.strip()
+            if _GRID_NUM_RE.fullmatch(s):
+                tokens.append(("num", int(s)))
+            elif s in _LABEL_TO_IDX:
+                tokens.append(("ans", _LABEL_TO_IDX[s]))
+    out: dict[int, int] = {}
+    i, n = 0, len(tokens)
+    while i < n:
+        if tokens[i][0] != "num":
+            i += 1
+            continue
+        # 오름차순으로 연속(+1)되는 정수 run = 문항 번호 블록
+        j = i
+        while j + 1 < n and tokens[j + 1][0] == "num" and tokens[j + 1][1] == tokens[j][1] + 1:
+            j += 1
+        length = j - i + 1
+        if length >= 3 and i + 2 * length <= n and tokens[i][1] <= 100:
+            block = tokens[i + length : i + 2 * length]
+            vals: list[int] = []
+            ok = True
+            for kind, val in block:
+                if kind == "ans":
+                    vals.append(val)
+                elif kind == "num" and 1 <= val <= 4:  # 맨숫자 정답(1~4)
+                    vals.append(val - 1)
+                else:  # 정답으로 볼 수 없는 토큰 → 이 블록은 정답표가 아님
+                    ok = False
+                    break
+            if ok:
+                for num, idx in zip(
+                    (t[1] for t in tokens[i : i + length]), vals
+                ):
+                    out[num] = idx
+                i += 2 * length
+                continue
+        i += 1
+    return out
+
+
 class AssessmentItemExtractor(Protocol):
     async def extract(
         self, *, page_texts: list[str], answer_page_index: int | None = None
@@ -212,8 +274,16 @@ class LlmItemExtractor:
                     flags=[] if len(choices) == 4 else [f"choices={len(choices)}"],
                 )
 
-        # 2. 정답표 추출
-        answer_idx_by_num = await self._extract_answer_key(answer_page)
+        # 2. 정답표 추출: 결정론적 전치 그리드 우선(ADR-026 §3) → 부족하면 LLM 보강.
+        #    그리드는 공식 정답표를 그대로 읽으므로 LLM이 실패하는 전치형도 복구하고,
+        #    충분히 커버되면 LLM 호출을 생략해 비용도 줄인다.
+        grid = parse_transposed_answer_grid(page_texts)
+        if items_by_num and len(grid) >= 0.8 * len(items_by_num):
+            answer_idx_by_num = grid
+        else:
+            llm_key = await self._extract_answer_key(answer_page)
+            # 그리드(공식 정답표)가 LLM 결과보다 우선
+            answer_idx_by_num = {**llm_key, **grid}
 
         # 3. 정답 매핑 + 교차검증 (ADR-026 §3)
         for num, item in items_by_num.items():
