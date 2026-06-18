@@ -72,6 +72,9 @@ class Settings(BaseSettings):
         default=True, alias="MINIO_SSE_BIND_TENANT_CONTEXT"
     )
 
+    # 기출 PDF 문항 추출기 (ADR-026). llm=포맷 무관 LLM 추출(기본), rule_based=고정포맷 고속.
+    assessment_extractor: str = Field(default="llm", alias="ASSESSMENT_EXTRACTOR")
+
     # vLLM endpoints — ADR-019 §3·§4: 174번 단일 vLLM instance를 tenant/shared가 alias 공유
     tenant_slm_base_url: str = Field(
         default="http://localhost:8000/v1", alias="TENANT_SLM_BASE_URL"

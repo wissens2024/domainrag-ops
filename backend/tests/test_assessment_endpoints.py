@@ -326,6 +326,7 @@ class _FakeImportService:
     async def import_pdf(
         self, *, domain_id, pdf_bytes, item_id_prefix,
         answer_page_index=None, default_quality_status="draft", tags=None,
+        auto_approve=False,
     ):
         from app.services.assessment_import_service import (
             ImportItemResult,

@@ -549,6 +549,7 @@ async def import_pdf(
     answer_page_index: int | None = Form(None),
     default_quality_status: Literal["draft", "reviewed", "approved"] = Form("draft"),
     tags: str | None = Form(None),
+    auto_approve: bool = Form(False),
     user: UserContext = Depends(require_admin),
     service=Depends(get_assessment_import_service),
 ):
@@ -570,6 +571,7 @@ async def import_pdf(
         answer_page_index=answer_page_index,
         default_quality_status=default_quality_status,
         tags=tag_list,
+        auto_approve=auto_approve,
     )
     return {
         "domain_id": domain_id,

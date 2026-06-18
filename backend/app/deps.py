@@ -374,9 +374,21 @@ def get_assessment_import_service(settings: Settings = Depends(get_settings)):
     if _assessment_import_service is None:
         from app.services.assessment_import_service import AssessmentImportService
 
+        # ADR-026 — 기본 LLM 추출기(포맷 무관). LLM client는 RAGService와 공유.
+        item_extractor = None
+        if settings.assessment_extractor == "llm":
+            from rag_core.services.assessment_extractor import LlmItemExtractor
+
+            rag = get_rag_service(settings)
+            llm = getattr(
+                rag._deps.generation_service, "_llm", None  # type: ignore[attr-defined]
+            )
+            if llm is not None:
+                item_extractor = LlmItemExtractor(llm_client=llm, model="shared_llm")
         _assessment_import_service = AssessmentImportService(
             repository=get_assessment_item_repository(settings),
             storage=_build_document_storage(settings),
+            item_extractor=item_extractor,
         )
     return _assessment_import_service
 
