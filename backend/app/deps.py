@@ -47,6 +47,7 @@ _assessment_generate_service = None
 _assessment_hybrid_service = None
 _assessment_logger = None
 _assessment_import_service = None
+_assessment_validator = None
 _keyhub_adapter = None
 _chat_log_eraser = None
 _oauth_state_store = None
@@ -322,12 +323,13 @@ def get_assessment_item_repository(settings: Settings = Depends(get_settings)):
 def reset_assessment_item_repository() -> None:
     global _assessment_repo, _assessment_extract_service
     global _assessment_generate_service, _assessment_hybrid_service
-    global _assessment_import_service
+    global _assessment_import_service, _assessment_validator
     _assessment_repo = None
     _assessment_extract_service = None
     _assessment_generate_service = None
     _assessment_hybrid_service = None
     _assessment_import_service = None
+    _assessment_validator = None
 
 
 def _build_document_storage(settings: Settings):
@@ -469,6 +471,23 @@ def get_assessment_generate_service(settings: Settings = Depends(get_settings)):
             model="shared_llm",
         )
     return _assessment_generate_service
+
+
+def get_assessment_validator(settings: Settings = Depends(get_settings)):
+    """ADR-014 §5 + ADR-025 §6 — 사용자 입력 문제 검수용 AssessmentValidator.
+
+    generate 경로와 동일한 shared_llm LLMClient를 재사용한다. figure 검증(VLM)은
+    Phase 3에서 배선되며, 현재는 텍스트 4-validator만 수행하고 그림 문항은 degrade한다.
+    """
+    global _assessment_validator
+    if _assessment_validator is None:
+        from rag_core.services.assessment_validator import AssessmentValidator
+
+        rag = get_rag_service(settings)
+        gen = rag._deps.generation_service  # type: ignore[attr-defined]
+        llm = getattr(gen, "_llm", None)
+        _assessment_validator = AssessmentValidator(llm_client=llm, model="shared_llm")
+    return _assessment_validator
 
 
 def get_assessment_hybrid_service(settings: Settings = Depends(get_settings)):

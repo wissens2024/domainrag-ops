@@ -514,3 +514,136 @@ def test_extract_logs_to_assessment_logger():
     logger = get_assessment_logger(get_settings())
     records = getattr(logger, "records", [])
     assert any(r.action == "extract" and r.domain_id == "security" for r in records)
+
+
+# --------------------------------------------------------------------------- #
+# Validate endpoint (ADR-025 §6)
+# --------------------------------------------------------------------------- #
+
+
+def test_validate_returns_results_without_persist():
+    """검수만 — 저장 없이 validator 결과 반환. InMemoryLLM은 '{}'라 draft로 판정."""
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/security/assessment/validate",
+            json={"items": [{
+                "subject": "정보보안",
+                "question_text": "방화벽의 주된 목적은?",
+                "choices": ["A", "B", "C", "D"],
+                "answer": "A",
+            }]},
+            headers={"Authorization": "Bearer mock-token"},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["mode"] == "validate"
+        assert body["validated_count"] == 1
+        r0 = body["results"][0]
+        assert r0["quality_status"] == "draft"  # InMemoryLLM → validator invalid
+        assert r0["persisted"] is False
+        assert set(r0["validator_results"].keys()) == {
+            "answer", "explanation", "choices", "difficulty"
+        }
+        # 저장 안 됨 — review-queue 비어 있음
+        rq = client.get(
+            "/api/security/admin/assessment/review-queue",
+            headers={"Authorization": "Bearer mock-token"},
+        )
+        assert rq.json()["total"] == 0
+
+
+def test_validate_persist_requires_admin():
+    app.dependency_overrides[get_user_context] = _non_admin_user
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/security/assessment/validate",
+            json={"persist": True, "items": [{
+                "subject": "정보보안", "question_text": "Q?",
+                "choices": ["A", "B"], "answer": "A",
+            }]},
+        )
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["error"] == "insufficient_role"
+
+
+def test_validate_persist_saves_item_with_validator_results():
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/security/assessment/validate",
+            json={"persist": True, "items": [{
+                "item_id": "V-1",
+                "subject": "정보보안",
+                "question_text": "대칭키 암호의 예는?",
+                "choices": ["AES", "RSA", "ECC", "DH"],
+                "answer": "AES",
+            }]},
+            headers={"Authorization": "Bearer mock-token"},
+        )
+        assert resp.status_code == 200, resp.text
+        r0 = resp.json()["results"][0]
+        assert r0["persisted"] is True and r0["item_id"] == "V-1"
+        # 저장됨 — validator_results가 채워진 채 은행에 존재
+        got = client.get(
+            "/api/security/admin/assessment/items/V-1",
+            headers={"Authorization": "Bearer mock-token"},
+        )
+        assert got.status_code == 200
+        item = got.json()
+        assert item["quality_status"] == "draft"
+        assert item["validator_results"]["answer"]["valid"] is False
+        assert item["source"] == "imported"
+
+
+def test_validate_persist_requires_subject():
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/security/assessment/validate",
+            json={"persist": True, "items": [{
+                "question_text": "정답 없는 문제",
+                "choices": ["A", "B"], "answer": "A",
+            }]},
+            headers={"Authorization": "Bearer mock-token"},
+        )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error"] == "subject_required_for_persist"
+
+
+def test_validate_figure_item_degrades_to_draft():
+    """그림 문항은 VLM validator 미배선(Phase 3) → degrade 표시 + draft 고정."""
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/security/assessment/validate",
+            json={"items": [{
+                "subject": "정보보안",
+                "question_text": "아래 트리의 후위순회 결과는?",
+                "choices": ["A", "B", "C", "D"],
+                "answer": "A",
+                "figure_dependent": True,
+                "assets": [{"asset_id": "x", "kind": "image",
+                            "storage_key": "items/security/x.png"}],
+            }]},
+            headers={"Authorization": "Bearer mock-token"},
+        )
+    assert resp.status_code == 200, resp.text
+    r0 = resp.json()["results"][0]
+    assert r0["figure_validation"]["status"] == "skipped"
+    assert r0["figure_validation"]["reason"] == "vlm_validator_not_wired"
+    assert r0["quality_status"] == "draft"
+
+
+def test_validate_logs_to_assessment_logger():
+    from app.core.config import get_settings
+    from app.deps import get_assessment_logger
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/security/assessment/validate",
+            json={"items": [{
+                "subject": "정보보안", "question_text": "Q?",
+                "choices": ["A", "B", "C", "D"], "answer": "A",
+            }]},
+            headers={"Authorization": "Bearer mock-token"},
+        )
+    logger = get_assessment_logger(get_settings())
+    records = getattr(logger, "records", [])
+    assert any(r.action == "validate" and r.domain_id == "security" for r in records)

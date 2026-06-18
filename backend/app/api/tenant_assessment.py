@@ -35,6 +35,7 @@ from app.deps import (
     get_assessment_import_service,
     get_assessment_item_repository,
     get_assessment_logger,
+    get_assessment_validator,
     get_ledger_audit_service,
 )
 
@@ -299,6 +300,144 @@ async def hybrid_items(
         "rejected_duplicates": result.rejected_duplicates,
         "validator_summary": result.validator_summary,
         "similarity_results": result.similarity_results,
+        "latency_ms": latency_ms,
+    }
+
+
+class ValidateItemInput(BaseModel):
+    item_id: str | None = None
+    subject: str | None = None
+    chapter: str | None = None
+    difficulty: str | None = None
+    question_type: str = "multiple_choice"
+    question_text: str = Field(..., min_length=1)
+    choices: list[Any] = Field(default_factory=list)
+    answer: str = ""
+    explanation: str | None = None
+    assets: list[dict[str, Any]] = Field(default_factory=list)
+    figure_dependent: bool = False
+
+
+class ValidateRequest(BaseModel):
+    items: list[ValidateItemInput] = Field(..., min_length=1, max_length=50)
+    # true면 검수 결과대로 draft/reviewed 저장 + validator_results 기록(은행 기록 → admin 필요).
+    # false(기본)면 저장 없이 결과만 반환 — "내가 만든 문제 검수" 핵심 경로.
+    persist: bool = False
+
+
+@router.post("/validate")
+async def validate_items(
+    domain_id: str,
+    req: ValidateRequest,
+    user: UserContext = Depends(get_user_context),
+    validator=Depends(get_assessment_validator),
+    repo=Depends(get_assessment_item_repository),
+    logger=Depends(get_assessment_logger),
+):
+    """ADR-025 §6 — 사용자 입력 문제 검수.
+
+    기존 AssessmentValidator(ADR-014 §5) 재사용. 저장 없이 validator 결과를 반환하거나
+    (기본), persist=true면 검수 결과대로 draft/reviewed 저장한다. 자동 approved는 없다(Y2).
+    그림 문항(figure_dependent/assets)의 VLM 검증은 Phase 3에서 배선되며, 현재는 degrade
+    (ADR-025 §4)하여 텍스트 검증만 수행하고 결과를 draft로 보수적 고정한다.
+    """
+    await _tenant_guard(domain_id, user)
+    if req.persist and not user.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "insufficient_role", "detail": "persist는 admin 권한 필요"},
+        )
+    from rag_core.interfaces.assessment_item_repository import AssessmentItemRecord
+    from rag_core.services.assessment_logger import AssessmentLogPayload
+
+    request_id = uuid.uuid4().hex
+    start = time.perf_counter()
+    results: list[dict[str, Any]] = []
+    scores: list[float] = []
+    for item in req.items:
+        outcome = await validator.validate(
+            question_text=item.question_text,
+            choices=item.choices,
+            answer=item.answer,
+            explanation=item.explanation,
+            difficulty=item.difficulty,
+        )
+        # ADR-025 §4 degrade — VLM validator 미배선(Phase 3). 그림 검증 불가 시 보수적으로 draft.
+        figure_validation = None
+        final_status = outcome.quality_status
+        if item.figure_dependent or item.assets:
+            figure_validation = {"status": "skipped", "reason": "vlm_validator_not_wired"}
+            if final_status == "reviewed":
+                final_status = "draft"
+        scores.append(outcome.quality_score)
+        entry: dict[str, Any] = {
+            "item_id": item.item_id,
+            "quality_status": final_status,
+            "quality_score": outcome.quality_score,
+            "validator_results": outcome.validator_results,
+            "figure_validation": figure_validation,
+            "persisted": False,
+        }
+        if req.persist:
+            if not item.subject:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"error": "subject_required_for_persist",
+                            "question_excerpt": item.question_text[:40]},
+                )
+            item_id = item.item_id or f"Q-{uuid.uuid4().hex[:12]}"
+            record = AssessmentItemRecord(
+                item_id=item_id,
+                domain_id=domain_id,
+                subject=item.subject,
+                chapter=item.chapter,
+                difficulty=item.difficulty or "medium",
+                question_type=item.question_type,
+                question_text=item.question_text,
+                choices=item.choices,
+                answer=item.answer,
+                explanation=item.explanation,
+                tags=[],
+                assets=item.assets,
+                figure_dependent=item.figure_dependent,
+                quality_status=final_status,
+                quality_score=outcome.quality_score,
+                validator_results=outcome.validator_results,
+                source="imported",
+            )
+            saved = await repo.upsert(record)
+            entry["item_id"] = saved.item_id
+            entry["persisted"] = True
+        results.append(entry)
+
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    summary = {
+        "validated_count": len(results),
+        "draft_count": sum(1 for r in results if r["quality_status"] == "draft"),
+        "reviewed_count": sum(1 for r in results if r["quality_status"] == "reviewed"),
+        "persist": req.persist,
+    }
+    await logger.write(
+        AssessmentLogPayload(
+            domain_id=domain_id,
+            request_id=request_id,
+            action="validate",
+            actor=user.user_id,
+            criteria={"item_count": len(req.items), "persist": req.persist},
+            result_summary=summary,
+            validator_summary=(
+                {"avg_quality_score": round(sum(scores) / len(scores), 4)}
+                if scores else {}
+            ),
+            latency_ms=latency_ms,
+        )
+    )
+    return {
+        "request_id": request_id,
+        "domain_id": domain_id,
+        "mode": "validate",
+        "results": results,
+        **summary,
         "latency_ms": latency_ms,
     }
 
