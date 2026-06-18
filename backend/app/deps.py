@@ -374,17 +374,27 @@ def get_assessment_import_service(settings: Settings = Depends(get_settings)):
     if _assessment_import_service is None:
         from app.services.assessment_import_service import AssessmentImportService
 
-        # ADR-026 — 기본 LLM 추출기(포맷 무관). LLM client는 RAGService와 공유.
+        # ADR-026 — 기본 LLM 추출기(포맷 무관). 추출은 offline 배치라 채팅 클라이언트(30s)
+        # 대신 긴 timeout 전용 클라이언트를 쓴다(긴 생성 ReadTimeout 방지). alias는 재사용.
         item_extractor = None
         if settings.assessment_extractor == "llm":
             from rag_core.services.assessment_extractor import LlmItemExtractor
 
             rag = get_rag_service(settings)
-            llm = getattr(
+            chat_llm = getattr(
                 rag._deps.generation_service, "_llm", None  # type: ignore[attr-defined]
             )
-            if llm is not None:
-                item_extractor = LlmItemExtractor(llm_client=llm, model="shared_llm")
+            if chat_llm is not None and settings.rag_backend != "inmemory":
+                from rag_core.clients.vllm_client import VllmLLMClient
+
+                ext_llm = VllmLLMClient(
+                    base_url=getattr(chat_llm, "_base_url", settings.tenant_slm_base_url),
+                    timeout_seconds=300.0,
+                    model_aliases=getattr(chat_llm, "_aliases", None),
+                )
+                item_extractor = LlmItemExtractor(llm_client=ext_llm, model="shared_llm")
+            elif chat_llm is not None:
+                item_extractor = LlmItemExtractor(llm_client=chat_llm, model="shared_llm")
         _assessment_import_service = AssessmentImportService(
             repository=get_assessment_item_repository(settings),
             storage=_build_document_storage(settings),
