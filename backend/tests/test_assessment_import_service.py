@@ -134,3 +134,57 @@ def test_answer_page_figures_excluded(tmp_path):
         )
     )
     assert res.figures_stored == 0
+
+
+def test_auto_approve_excludes_language_drift(tmp_path):
+    """언어 드리프트(번역) 문항은 정답이 맞아도 auto_approve에서 제외 → draft.
+
+    번역된 문항이 정답표 번호 매칭만으로 approved로 새던 버그(root-cause)의 차단 가드.
+    """
+    from rag_core.services.assessment_exam_parser import (
+        ExamParseResult,
+        ParsedExamItem,
+    )
+
+    class _DriftItemExtractor:
+        async def extract(self, *, page_texts, answer_page_index=None):  # noqa: ANN001
+            return ExamParseResult(
+                items=[
+                    ParsedExamItem(
+                        number=1, subject="database", subject_label="database",
+                        question_text="数据库管理员(DBA)应该执行的任务",
+                        choices=["A", "B", "C", "D"],
+                        answer_index=0, answer_value="A",
+                        flags=["language_drift", "answer_verified"],
+                    ),
+                    ParsedExamItem(
+                        number=2, subject="database", subject_label="database",
+                        question_text="정상 한국어 문항으로 정답이 검증됨",
+                        choices=["A", "B", "C", "D"],
+                        answer_index=1, answer_value="B",
+                        flags=["answer_verified"],
+                    ),
+                ],
+                parsed_count=2, answer_key_count=2,
+            )
+
+    extracted = ExtractedPdf(page_texts=["q", "a"], figures=[])
+    repo = InMemoryAssessmentItemRepository()
+    storage = LocalFilesystemStorage(base_dir=tmp_path / "store")
+    svc = AssessmentImportService(
+        repository=repo, storage=storage,
+        extractor=_FakeExtractor(extracted),
+        item_extractor=_DriftItemExtractor(),
+    )
+    res = asyncio.run(
+        svc.import_pdf(
+            domain_id="exam-engineer", pdf_bytes=b"x",
+            item_id_prefix="g-", answer_page_index=1, auto_approve=True,
+        )
+    )
+    by = {it.number: it for it in res.items}
+    # 드리프트 문항: 정답 맞아도 auto_approve 제외 → draft
+    assert by[1].quality_status == "draft"
+    assert "language_drift" in by[1].flags
+    # 정상 문항: auto_approve → approved
+    assert by[2].quality_status == "approved"

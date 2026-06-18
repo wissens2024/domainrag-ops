@@ -13,6 +13,7 @@ from rag_core.services.assessment_extractor import (
     LlmItemExtractor,
     RuleBasedExamExtractor,
     answer_label_to_index,
+    detect_language_drift,
     parse_transposed_answer_grid,
 )
 
@@ -169,6 +170,33 @@ def test_llm_extractor_uses_grid_when_present():
     assert by[1].answer_index == 1 and "answer_verified" in by[1].flags
     assert by[2].answer_index == 3 and "answer_verified" in by[2].flags
     assert by[3].answer_index == 0 and "answer_verified" in by[3].flags
+
+
+def test_detect_language_drift():
+    # 한글 원문인데 중국어 문항 → drift
+    assert detect_language_drift("数据库管理员应该执行的任务与下列哪个无关", source_is_hangul=True) is True
+    # 한글 문항 → drift 아님
+    assert detect_language_drift("데이터베이스 관리자의 역할은?", source_is_hangul=True) is False
+    # 원문이 한글 위주가 아니면(영어 등) 판정하지 않음
+    assert detect_language_drift("数据库管理员", source_is_hangul=False) is False
+    # 괄호 속 소수 한자(한글 우세)는 오탐하지 않음
+    assert detect_language_drift("트랜잭션의 원자성(原子性)이란?", source_is_hangul=True) is False
+
+
+def test_extract_flags_chinese_drift():
+    """한글 원문인데 LLM이 중국어로 번역한 문항은 language_drift 플래그로 표식
+    (auto_approve에서 제외되도록). 근본원인은 프롬프트로 줄이고 잔여는 가드로 차단."""
+    questions = {"items": [{
+        "number": 1,
+        "question_text": "数据库管理员(DBA)应该执行的任务与下列哪个无关？",
+        "choices": ["A", "B", "C", "D"], "subject": "database",
+    }]}
+    llm = _FakeLLM(questions, {"answers": [{"number": 1, "answer": "①"}]})
+    ext = LlmItemExtractor(llm_client=llm)
+    korean_src = "1. 데이터베이스 관리자가 수행해야 하는 역할로 거리가 먼 것은? 가 나 다 라\n" * 4
+    res = asyncio.run(ext.extract(page_texts=[korean_src, "정답표"], answer_page_index=1))
+    by = {it.number: it for it in res.items}
+    assert "language_drift" in by[1].flags
 
 
 def test_rule_based_extractor_delegates():

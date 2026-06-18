@@ -116,9 +116,12 @@ class AssessmentImportService:
             figure_dependent = bool(figs) or item.figure_dependent
             # 정답 확정(정답표 매핑/교차검증) + 보기 4개 정상 = 검증됨. 규칙·LLM 어댑터 공통.
             answer_verified = item.answer_index is not None and len(item.choices) == 4
+            # 언어 드리프트(원문≠추출 언어)는 정답 번호가 맞아도 내용이 오염된 것이므로
+            # 자동 승인에서 제외하고 검수로 보낸다 (번역된 문항이 approved로 새던 버그 차단).
+            language_drift = "language_drift" in item.flags
             # ADR-026 §4 — 검증된 문항만 자동 승인, 나머지 draft
             qstatus = default_quality_status
-            if auto_approve and answer_verified:
+            if auto_approve and answer_verified and not language_drift:
                 qstatus = "approved"
             record = AssessmentItemRecord(
                 item_id=item_id,

@@ -130,6 +130,29 @@ class RuleBasedExamExtractor:
         )
 
 
+_HANGUL_RE = re.compile(r"[가-힣]")
+_HAN_RE = re.compile(r"[一-鿿]")
+
+
+def _script_counts(text: str) -> tuple[int, int]:
+    """(한글 음절 수, CJK 한자 수)."""
+    return len(_HANGUL_RE.findall(text or "")), len(_HAN_RE.findall(text or ""))
+
+
+def detect_language_drift(question_text: str, *, source_is_hangul: bool) -> bool:
+    """원문이 한글 위주인데 추출 문항이 CJK 한자 위주면 '번역 드리프트'로 판정.
+
+    Qwen 등 중국어 사전학습 LLM이 한국어 문항을 중국어로 번역·치환하는 현상(통제실험
+    확인). 프롬프트의 언어 고정으로 대부분 막지만 잔여가 있어, 드리프트 문항이
+    auto_approve로 새지 않도록 감지해 import가 검수로 보낸다. 한국어 본문에 흔한 소수
+    한자(괄호 속 한자어 등)를 오탐하지 않도록 '한자 우세 + 한글 빈약'을 함께 본다.
+    """
+    if not source_is_hangul:
+        return False
+    hangul, han = _script_counts(question_text)
+    return han >= 3 and han > hangul
+
+
 _QUESTION_SCHEMA = {
     "type": "object",
     "properties": {
@@ -255,6 +278,10 @@ class LlmItemExtractor:
         question_pages = [t for i, t in enumerate(page_texts) if i != ans_idx]
         answer_page = page_texts[ans_idx] if 0 <= ans_idx < len(page_texts) else ""
 
+        # 원문 언어 판정(드리프트 감지 기준) — 한글 위주인지.
+        src_hangul, src_han = _script_counts("\n".join(question_pages))
+        source_is_hangul = src_hangul >= 20 and src_hangul > src_han
+
         # 1. 문항 추출 (청크 단위, 청크 실패는 건너뜀)
         items_by_num: dict[int, ParsedExamItem] = {}
         for chunk in self._chunks("\n".join(question_pages)):
@@ -290,8 +317,10 @@ class LlmItemExtractor:
             # 그리드(공식 정답표)가 LLM 결과보다 우선
             answer_idx_by_num = {**llm_key, **grid}
 
-        # 3. 정답 매핑 + 교차검증 (ADR-026 §3)
+        # 3. 정답 매핑 + 교차검증 (ADR-026 §3) + 언어 드리프트 표식
         for num, item in items_by_num.items():
+            if detect_language_drift(item.question_text, source_is_hangul=source_is_hangul):
+                item.flags.append("language_drift")
             ai = answer_idx_by_num.get(num)
             if ai is not None and len(item.choices) == 4 and 0 <= ai < 4:
                 item.answer_index = ai
