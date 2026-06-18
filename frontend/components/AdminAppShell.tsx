@@ -25,6 +25,7 @@ import {
   Boxes,
   FlaskConical,
   ClipboardList,
+  FileUp,
   Wand2,
   ListChecks,
   Globe,
@@ -85,6 +86,7 @@ function domainMenu(base: string): MenuGroup[] {
       labelKey: 'nav.assessment',
       items: [
         { href: `${base}/assessment/items`, labelKey: 'nav.itemBank', icon: ClipboardList },
+        { href: `${base}/assessment/import`, labelKey: 'nav.pdfImport', icon: FileUp },
         { href: `${base}/assessment/workbench`, labelKey: 'nav.workbench', icon: Wand2 },
         { href: `${base}/assessment/review-queue`, labelKey: 'nav.reviewQueue', icon: ListChecks },
       ],

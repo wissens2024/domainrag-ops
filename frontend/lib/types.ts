@@ -557,6 +557,27 @@ export interface AssessmentExtractResult {
   metadata: Record<string, unknown>;
 }
 
+// 기출 PDF import 결과 (ADR-025 §2)
+export interface AssessmentImportItem {
+  item_id: string;
+  number: number;
+  subject: string | null;
+  figure_dependent: boolean;
+  asset_count: number;
+  has_answer: boolean;
+  quality_status: string;
+  flags: string[];
+}
+
+export interface AssessmentImportResult {
+  domain_id: string;
+  created: number;
+  figures_stored: number;
+  parsed_count: number;
+  answer_key_count: number;
+  items: AssessmentImportItem[];
+}
+
 export interface AssessmentAnalytics {
   total_items: number;
   by_status: Record<AssessmentQualityStatus, number>;

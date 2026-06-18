@@ -8,6 +8,7 @@ import type {
   AdapterRecord,
   AssessmentAnalytics,
   AssessmentExtractResult,
+  AssessmentImportResult,
   AssessmentItem,
   AssessmentListResult,
   AssessmentQualityStatus,
@@ -979,6 +980,30 @@ export async function approveAssessmentItem(
   return request(`/api/${domainId}/admin/assessment/items/${itemId}/approve`, {
     method: 'POST',
   });
+}
+
+// 기출 PDF 업로드 → 그림 crop + draft item 일괄 생성 (ADR-025 §2)
+export async function importAssessmentPdf(
+  domainId: string,
+  file: File,
+  opts: {
+    item_id_prefix: string;
+    answer_page_index?: number;
+    default_quality_status?: AssessmentQualityStatus;
+    tags?: string;
+  },
+): Promise<AssessmentImportResult> {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('item_id_prefix', opts.item_id_prefix);
+  if (opts.answer_page_index !== undefined && opts.answer_page_index !== null) {
+    fd.append('answer_page_index', String(opts.answer_page_index));
+  }
+  if (opts.default_quality_status) {
+    fd.append('default_quality_status', opts.default_quality_status);
+  }
+  if (opts.tags) fd.append('tags', opts.tags);
+  return requestForm(`/api/${domainId}/admin/assessment/import`, fd);
 }
 
 export async function getReviewQueue(
