@@ -232,7 +232,9 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      # 백엔드 health 라우트는 /api 프리픽스 하위 (main.py @app.get("/api/health")).
+      # prefix 없는 /health는 404 → unhealthy 오탐 (vLLM의 /health와 혼동 금지).
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
