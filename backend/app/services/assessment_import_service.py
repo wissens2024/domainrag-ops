@@ -20,7 +20,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from rag_core.interfaces.assessment_item_repository import AssessmentItemRecord
-from rag_core.services.assessment_exam_parser import ExamPaperParser
+from rag_core.services.assessment_extractor import (
+    AssessmentItemExtractor,
+    RuleBasedExamExtractor,
+)
 
 from app.services.assessment_pdf_extractor import ExtractedPdf, PyMuPdfExamExtractor
 from app.services.document_storage import DocumentStorage
@@ -35,6 +38,7 @@ class ImportItemResult:
     asset_count: int
     quality_status: str
     has_answer: bool
+    answer_verified: bool = False
     flags: list[str] = field(default_factory=list)
 
 
@@ -54,12 +58,14 @@ class AssessmentImportService:
         repository,
         storage: DocumentStorage,
         extractor: Any | None = None,
-        parser: ExamPaperParser | None = None,
+        item_extractor: AssessmentItemExtractor | None = None,
     ) -> None:
         self._repo = repository
         self._storage = storage
         self._extractor = extractor or PyMuPdfExamExtractor()
-        self._parser = parser or ExamPaperParser()
+        # ADR-026 — 텍스트→문항 추출 어댑터(규칙/LLM). 기본은 규칙(고정포맷). deps가
+        # configs에 따라 LlmItemExtractor를 주입해 포맷 무관 추출로 전환한다.
+        self._item_extractor = item_extractor or RuleBasedExamExtractor()
 
     async def import_pdf(
         self,
@@ -70,12 +76,15 @@ class AssessmentImportService:
         answer_page_index: int | None = None,
         default_quality_status: str = "draft",
         tags: list[str] | None = None,
+        auto_approve: bool = False,
     ) -> ImportResult:
+        """auto_approve=True면 정답표 교차검증 통과(answer_verified) + 보기 4개 정상
+        문항만 approved, 나머지는 default_quality_status(draft)로 분리한다 (ADR-026 §4)."""
         extracted: ExtractedPdf = self._extractor.extract(pdf_bytes)
         n_pages = len(extracted.page_texts)
         ans_idx = answer_page_index if answer_page_index is not None else n_pages - 1
 
-        parsed = self._parser.parse(
+        parsed = await self._item_extractor.extract(
             page_texts=extracted.page_texts, answer_page_index=ans_idx
         )
 
@@ -105,6 +114,12 @@ class AssessmentImportService:
                 result.figures_stored += 1
 
             figure_dependent = bool(figs) or item.figure_dependent
+            # 정답 확정(정답표 매핑/교차검증) + 보기 4개 정상 = 검증됨. 규칙·LLM 어댑터 공통.
+            answer_verified = item.answer_index is not None and len(item.choices) == 4
+            # ADR-026 §4 — 검증된 문항만 자동 승인, 나머지 draft
+            qstatus = default_quality_status
+            if auto_approve and answer_verified:
+                qstatus = "approved"
             record = AssessmentItemRecord(
                 item_id=item_id,
                 domain_id=domain_id,
@@ -116,7 +131,7 @@ class AssessmentImportService:
                 tags=list(tags or []),
                 assets=assets,
                 figure_dependent=figure_dependent,
-                quality_status=default_quality_status,
+                quality_status=qstatus,
                 source="imported",
             )
             await self._repo.upsert(record)
@@ -128,8 +143,9 @@ class AssessmentImportService:
                     subject=item.subject,
                     figure_dependent=figure_dependent,
                     asset_count=len(assets),
-                    quality_status=default_quality_status,
+                    quality_status=qstatus,
                     has_answer=bool(item.answer_value),
+                    answer_verified=answer_verified,
                     flags=item.flags,
                 )
             )
