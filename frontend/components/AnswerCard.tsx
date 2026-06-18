@@ -127,7 +127,7 @@ export default function AnswerCard({ response, domainId, onCitationClick }: Prop
               tone="warn"
               title="등록된 문서에서 근거를 찾지 못해 일반 지식으로 답했습니다. 도메인 사실은 담당 부서 확인을 권장합니다."
             >
-              💬 일반 대화 · 등록 문서 근거 없음
+              💬 일반 대화
             </Badge>
           )}
         </div>
