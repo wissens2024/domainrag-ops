@@ -33,6 +33,10 @@ class AssessmentItemRecord:
     last_used_at: datetime | None = None
     source: str | None = None  # 'imported' | 'generated' | 'hybrid'
     reference_item_ids: list[str] = field(default_factory=list)
+    # ADR-025 — 멀티모달 자산(이미지). assets[i]: {asset_id, kind, storage_key,
+    # content_hash, source_page, bbox, vlm_description}. figure_dependent=그림 없이 못 푸는 문항.
+    assets: list[dict[str, Any]] = field(default_factory=list)
+    figure_dependent: bool = False
     embedding_model: str | None = None
     vector_id: str | None = None
     created_at: datetime | None = None

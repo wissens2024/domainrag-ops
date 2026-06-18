@@ -133,6 +133,42 @@ def test_admin_create_item_201():
     assert body["quality_status"] == "approved"
 
 
+def test_admin_create_item_with_assets_roundtrip():
+    """ADR-025 — 이미지 자산·figure_dependent가 create→get에 보존된다."""
+    asset = {
+        "asset_id": "a1",
+        "kind": "image",
+        "storage_key": "items/security/Q-IMG/a1.png",
+        "content_hash": "sha256:abc",
+        "source_page": 4,
+        "bbox": [10, 20, 110, 220],
+        "vlm_description": "이진트리: 루트 a",
+    }
+    with TestClient(app) as client:
+        created = _create_admin_item(
+            client, "Q-IMG", assets=[asset], figure_dependent=True,
+        )
+        assert created.status_code == 201, created.text
+        assert created.json()["figure_dependent"] is True
+        assert created.json()["assets"][0]["storage_key"] == asset["storage_key"]
+        got = client.get(
+            "/api/security/admin/assessment/items/Q-IMG",
+            headers={"Authorization": "Bearer mock-token"},
+        )
+    body = got.json()
+    assert body["figure_dependent"] is True
+    assert body["assets"] == [asset]
+
+
+def test_admin_create_item_defaults_no_assets():
+    """assets 미지정 시 빈 배열·figure_dependent=False 기본."""
+    with TestClient(app) as client:
+        resp = _create_admin_item(client, "Q-PLAIN")
+    body = resp.json()
+    assert body["assets"] == []
+    assert body["figure_dependent"] is False
+
+
 def test_admin_create_item_conflict_409():
     with TestClient(app) as client:
         _create_admin_item(client, "Q-001")

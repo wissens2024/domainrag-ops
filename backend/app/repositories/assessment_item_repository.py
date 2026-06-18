@@ -36,7 +36,8 @@ class PostgresAssessmentItemRepository:
                                question_text, choices, answer, explanation, tags,
                                quality_status, quality_score, validator_results,
                                used_count, last_used_at, source, reference_item_ids,
-                               embedding_model, vector_id, created_at, updated_at
+                               embedding_model, vector_id, created_at, updated_at,
+                               assets, figure_dependent
                           FROM assessment_items
                          WHERE domain_id = :domain_id AND item_id = :item_id
                         """
@@ -60,7 +61,8 @@ class PostgresAssessmentItemRepository:
                             question_type, question_text, choices, answer,
                             explanation, tags, quality_status, quality_score,
                             validator_results, used_count, source,
-                            reference_item_ids, embedding_model, vector_id
+                            reference_item_ids, embedding_model, vector_id,
+                            assets, figure_dependent
                         )
                         VALUES (
                             :domain_id, :item_id, :subject, :chapter, :difficulty,
@@ -71,7 +73,8 @@ class PostgresAssessmentItemRepository:
                             CAST(:validator_results AS JSONB),
                             :used_count, :source,
                             CAST(:reference_item_ids AS JSONB),
-                            :embedding_model, :vector_id
+                            :embedding_model, :vector_id,
+                            CAST(:assets AS JSONB), :figure_dependent
                         )
                         ON CONFLICT (domain_id, item_id) DO UPDATE SET
                             subject = EXCLUDED.subject,
@@ -90,6 +93,8 @@ class PostgresAssessmentItemRepository:
                             reference_item_ids = EXCLUDED.reference_item_ids,
                             embedding_model = EXCLUDED.embedding_model,
                             vector_id = EXCLUDED.vector_id,
+                            assets = EXCLUDED.assets,
+                            figure_dependent = EXCLUDED.figure_dependent,
                             updated_at = NOW()
                         """
                     ),
@@ -159,7 +164,8 @@ class PostgresAssessmentItemRepository:
                                question_text, choices, answer, explanation, tags,
                                quality_status, quality_score, validator_results,
                                used_count, last_used_at, source, reference_item_ids,
-                               embedding_model, vector_id, created_at, updated_at
+                               embedding_model, vector_id, created_at, updated_at,
+                               assets, figure_dependent
                           FROM assessment_items
                          WHERE {where}
                          ORDER BY updated_at DESC
@@ -208,7 +214,8 @@ class PostgresAssessmentItemRepository:
                                question_text, choices, answer, explanation, tags,
                                quality_status, quality_score, validator_results,
                                used_count, last_used_at, source, reference_item_ids,
-                               embedding_model, vector_id, created_at, updated_at
+                               embedding_model, vector_id, created_at, updated_at,
+                               assets, figure_dependent
                           FROM assessment_items
                          WHERE {where}
                          LIMIT :limit
@@ -313,7 +320,8 @@ class PostgresAssessmentItemRepository:
                                question_text, choices, answer, explanation, tags,
                                quality_status, quality_score, validator_results,
                                used_count, last_used_at, source, reference_item_ids,
-                               embedding_model, vector_id, created_at, updated_at
+                               embedding_model, vector_id, created_at, updated_at,
+                               assets, figure_dependent
                           FROM assessment_items
                          WHERE domain_id = :domain_id
                            AND quality_status IN ('draft', 'reviewed')
@@ -431,6 +439,8 @@ def _record_to_params(rec: AssessmentItemRecord) -> dict[str, Any]:
         ),
         "embedding_model": rec.embedding_model,
         "vector_id": rec.vector_id,
+        "assets": json.dumps(rec.assets or [], ensure_ascii=False, default=str),
+        "figure_dependent": bool(rec.figure_dependent),
     }
 
 
@@ -458,4 +468,6 @@ def _row_to_record(domain_id: str, row) -> AssessmentItemRecord:
         vector_id=row[18],
         created_at=row[19] if isinstance(row[19], datetime) else None,
         updated_at=row[20] if isinstance(row[20], datetime) else None,
+        assets=list(row[21] or []),
+        figure_dependent=bool(row[22]),
     )

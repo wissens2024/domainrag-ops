@@ -66,6 +66,8 @@ def _item_to_dict(rec) -> dict[str, Any]:
         "answer": rec.answer,
         "explanation": rec.explanation,
         "tags": rec.tags,
+        "assets": rec.assets,
+        "figure_dependent": rec.figure_dependent,
         "quality_status": rec.quality_status,
         "quality_score": rec.quality_score,
         "validator_results": rec.validator_results,
@@ -316,6 +318,8 @@ class ItemUpsertRequest(BaseModel):
     answer: str = Field(..., min_length=1)
     explanation: str | None = None
     tags: list[str] = Field(default_factory=list)
+    assets: list[dict[str, Any]] = Field(default_factory=list)  # ADR-025 이미지 자산
+    figure_dependent: bool = False
     quality_status: Literal["draft", "reviewed", "approved", "retired"] = "draft"
 
 
@@ -367,6 +371,7 @@ async def create_item(
         question_text=req.question_text, choices=req.choices,
         answer=req.answer, explanation=req.explanation,
         tags=req.tags, quality_status=req.quality_status,
+        assets=req.assets, figure_dependent=req.figure_dependent,
         source="imported",
     )
     try:
@@ -411,6 +416,8 @@ class ItemPatchRequest(BaseModel):
     answer: str | None = None
     explanation: str | None = None
     tags: list[str] | None = None
+    assets: list[dict[str, Any]] | None = None
+    figure_dependent: bool | None = None
     quality_status: (
         Literal["draft", "reviewed", "approved", "retired"] | None
     ) = None
