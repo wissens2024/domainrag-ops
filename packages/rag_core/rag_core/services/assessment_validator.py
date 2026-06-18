@@ -100,25 +100,29 @@ class AssessmentValidator:
                 explanation=explanation or "",
                 difficulty=difficulty or "",
             )
-            try:
-                raw = await self._llm.generate(
-                    prompt,
-                    model=self._model,
-                    max_tokens=512,
-                    temperature=0.0,
-                )
-            except Exception as exc:  # noqa: BLE001
-                results[name] = ValidatorRunResult(
-                    name=name, parse_error=f"llm_failed: {exc}",
-                    valid=False, score=0.0,
-                )
-                any_invalid = True
-                continue
-            parsed, err = _parse_json(raw)
+            # 빈 응답/파싱 실패는 1회 재시도(7B가 간헐적으로 빈 출력·trailing 텍스트를 내
+            # validator가 멀쩡한 문항을 draft로 떨구는 것을 줄인다).
+            raw = ""
+            parsed: dict = {}
+            err: str | None = "empty_response"
+            for _attempt in range(2):
+                try:
+                    raw = await self._llm.generate(
+                        prompt,
+                        model=self._model,
+                        max_tokens=512,
+                        temperature=0.0,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    err = f"llm_failed: {exc}"
+                    continue
+                parsed, err = _parse_json(raw)
+                if not err:
+                    break
             if err:
                 results[name] = ValidatorRunResult(
                     name=name, valid=False, score=0.0,
-                    raw_response=raw, parse_error=err,
+                    raw_response=raw or None, parse_error=err,
                 )
                 any_invalid = True
                 continue
@@ -170,5 +174,16 @@ def _parse_json(raw: str) -> tuple[dict, str | None]:
         s = s.strip()
     try:
         return json.loads(s), None
-    except Exception as exc:  # noqa: BLE001
-        return {}, f"json_parse_error: {exc}"
+    except Exception:  # noqa: BLE001
+        pass
+    # instruct 모델은 JSON 뒤에 설명을 덧붙이거나(→ "Extra data") 앞에 잡텍스트를
+    # 두는 경우가 많다. 첫 '{'부터 raw_decode로 첫 객체만 떼어낸다(trailing 무시).
+    start = s.find("{")
+    if start >= 0:
+        try:
+            obj, _ = json.JSONDecoder().raw_decode(s[start:])
+            if isinstance(obj, dict):
+                return obj, None
+        except Exception as exc:  # noqa: BLE001
+            return {}, f"json_parse_error: {exc}"
+    return {}, "json_parse_error: no JSON object found"

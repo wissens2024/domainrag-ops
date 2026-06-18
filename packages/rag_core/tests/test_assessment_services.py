@@ -206,6 +206,36 @@ async def test_validator_can_disable_individual_validator():
     assert len(llm.calls) == 3
 
 
+async def test_validator_parses_json_with_trailing_text():
+    """7B가 JSON 뒤에 설명을 덧붙이는 케이스(json.loads는 'Extra data'로 실패) —
+    견고 파서가 첫 객체만 떼어내 valid 처리한다(멀쩡한 문항이 draft로 안 떨어짐)."""
+    resp = '{"valid": true, "score": 0.9, "reasoning": "정답 명확"}\n추가 설명: 이 문제는 적절합니다.'
+    llm = _FakeLLM([resp] * 4)
+    validator = AssessmentValidator(llm_client=llm)
+    outcome = await validator.validate(
+        question_text="문제", choices=["A", "B"], answer="A",
+        explanation="해설", difficulty="medium",
+    )
+    assert outcome.quality_status == "reviewed"
+    assert all(r["valid"] for r in outcome.validator_results.values())
+    assert all(r["parse_error"] is None for r in outcome.validator_results.values())
+
+
+async def test_validator_retries_on_empty_response():
+    """빈 응답은 1회 재시도 — 두 번째에 유효 JSON이 오면 valid로 회복."""
+    llm = _FakeLLM(["", json.dumps({"valid": True, "score": 0.8})])
+    validator = AssessmentValidator(llm_client=llm)
+    cfg = {n: {"enable": False} for n in ("explanation", "choices", "difficulty")}
+    outcome = await validator.validate(
+        question_text="q", choices=["A"], answer="A",
+        explanation=None, difficulty="medium",
+        validators_config=cfg,
+    )
+    assert outcome.validator_results["answer"]["valid"] is True
+    assert outcome.validator_results["answer"]["parse_error"] is None
+    assert len(llm.calls) == 2  # 1 실패 + 1 재시도
+
+
 # --------------------------------------------------------------------------- #
 # Generate (end-to-end with FakeLLM)
 # --------------------------------------------------------------------------- #
