@@ -25,6 +25,10 @@ COPY backend /workspace/backend
 WORKDIR /workspace/backend
 RUN poetry install --no-interaction --no-ansi --without dev
 
+# PyMuPDF(fitz) — assessment PDF ingestion(ADR-025). poetry.lock 재생성을 피하려 poetry
+# 외부에서 설치(VIRTUALENVS_CREATE=false → 동일 system env). 자급형 wheel이라 안전.
+RUN pip install --no-cache-dir pymupdf==1.24.9
+
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
