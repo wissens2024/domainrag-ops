@@ -226,6 +226,30 @@ class PostgresAssessmentItemRepository:
             ).all()
         return [_row_to_record(domain_id, r) for r in rows]
 
+    async def list_active_dedup_pairs(
+        self, *, domain_id: str
+    ) -> list[tuple[str, list[Any]]]:
+        async with self._sf() as session:
+            await set_tenant_context(session, domain_id)
+            rows = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT question_text, choices
+                          FROM assessment_items
+                         WHERE domain_id = :domain_id
+                           AND quality_status <> 'retired'
+                        """
+                    ),
+                    {"domain_id": domain_id},
+                )
+            ).all()
+        out: list[tuple[str, list[Any]]] = []
+        for q, ch in rows:
+            choices = ch if isinstance(ch, list) else (json.loads(ch) if ch else [])
+            out.append((q or "", choices))
+        return out
+
     async def update_quality(
         self,
         *,

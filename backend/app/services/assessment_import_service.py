@@ -48,6 +48,7 @@ class ImportResult:
     figures_stored: int = 0
     parsed_count: int = 0
     answer_key_count: int = 0
+    duplicates_skipped: int = 0  # ADR-025 §5 — 기존과 동일 문항(dedup_key 일치)은 적재 skip
     items: list[ImportItemResult] = field(default_factory=list)
 
 
@@ -102,7 +103,23 @@ class AssessmentImportService:
             answer_key_count=parsed.answer_key_count,
         )
 
+        # ADR-025 §5 — dedup: 기존(비retired) + 이번 import 내 동일 문항은 skip.
+        from rag_core.services.assessment_dedup import dedup_key
+
+        seen_keys = {
+            dedup_key(q, ch)
+            for q, ch in await self._repo.list_active_dedup_pairs(domain_id=domain_id)
+        }
+
         for item in parsed.items:
+            # 정규화 질문이 충분히 길 때만 dedup(빈/짧은 추출 파편의 오탐 방지).
+            if item.question_text and len(item.question_text.strip()) >= 10:
+                key = dedup_key(item.question_text, item.choices)
+                if key in seen_keys:
+                    result.duplicates_skipped += 1
+                    continue
+                seen_keys.add(key)
+
             item_id = f"{item_id_prefix}{item.number:03d}"
             figs = figs_by_q.get(item.number, [])
             assets = []

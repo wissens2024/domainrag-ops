@@ -90,6 +90,12 @@ class AssessmentItemRepository(Protocol):
         self, *, domain_id: str, criteria: ExtractCriteria, limit: int = 200
     ) -> list[AssessmentItemRecord]: ...
 
+    async def list_active_dedup_pairs(
+        self, *, domain_id: str
+    ) -> list[tuple[str, list[Any]]]:
+        """비활성(retired) 제외 모든 문항의 (question_text, choices). import dedup용 (ADR-025 §5)."""
+        ...
+
     async def update_quality(
         self,
         *,
@@ -220,6 +226,15 @@ class InMemoryAssessmentItemRepository:
             wanted = set(criteria.tags_any)
             rows = [r for r in rows if wanted & set(r.tags or [])]
         return rows[:limit]
+
+    async def list_active_dedup_pairs(
+        self, *, domain_id: str
+    ) -> list[tuple[str, list[Any]]]:
+        return [
+            (r.question_text, list(r.choices or []))
+            for (tid, _iid), r in self._records.items()
+            if tid == domain_id and r.quality_status != "retired"
+        ]
 
     async def update_quality(
         self,

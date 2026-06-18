@@ -188,3 +188,60 @@ def test_auto_approve_excludes_language_drift(tmp_path):
     assert "language_drift" in by[1].flags
     # 정상 문항: auto_approve → approved
     assert by[2].quality_status == "approved"
+
+
+def test_import_skips_duplicate_of_existing(tmp_path):
+    """이미 존재하는(비retired) 동일 문항(dedup_key 일치)은 import에서 skip (ADR-025 §5)."""
+    from rag_core.interfaces.assessment_item_repository import (
+        AssessmentItemRecord,
+        InMemoryAssessmentItemRepository,
+    )
+
+    repo = InMemoryAssessmentItemRepository()
+    # _QUESTION_PAGE의 1번 문항과 동일 질문/보기를 미리 적재(이미 존재)
+    asyncio.run(repo.upsert(AssessmentItemRecord(
+        item_id="EXIST-1", domain_id="exam-engineer", subject="software_design",
+        question_text="첫 번째 문제의 질문 내용은 무엇인가?",
+        choices=["보기 일", "보기 이", "보기 삼", "보기 사"], answer="보기 일",
+        quality_status="approved", source="imported",
+    )))
+    extracted = ExtractedPdf(page_texts=[_QUESTION_PAGE, _ANSWER_PAGE], figures=[])
+    storage = LocalFilesystemStorage(base_dir=tmp_path / "store")
+    svc = AssessmentImportService(
+        repository=repo, storage=storage, extractor=_FakeExtractor(extracted),
+    )
+    res = asyncio.run(svc.import_pdf(
+        domain_id="exam-engineer", pdf_bytes=b"x",
+        item_id_prefix="dup-", answer_page_index=1,
+    ))
+    # Q1은 기존과 동일 → skip, Q2만 신규 생성
+    assert res.duplicates_skipped == 1
+    assert res.created == 1
+    assert {it.number for it in res.items} == {2}
+
+
+def test_import_retired_does_not_block_dedup(tmp_path):
+    """retired 문항은 dedup 비교 대상이 아니다(동일 문항이 retired면 다시 적재 가능)."""
+    from rag_core.interfaces.assessment_item_repository import (
+        AssessmentItemRecord,
+        InMemoryAssessmentItemRepository,
+    )
+
+    repo = InMemoryAssessmentItemRepository()
+    asyncio.run(repo.upsert(AssessmentItemRecord(
+        item_id="OLD-1", domain_id="exam-engineer", subject="software_design",
+        question_text="첫 번째 문제의 질문 내용은 무엇인가?",
+        choices=["보기 일", "보기 이", "보기 삼", "보기 사"], answer="보기 일",
+        quality_status="retired", source="imported",
+    )))
+    extracted = ExtractedPdf(page_texts=[_QUESTION_PAGE, _ANSWER_PAGE], figures=[])
+    storage = LocalFilesystemStorage(base_dir=tmp_path / "store")
+    svc = AssessmentImportService(
+        repository=repo, storage=storage, extractor=_FakeExtractor(extracted),
+    )
+    res = asyncio.run(svc.import_pdf(
+        domain_id="exam-engineer", pdf_bytes=b"x",
+        item_id_prefix="re-", answer_page_index=1,
+    ))
+    assert res.duplicates_skipped == 0
+    assert res.created == 2
