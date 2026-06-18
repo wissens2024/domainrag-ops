@@ -313,7 +313,7 @@ def retrieve_context_node(state):
 - **AuthFusion Ledger** (port 8089): DomainRAG 보안 이벤트(auth_failure / tenant_mismatch / hard_delete / platform_admin_action) hash chain audit (ADR-020).
 - **WiSentinel** (port 8080): 직접 호출 의존 0. `dlp-core` 룰을 라이브러리로 포팅(ADR-020). audit:capture Redis publish는 선택적.
 - **Ollama** (174번 GPU 0, Qwen Vision): authfusion·WiSentinel과 공유. DomainRAG는 vision OCR·일부 fallback에 선택적 활용 (ADR-019).
-- **vLLM**: 174번 GPU 1·2 = Shared LLM (Qwen 14B+), 115번 GPU 0·1 = Tenant SLM (Qwen 7B + multi-LoRA). 174번 GPU 3 = Embedding (bge-m3) + Reranker (ADR-019).
+- **vLLM**: 174번 통합 vLLM 단일 인스턴스 = **Qwen2.5-7B-Instruct-AWQ** (Shared LLM·Tenant SLM 겸용 — system prompt + multi-LoRA per-request 분기). 174번에 Embedding (bge-m3, TEI) 동거, Reranker는 bypass. 설계상 별도 14B Shared LLM은 GPU 부족으로 운영 불가하여 **7B baseline 단일로 확정**(ADR-019 §3·§11, `configs/platform/model.yaml`). 115번 GPU는 WiSentinel 전용.
 - **Qdrant 1.10+**: collection-per-tenant + named vectors (dense+sparse) + DBSF fusion.
 - **PostgreSQL 16** (115번 기존 인스턴스): 별도 `domainrag` database, Row-Level Security + Alembic migration + LISTEN/NOTIFY. RLS 성능 가이드라인은 ADR-019 §2.
 - **MinIO**: prefix-per-tenant.

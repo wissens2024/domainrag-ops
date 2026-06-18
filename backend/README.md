@@ -127,7 +127,7 @@ backend/
     }
   ],
   "metadata": {
-    "llm_model": "qwen3-14b-instruct",
+    "llm_model": "qwen2.5-7b-instruct-awq",
     "embedding_model": "bge-m3",
     "reranker_model": "bge-reranker-v2-m3",
     "prompt_version": "rag_answer_v1",
@@ -268,7 +268,7 @@ owner: "security-team"
       "answer": "내부망 반출은...",
       "retrieved_chunks_count": 5,
       "citations_count": 2,
-      "llm_model": "qwen3-14b-instruct",
+      "llm_model": "qwen2.5-7b-instruct-awq",
       "latency_ms": 3120,
       "feedback": "good",
       "created_at": "2026-05-08T10:00:00Z"
@@ -302,7 +302,7 @@ owner: "security-team"
     }
   ],
   "citations": [...],
-  "llm_model": "qwen3-14b-instruct",
+  "llm_model": "qwen2.5-7b-instruct-awq",
   "embedding_model": "bge-m3",
   "reranker_model": "bge-reranker-v2-m3",
   "prompt_version": "rag_answer_v1",
@@ -429,7 +429,7 @@ Pydantic BaseSettings 기반 설정 로더:
 ```python
 class ModelConfig(BaseSettings):
     llm_endpoint: str = "http://vllm:8000/v1"
-    llm_model: str = "qwen3-14b-instruct"
+    llm_model: str = "qwen2.5-7b-instruct-awq"
     embedding_model: str = "bge-m3"
     reranker_model: str = "bge-reranker-v2-m3"
     
@@ -448,7 +448,7 @@ class AppConfig(BaseSettings):
 **환경 변수:**
 ```bash
 MODELS__LLM_ENDPOINT=http://vllm:8000/v1
-MODELS__LLM_MODEL=qwen3-14b-instruct
+MODELS__LLM_MODEL=qwen2.5-7b-instruct-awq
 RETRIEVAL__TOP_K=10
 DATABASE_URL=postgresql://user:pass@postgres:5432/domainrag
 ```

@@ -245,7 +245,7 @@ npm run dev
 - **PostgreSQL 16** (115번 기존 인스턴스, 별도 `domainrag` database) — RLS·BYPASSRLS role 분리, chat_logs 시간 partitioning
 - **Qdrant 1.10+** — collection-per-tenant (`chunks_<tenant_id>`, `items_<tenant_id>`), named vectors, DBSF fusion
 - **MinIO** — prefix-per-tenant 원본 보관
-- **vLLM** — Tenant SLM (115번 2GPU, Qwen 7B + multi-LoRA) + Shared LLM (174번 2GPU, Qwen 14B+)
+- **vLLM** — 174번 통합 인스턴스: Qwen2.5-7B-Instruct-AWQ (Shared LLM·Tenant SLM 겸용 + multi-LoRA per-request). 설계상 별도 14B Shared LLM은 GPU 부족으로 운영 불가 → 7B 단일 (ADR-019)
 - **Embedding/Reranker** (174번 GPU 3) — bge-m3 + bge-reranker-v2-m3
 - **AuthFusion** (외부 의존) — OIDC SSO + KeyHub (LoRA·secrets) + Ledger (보안 audit)
 - **Ollama** (174번 GPU 0, 공유) — Qwen Vision (OCR·일부 fallback)
