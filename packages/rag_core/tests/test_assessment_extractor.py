@@ -96,6 +96,23 @@ def test_llm_extract_handles_codefenced_json():
     assert res.parsed_count == 2
 
 
+def test_question_aware_chunking_keeps_questions_whole():
+    import re as _re
+    ext = LlmItemExtractor(llm_client=_FakeLLM({}, {}), max_chars_per_call=30)
+    text = "\n".join([
+        "1. 첫 번째 문제 지문 길게", "① a", "② b",
+        "2. 두 번째 문제 지문 길게", "① c", "② d",
+        "3. 세 번째 문제 지문", "① e",
+    ])
+    chunks = ext._chunks(text)
+    assert len(chunks) >= 2
+    # 모든 청크는 문항 번호 줄로 시작 — 문항 중간 절단 없음
+    for ch in chunks:
+        assert _re.match(r"^\s*\d+\.\s", ch.split("\n")[0])
+    # 2번 문항이 한 청크 안에 온전히 (지문+보기)
+    assert any("2. 두 번째 문제 지문 길게" in c and "② d" in c for c in chunks)
+
+
 def test_rule_based_extractor_delegates():
     qpage = "\n".join([
         "【1과목】 소프트웨어 설계",

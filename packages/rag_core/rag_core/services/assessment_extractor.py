@@ -148,8 +148,8 @@ class LlmItemExtractor:
         *,
         llm_client: LLMClient,
         model: str = "shared_llm",
-        max_chars_per_call: int = 8000,
-        max_tokens: int = 4096,
+        max_chars_per_call: int = 2000,  # vLLM max_model_len(예 4096) 대비 안전 청크
+        max_tokens: int = 1500,
     ) -> None:
         self._llm = llm_client
         self._model = model
@@ -237,14 +237,17 @@ class LlmItemExtractor:
         return out
 
     def _chunks(self, text: str) -> list[str]:
+        """문항 경계(`N.`)에서만 분할 — 한 문항이 청크 경계에서 잘리지 않게 한다.
+        단순 char 분할은 문항 중간을 끊어 지문이 절단되므로(ADR-026 검증) 금지."""
         if len(text) <= self._max_chars:
             return [text]
-        lines = text.split("\n")
+        qstart = re.compile(r"^\s*\d{1,3}\.\s")
         chunks: list[str] = []
         cur: list[str] = []
         size = 0
-        for ln in lines:
-            if size + len(ln) > self._max_chars and cur:
+        for ln in text.split("\n"):
+            # 다음 문항 시작이고 현재 청크가 한도를 넘으면 그 경계에서 flush
+            if qstart.match(ln) and cur and size + len(ln) > self._max_chars:
                 chunks.append("\n".join(cur))
                 cur, size = [], 0
             cur.append(ln)
