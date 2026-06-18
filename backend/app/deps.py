@@ -48,6 +48,8 @@ _assessment_hybrid_service = None
 _assessment_logger = None
 _assessment_import_service = None
 _assessment_validator = None
+_assessment_vision_client = None
+_assessment_figure_reuse_service = None
 _keyhub_adapter = None
 _chat_log_eraser = None
 _oauth_state_store = None
@@ -324,12 +326,15 @@ def reset_assessment_item_repository() -> None:
     global _assessment_repo, _assessment_extract_service
     global _assessment_generate_service, _assessment_hybrid_service
     global _assessment_import_service, _assessment_validator
+    global _assessment_vision_client, _assessment_figure_reuse_service
     _assessment_repo = None
     _assessment_extract_service = None
     _assessment_generate_service = None
     _assessment_hybrid_service = None
     _assessment_import_service = None
     _assessment_validator = None
+    _assessment_vision_client = None
+    _assessment_figure_reuse_service = None
 
 
 def _build_document_storage(settings: Settings):
@@ -488,6 +493,47 @@ def get_assessment_validator(settings: Settings = Depends(get_settings)):
         llm = getattr(gen, "_llm", None)
         _assessment_validator = AssessmentValidator(llm_client=llm, model="shared_llm")
     return _assessment_validator
+
+
+def get_assessment_vision_client(settings: Settings = Depends(get_settings)):
+    """ADR-025 §4 — Ollama Qwen-VL VisionLanguageClient (폐쇄망 174 GPU0)."""
+    global _assessment_vision_client
+    if _assessment_vision_client is None:
+        from rag_core.clients.ollama_vision_client import OllamaVisionClient
+
+        _assessment_vision_client = OllamaVisionClient(
+            base_url=settings.ollama_base_url,
+            model=settings.vision_model,
+        )
+    return _assessment_vision_client
+
+
+def get_assessment_figure_reuse_service(settings: Settings = Depends(get_settings)):
+    """ADR-025 §3b·§4 — 기존 그림 재사용 + VLM 새 질문 생성.
+
+    image_loader는 DocumentStorage.load로 배선(rag_core→backend 의존 회피). VLM 비가동
+    시 서비스가 degrade(빈 결과)한다. inmemory 백엔드에서는 로컬 storage를 그대로 사용.
+    """
+    global _assessment_figure_reuse_service
+    if _assessment_figure_reuse_service is None:
+        from rag_core.services.assessment_figure_reuse import (
+            AssessmentFigureReuseGenerator,
+        )
+
+        repo = get_assessment_item_repository(settings)
+        vlm = get_assessment_vision_client(settings)
+        storage = _build_document_storage(settings)
+
+        async def _load_image(storage_key: str) -> bytes:
+            return await storage.load(object_path=storage_key)
+
+        _assessment_figure_reuse_service = AssessmentFigureReuseGenerator(
+            repository=repo,
+            vlm=vlm,
+            image_loader=_load_image,
+            model=settings.vision_model,
+        )
+    return _assessment_figure_reuse_service
 
 
 def get_assessment_hybrid_service(settings: Settings = Depends(get_settings)):

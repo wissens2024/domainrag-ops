@@ -647,3 +647,65 @@ def test_validate_logs_to_assessment_logger():
     logger = get_assessment_logger(get_settings())
     records = getattr(logger, "records", [])
     assert any(r.action == "validate" and r.domain_id == "security" for r in records)
+
+
+# --------------------------------------------------------------------------- #
+# Figure-reuse endpoint (ADR-025 §3b·§4)
+# --------------------------------------------------------------------------- #
+
+
+def test_figure_reuse_endpoint_returns_items():
+    from app.deps import get_assessment_figure_reuse_service
+    from rag_core.interfaces.assessment_item_repository import AssessmentItemRecord
+    from rag_core.services.assessment_figure_reuse import FigureReuseResult
+
+    class _FakeSvc:
+        async def generate(self, *, domain_id, criteria):
+            return FigureReuseResult(
+                items=[AssessmentItemRecord(
+                    item_id="Q-FR1", domain_id=domain_id, subject="정보보안",
+                    question_text="이 그림의 루트는?", choices=["a", "b", "c", "d"],
+                    answer="a", quality_status="draft", source="generated",
+                    figure_dependent=True, reference_item_ids=["REF-1"],
+                    assets=[{"asset_id": "x", "kind": "image", "storage_key": "k"}],
+                )],
+                generated_count=1, references_used=["REF-1"],
+            )
+
+    app.dependency_overrides[get_assessment_figure_reuse_service] = lambda: _FakeSvc()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/security/assessment/figure-reuse",
+            json={"subject": "정보보안", "count": 1},
+            headers={"Authorization": "Bearer mock-token"},
+        )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["mode"] == "figure_reuse"
+    assert body["generated_count"] == 1
+    assert body["references_used"] == ["REF-1"]
+    item = body["items"][0]
+    assert item["figure_dependent"] is True
+    assert item["quality_status"] == "draft"
+    assert item["reference_item_ids"] == ["REF-1"]
+
+
+def test_figure_reuse_endpoint_degrades_when_vlm_unavailable():
+    from app.deps import get_assessment_figure_reuse_service
+    from rag_core.services.assessment_figure_reuse import FigureReuseResult
+
+    class _DownSvc:
+        async def generate(self, *, domain_id, criteria):
+            return FigureReuseResult(vlm_unavailable=True)
+
+    app.dependency_overrides[get_assessment_figure_reuse_service] = lambda: _DownSvc()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/security/assessment/figure-reuse",
+            json={"subject": "정보보안"},
+            headers={"Authorization": "Bearer mock-token"},
+        )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["vlm_unavailable"] is True
+    assert body["generated_count"] == 0

@@ -33,6 +33,7 @@ from app.deps import (
     get_assessment_generate_service,
     get_assessment_hybrid_service,
     get_assessment_import_service,
+    get_assessment_figure_reuse_service,
     get_assessment_item_repository,
     get_assessment_logger,
     get_assessment_validator,
@@ -224,6 +225,61 @@ async def generate_items(
         "rejected_duplicates": result.rejected_duplicates,
         "retries_used": result.retries_used,
         "latency_ms": latency_ms,
+    }
+
+
+class FigureReuseRequest(BaseModel):
+    subject: str
+    chapter: str | None = None
+    difficulty: str = "medium"
+    count: int = Field(default=3, ge=1, le=20)
+
+
+@router.post("/figure-reuse")
+async def figure_reuse_items(
+    domain_id: str,
+    req: FigureReuseRequest,
+    user: UserContext = Depends(get_user_context),
+    service=Depends(get_assessment_figure_reuse_service),
+    logger=Depends(get_assessment_logger),
+):
+    """ADR-025 §3b·§4 — 기존 그림(figure_dependent approved) 재사용 + VLM 새 질문 생성.
+
+    신규 그림 합성은 하지 않는다(asset 승계). 생성물은 draft. VLM 비가동 시 degrade
+    (vlm_unavailable=true, 생성 0).
+    """
+    await _tenant_guard(domain_id, user)
+    from rag_core.services.assessment_figure_reuse import FigureReuseCriteria
+    from rag_core.services.assessment_logger import AssessmentLogPayload
+
+    request_id = uuid.uuid4().hex
+    start = time.perf_counter()
+    result = await service.generate(
+        domain_id=domain_id,
+        criteria=FigureReuseCriteria(
+            subject=req.subject, chapter=req.chapter,
+            difficulty=req.difficulty, count=req.count,
+        ),
+    )
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    summary = {
+        "generated_count": result.generated_count,
+        "references_used": result.references_used,
+        "skipped_no_image": result.skipped_no_image,
+        "rejected_invalid": result.rejected_invalid,
+        "vlm_unavailable": result.vlm_unavailable,
+    }
+    await logger.write(
+        AssessmentLogPayload(
+            domain_id=domain_id, request_id=request_id, action="figure_reuse",
+            actor=user.user_id, criteria=req.model_dump(exclude_none=True),
+            result_summary=summary, latency_ms=latency_ms,
+        )
+    )
+    return {
+        "request_id": request_id, "domain_id": domain_id, "mode": "figure_reuse",
+        "items": [_item_to_dict(r) for r in result.items],
+        **summary, "latency_ms": latency_ms,
     }
 
 

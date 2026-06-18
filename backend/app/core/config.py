@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     embedding_server_url: str = Field(default="http://localhost:8002", alias="EMBEDDING_SERVER_URL")
     reranker_server_url: str = Field(default="http://localhost:8003", alias="RERANKER_SERVER_URL")
     ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")
+    # assessment 그림 재사용 생성·VLM 검증용 Qwen-VL 모델 id (ADR-025 §4). 코드 하드코딩 금지.
+    vision_model: str = Field(default="qwen2.5vl:7b", alias="VISION_MODEL")
 
     # RAG backend selection — production / inmemory (dev demo)
     rag_backend: str = Field(default="production", alias="RAG_BACKEND")

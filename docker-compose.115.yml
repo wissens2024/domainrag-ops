@@ -61,6 +61,8 @@ services:
       # 리랭커 컨테이너는 174에 미배포 — retrieval.yaml reranker.bypass=true로 우회(ADR-011 §6).
       # URL은 보존하되 bypass 동안 호출 안 함. 리랭커 기동 시 bypass=false로 복구.
       - RERANKER_SERVER_URL=http://192.168.0.174:8003
+      # Ollama Qwen-VL (174 GPU0, authfusion·WiSentinel과 공유) — assessment 그림 재사용 생성·VLM 검증(ADR-025 §4).
+      - OLLAMA_BASE_URL=http://192.168.0.174:11434
       - RAG_BACKEND=production
       # 174 vLLM의 실제 model id (`Qwen/Qwen2.5-7B-Instruct-AWQ`)와 일치시킴
       - RAG_DEFAULT_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ

@@ -80,6 +80,14 @@ class StorageEncryptionPolicy:
         return SseSpec(key_id=key_id, context=context)
 
 
+def _object_key(object_path: str) -> str:
+    """object_storage_path → 객체 key. ``s3://bucket/key`` 형식이면 bucket 부분 제거."""
+    if object_path.startswith("s3://"):
+        rest = object_path[len("s3://"):]
+        return rest.split("/", 1)[1] if "/" in rest else rest
+    return object_path
+
+
 class DocumentStorage(Protocol):
     """업로드 원본 파일 저장 인터페이스."""
 
@@ -92,6 +100,14 @@ class DocumentStorage(Protocol):
         filename: str,
         stream: IO[bytes],
     ) -> StoredDocument: ...
+
+    async def load(self, *, object_path: str) -> bytes:
+        """저장된 객체를 바이트로 읽는다 (ADR-025 §4 figure-reuse용 그림 로드).
+
+        object_path는 save가 반환한 object_storage_path (운영: ``s3://bucket/key``,
+        로컬: 상대경로) 또는 그에 준하는 key. 없는 객체는 구현체별 예외를 던진다.
+        """
+        ...
 
     async def delete(
         self,
@@ -144,6 +160,11 @@ class LocalFilesystemStorage:
             local_path=str(target_path),
             size_bytes=size,
         )
+
+    async def load(self, *, object_path: str) -> bytes:
+        # 로컬은 base 기준 상대경로. 방어적으로 s3 URI도 key로 환원.
+        key = _object_key(object_path)
+        return (self._base / key).read_bytes()
 
     async def delete(
         self,
@@ -239,6 +260,15 @@ class MinIOStorage:
             local_path=str(cache_path),
             size_bytes=size,
         )
+
+    async def load(self, *, object_path: str) -> bytes:
+        key = _object_key(object_path)
+        resp = self._client.get_object(self._bucket, key)
+        try:
+            return resp.read()
+        finally:
+            resp.close()
+            resp.release_conn()
 
     async def delete(
         self,
