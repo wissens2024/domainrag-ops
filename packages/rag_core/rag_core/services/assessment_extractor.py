@@ -149,12 +149,14 @@ class LlmItemExtractor:
         llm_client: LLMClient,
         model: str = "shared_llm",
         max_chars_per_call: int = 2000,  # vLLM max_model_len(예 4096) 대비 안전 청크
-        max_tokens: int = 1500,
+        max_tokens: int = 2200,
+        max_questions_per_chunk: int = 4,  # 청크당 문항 수 제한 → JSON 출력 절단 방지
     ) -> None:
         self._llm = llm_client
         self._model = model
         self._max_chars = max_chars_per_call
         self._max_tokens = max_tokens
+        self._max_q = max_questions_per_chunk
 
     async def _generate_json(self, prompt: str, schema: dict, retries: int = 1) -> dict | None:
         """LLM 호출 + JSON 파싱. 실패(timeout/파싱)는 None — 한 청크 실패가 PDF 전체를
@@ -247,20 +249,22 @@ class LlmItemExtractor:
 
     def _chunks(self, text: str) -> list[str]:
         """문항 경계(`N.`)에서만 분할 — 한 문항이 청크 경계에서 잘리지 않게 한다.
-        단순 char 분할은 문항 중간을 끊어 지문이 절단되므로(ADR-026 검증) 금지."""
-        if len(text) <= self._max_chars:
-            return [text]
+        청크당 문항 수(max_q)·문자 수(max_chars) 둘 다 한도로 둬서 JSON 출력이
+        max_tokens를 초과해 잘리는 것을 막는다(ADR-026 검증: 출력 절단이 문항 유실 원인)."""
         qstart = re.compile(r"^\s*\d{1,3}\.\s")
         chunks: list[str] = []
         cur: list[str] = []
         size = 0
+        qcount = 0
         for ln in text.split("\n"):
-            # 다음 문항 시작이고 현재 청크가 한도를 넘으면 그 경계에서 flush
-            if qstart.match(ln) and cur and size + len(ln) > self._max_chars:
+            is_q = bool(qstart.match(ln))
+            if is_q and cur and (qcount >= self._max_q or size + len(ln) > self._max_chars):
                 chunks.append("\n".join(cur))
-                cur, size = [], 0
+                cur, size, qcount = [], 0, 0
+            if is_q:
+                qcount += 1
             cur.append(ln)
             size += len(ln) + 1
         if cur:
             chunks.append("\n".join(cur))
-        return chunks
+        return chunks or [text]
