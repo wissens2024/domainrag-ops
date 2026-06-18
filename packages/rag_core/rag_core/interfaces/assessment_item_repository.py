@@ -122,6 +122,18 @@ class AssessmentItemRepository(Protocol):
         """subject/chapter/difficulty별 used_count + status 분포."""
         ...
 
+    async def bulk_approve(
+        self,
+        *,
+        domain_id: str,
+        subject: str | None = None,
+        chapter: str | None = None,
+        difficulty: str | None = None,
+        keyword: str | None = None,
+    ) -> int:
+        """draft/reviewed 매칭 item을 일괄 approved 전이. 전이된 수 반환 (ADR-014 §5·Y2)."""
+        ...
+
 
 # --------------------------------------------------------------------------- #
 # InMemory — dev / tests
@@ -243,6 +255,35 @@ class InMemoryAssessmentItemRepository:
             rec.last_used_at = now
             affected += 1
         return affected
+
+    async def bulk_approve(
+        self,
+        *,
+        domain_id: str,
+        subject: str | None = None,
+        chapter: str | None = None,
+        difficulty: str | None = None,
+        keyword: str | None = None,
+    ) -> int:
+        needle = keyword.lower() if keyword else None
+        count = 0
+        for (tid, _iid), r in self._records.items():
+            if tid != domain_id or r.quality_status not in {"draft", "reviewed"}:
+                continue
+            if subject is not None and r.subject != subject:
+                continue
+            if chapter is not None and r.chapter != chapter:
+                continue
+            if difficulty is not None and r.difficulty != difficulty:
+                continue
+            if needle and needle not in (r.question_text or "").lower() and needle not in (
+                r.item_id or ""
+            ).lower():
+                continue
+            r.quality_status = "approved"
+            r.updated_at = datetime.utcnow()
+            count += 1
+        return count
 
     async def list_review_queue(
         self,

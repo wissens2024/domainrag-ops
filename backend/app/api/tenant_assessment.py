@@ -21,7 +21,7 @@ import time
 import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.timezone import iso_kst
@@ -456,11 +456,14 @@ class ApproveRequest(BaseModel):
 async def approve_item(
     domain_id: str,
     item_id: str,
-    req: ApproveRequest,
+    req: ApproveRequest | None = Body(default=None),
     user: UserContext = Depends(require_admin),
     repo=Depends(get_assessment_item_repository),
 ):
-    """draft/reviewed → approved. retired·이미 approved는 400."""
+    """draft/reviewed → approved. retired·이미 approved는 400.
+
+    body(reason)는 선택 — 미전송(빈 본문) 시에도 동작 (frontend 단건 approve는 body 없이 호출).
+    """
     await _tenant_guard(domain_id, user)
     existing = await repo.get(domain_id=domain_id, item_id=item_id)
     if existing is None:
@@ -476,6 +479,37 @@ async def approve_item(
         domain_id=domain_id, item_id=item_id, quality_status="approved",
     )
     return _item_to_dict(updated)
+
+
+class BulkApproveRequest(BaseModel):
+    # 필터 — 미지정이면 도메인 전체 draft/reviewed 승인. 현재 Item Bank 필터를 그대로 전달.
+    subject: str | None = None
+    chapter: str | None = None
+    difficulty: str | None = None
+    keyword: str | None = None
+
+
+@admin_router.post("/items/approve-all")
+async def approve_all_items(
+    domain_id: str,
+    req: BulkApproveRequest,
+    user: UserContext = Depends(require_admin),
+    repo=Depends(get_assessment_item_repository),
+):
+    """draft/reviewed 매칭 item을 일괄 approved 전이 (ADR-014 §5·Y2). 전이 수 반환.
+
+    필터(subject/chapter/difficulty/keyword)를 주면 그 부분집합만, 없으면 전체.
+    이미 approved·retired는 영향 없음.
+    """
+    await _tenant_guard(domain_id, user)
+    count = await repo.bulk_approve(
+        domain_id=domain_id,
+        subject=req.subject,
+        chapter=req.chapter,
+        difficulty=req.difficulty,
+        keyword=req.keyword,
+    )
+    return {"approved": count}
 
 
 @admin_router.get("/review-queue")

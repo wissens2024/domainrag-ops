@@ -14,6 +14,7 @@ import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import {
   approveAssessmentItem,
+  bulkApproveAssessment,
   listAssessmentItems,
 } from '@/lib/api';
 import type {
@@ -54,6 +55,8 @@ export default function ItemBankPage() {
       }),
   );
 
+  const [bulkRunning, setBulkRunning] = useState(false);
+
   const handleApprove = async (itemId: string) => {
     if (!confirm('approved로 전이?')) return;
     try {
@@ -64,11 +67,37 @@ export default function ItemBankPage() {
     }
   };
 
+  const handleApproveAll = async () => {
+    const scope = filters.subject || filters.difficulty || filters.keyword
+      ? '현재 필터에 해당하는'
+      : '전체';
+    if (!confirm(`${scope} draft·reviewed 문항을 모두 approved로 전이합니다. 계속할까요?`)) {
+      return;
+    }
+    setBulkRunning(true);
+    try {
+      const r = await bulkApproveAssessment(domainId, {
+        subject: filters.subject || undefined,
+        difficulty: filters.difficulty || undefined,
+        keyword: filters.keyword || undefined,
+      });
+      alert(`${r.approved}건이 승인되었습니다.`);
+      void mutate(swrKey);
+    } catch (e) {
+      alert(`일괄 승인 실패: ${e instanceof Error ? e.message : ''}`);
+    } finally {
+      setBulkRunning(false);
+    }
+  };
+
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Item Bank</h1>
-        <div className="flex gap-2 text-sm">
+        <div className="flex gap-2 text-sm items-center">
+          <Button size="sm" onClick={() => void handleApproveAll()} disabled={bulkRunning}>
+            {bulkRunning ? '승인 중...' : '전체 승인'}
+          </Button>
           <Link
             href={`/${domainId}/admin/assessment/workbench`}
             className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700"

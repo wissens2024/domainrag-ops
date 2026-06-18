@@ -288,6 +288,48 @@ class PostgresAssessmentItemRepository:
             await session.commit()
         return result.rowcount or 0
 
+    async def bulk_approve(
+        self,
+        *,
+        domain_id: str,
+        subject: str | None = None,
+        chapter: str | None = None,
+        difficulty: str | None = None,
+        keyword: str | None = None,
+    ) -> int:
+        clauses = [
+            "domain_id = :domain_id",
+            "quality_status IN ('draft', 'reviewed')",
+        ]
+        params: dict[str, Any] = {"domain_id": domain_id}
+        if subject is not None:
+            clauses.append("subject = :subject")
+            params["subject"] = subject
+        if chapter is not None:
+            clauses.append("chapter = :chapter")
+            params["chapter"] = chapter
+        if difficulty is not None:
+            clauses.append("difficulty = :difficulty")
+            params["difficulty"] = difficulty
+        if keyword:
+            clauses.append("(question_text ILIKE :kw OR item_id ILIKE :kw)")
+            params["kw"] = f"%{keyword}%"
+        where = " AND ".join(clauses)
+        async with self._sf() as session:
+            await set_tenant_context(session, domain_id)
+            result = await session.execute(
+                text(
+                    f"""
+                    UPDATE assessment_items
+                       SET quality_status = 'approved', updated_at = NOW()
+                     WHERE {where}
+                    """
+                ),
+                params,
+            )
+            await session.commit()
+        return result.rowcount or 0
+
     async def list_review_queue(
         self,
         *,

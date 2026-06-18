@@ -982,6 +982,17 @@ export async function approveAssessmentItem(
   });
 }
 
+// draft/reviewed 매칭 item 일괄 승인 (ADR-014 §5). 필터 미지정이면 도메인 전체.
+export async function bulkApproveAssessment(
+  domainId: string,
+  filters: { subject?: string; chapter?: string; difficulty?: string; keyword?: string },
+): Promise<{ approved: number }> {
+  return request(`/api/${domainId}/admin/assessment/items/approve-all`, {
+    method: 'POST',
+    body: JSON.stringify(filters),
+  });
+}
+
 // 기출 PDF 업로드 → 그림 crop + draft item 일괄 생성 (ADR-025 §2)
 export async function importAssessmentPdf(
   domainId: string,

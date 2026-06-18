@@ -250,6 +250,49 @@ def test_admin_approve_invalid_transition_400():
     assert resp.status_code == 400
 
 
+def test_admin_approve_item_no_body_200():
+    """frontend 단건 approve는 body 없이 호출 — 빈 본문에도 200 (422 회귀 방지)."""
+    with TestClient(app) as client:
+        _create_admin_item(client, "Q-NB", quality_status="reviewed")
+        resp = client.post(
+            "/api/security/admin/assessment/items/Q-NB/approve",
+            headers={"Authorization": "Bearer mock-token"},
+        )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["quality_status"] == "approved"
+
+
+def test_admin_bulk_approve_all_only_draft_reviewed():
+    with TestClient(app) as client:
+        _create_admin_item(client, "B-1", quality_status="draft")
+        _create_admin_item(client, "B-2", quality_status="reviewed")
+        _create_admin_item(client, "B-3", quality_status="approved")
+        resp = client.post(
+            "/api/security/admin/assessment/items/approve-all",
+            json={},
+            headers={"Authorization": "Bearer mock-token"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["approved"] == 2  # draft + reviewed만
+        remaining = client.get(
+            "/api/security/admin/assessment/review-queue",
+            headers={"Authorization": "Bearer mock-token"},
+        ).json()
+    assert remaining["total"] == 0
+
+
+def test_admin_bulk_approve_filtered_by_subject():
+    with TestClient(app) as client:
+        _create_admin_item(client, "S-1", subject="네트워크", quality_status="draft")
+        _create_admin_item(client, "S-2", subject="정보보안", quality_status="draft")
+        resp = client.post(
+            "/api/security/admin/assessment/items/approve-all",
+            json={"subject": "네트워크"},
+            headers={"Authorization": "Bearer mock-token"},
+        )
+    assert resp.json()["approved"] == 1
+
+
 def test_admin_review_queue_returns_draft_reviewed():
     with TestClient(app) as client:
         _create_admin_item(client, "Q-D", quality_status="draft")
