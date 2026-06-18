@@ -156,6 +156,25 @@ class LlmItemExtractor:
         self._max_chars = max_chars_per_call
         self._max_tokens = max_tokens
 
+    async def _generate_json(self, prompt: str, schema: dict, retries: int = 1) -> dict | None:
+        """LLM 호출 + JSON 파싱. 실패(timeout/파싱)는 None — 한 청크 실패가 PDF 전체를
+        중단시키지 않게 한다(ADR-026 견고성). retries회 재시도."""
+        for _ in range(retries + 1):
+            try:
+                raw = await self._llm.generate(
+                    prompt,
+                    model=self._model,
+                    max_tokens=self._max_tokens,
+                    temperature=0.0,
+                    guided_json_schema=schema,
+                )
+            except Exception:  # noqa: BLE001 — timeout/연결 등 모두 흡수 후 재시도
+                continue
+            parsed = _parse_json(raw)
+            if parsed is not None:
+                return parsed
+        return None
+
     async def extract(
         self, *, page_texts: list[str], answer_page_index: int | None = None
     ) -> ExamParseResult:
@@ -167,17 +186,12 @@ class LlmItemExtractor:
         question_pages = [t for i, t in enumerate(page_texts) if i != ans_idx]
         answer_page = page_texts[ans_idx] if 0 <= ans_idx < len(page_texts) else ""
 
-        # 1. 문항 추출 (청크 단위)
+        # 1. 문항 추출 (청크 단위, 청크 실패는 건너뜀)
         items_by_num: dict[int, ParsedExamItem] = {}
         for chunk in self._chunks("\n".join(question_pages)):
-            raw = await self._llm.generate(
-                _QUESTION_PROMPT.format(chunk=chunk),
-                model=self._model,
-                max_tokens=self._max_tokens,
-                temperature=0.0,
-                guided_json_schema=_QUESTION_SCHEMA,
-            )
-            parsed = _parse_json(raw) or {}
+            parsed = await self._generate_json(
+                _QUESTION_PROMPT.format(chunk=chunk), _QUESTION_SCHEMA
+            ) or {}
             for it in parsed.get("items", []):
                 num = it.get("number")
                 if not isinstance(num, int):
@@ -220,14 +234,9 @@ class LlmItemExtractor:
     async def _extract_answer_key(self, answer_page: str) -> dict[int, int]:
         if not answer_page.strip():
             return {}
-        raw = await self._llm.generate(
-            _ANSWER_PROMPT.format(text=answer_page),
-            model=self._model,
-            max_tokens=self._max_tokens,
-            temperature=0.0,
-            guided_json_schema=_ANSWER_SCHEMA,
-        )
-        parsed = _parse_json(raw) or {}
+        parsed = await self._generate_json(
+            _ANSWER_PROMPT.format(text=answer_page), _ANSWER_SCHEMA
+        ) or {}
         out: dict[int, int] = {}
         for a in parsed.get("answers", []):
             num = a.get("number")
