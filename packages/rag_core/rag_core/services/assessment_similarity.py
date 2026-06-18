@@ -45,6 +45,10 @@ class AssessmentSimilarityChecker:
         self._embedder = embedder
         self._thresholds = thresholds
 
+    @property
+    def thresholds(self) -> SimilarityThresholds:
+        return self._thresholds
+
     async def check(
         self,
         *,

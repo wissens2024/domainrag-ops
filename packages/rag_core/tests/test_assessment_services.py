@@ -297,6 +297,63 @@ async def test_generate_produces_items_with_citations():
     assert all(r.quality_status == "reviewed" for r in new_ones)
 
 
+class _FakeItemIndex:
+    def __init__(self, hits):
+        self._hits = hits
+        self.searched = []
+
+    async def search_similar(self, *, domain_id, question_text, subject=None,
+                             top_k=10, exclude_item_id=None):
+        self.searched.append(question_text)
+        return list(self._hits)
+
+
+def _gen_service_with_index(repo, llm, index):
+    similarity = AssessmentSimilarityChecker(
+        embedder=InMemoryEmbedder(),
+        thresholds=SimilarityThresholds(duplicate=0.85, similar=0.65),
+    )
+    return AssessmentGenerateService(
+        repository=repo, llm_client=llm,
+        similarity_checker=similarity, validator=AssessmentValidator(llm_client=llm),
+        max_retries=1, item_index=index,
+    )
+
+
+async def test_generate_uses_index_and_rejects_duplicate():
+    """ADR-025 §5 — item_index 주입 시 사전 인덱스 검색으로 dedup. 고유사도(>=dup) → reject."""
+    repo = InMemoryAssessmentItemRepository()
+    payload = {"items": [{"question_text": "중복 후보 문제", "choices": ["A", "B", "C", "D"],
+                          "answer": "A", "difficulty": "medium"}]}
+    llm = _FakeLLM([json.dumps(payload), *([json.dumps({"valid": True, "score": 0.9})] * 4)])
+    index = _FakeItemIndex([{"item_id": "DUP-1", "subject": "정보보안", "score": 0.92}])
+    service = _gen_service_with_index(repo, llm, index)
+    result = await service.generate(
+        domain_id="t1", criteria=GenerateCriteria(subject="정보보안", count=1),
+    )
+    assert result.generated_count == 0
+    assert result.rejected_duplicates == 1
+    assert index.searched  # 사전 인덱스가 실제로 조회됨
+
+
+async def test_generate_with_index_accepts_when_not_duplicate():
+    repo = InMemoryAssessmentItemRepository()
+    payload = {"items": [{"question_text": "고유한 신규 문제", "choices": ["A", "B", "C", "D"],
+                          "answer": "A", "difficulty": "medium"}]}
+    llm = _FakeLLM([json.dumps(payload), *([json.dumps({"valid": True, "score": 0.9})] * 4)])
+    # 낮은 유사도(0.4 < similar 0.65) → 중복 아님 + reference 비어있음
+    index = _FakeItemIndex([{"item_id": "FAR-1", "subject": "정보보안", "score": 0.4}])
+    service = _gen_service_with_index(repo, llm, index)
+    result = await service.generate(
+        domain_id="t1", criteria=GenerateCriteria(subject="정보보안", count=1),
+    )
+    assert result.generated_count == 1
+    assert result.rejected_duplicates == 0
+    items, _ = await repo.list_by_tenant(domain_id="t1")
+    new = [r for r in items if r.source == "generated"]
+    assert new[0].reference_item_ids == []
+
+
 async def test_generate_rejects_duplicates_and_retries():
     repo = InMemoryAssessmentItemRepository()
     await repo.upsert(_item("Q-REF", question_text="reference baseline"))

@@ -50,6 +50,7 @@ _assessment_import_service = None
 _assessment_validator = None
 _assessment_vision_client = None
 _assessment_figure_reuse_service = None
+_assessment_item_index = None
 _keyhub_adapter = None
 _chat_log_eraser = None
 _oauth_state_store = None
@@ -327,6 +328,7 @@ def reset_assessment_item_repository() -> None:
     global _assessment_generate_service, _assessment_hybrid_service
     global _assessment_import_service, _assessment_validator
     global _assessment_vision_client, _assessment_figure_reuse_service
+    global _assessment_item_index
     _assessment_repo = None
     _assessment_extract_service = None
     _assessment_generate_service = None
@@ -335,6 +337,7 @@ def reset_assessment_item_repository() -> None:
     _assessment_validator = None
     _assessment_vision_client = None
     _assessment_figure_reuse_service = None
+    _assessment_item_index = None
 
 
 def _build_document_storage(settings: Settings):
@@ -474,8 +477,31 @@ def get_assessment_generate_service(settings: Settings = Depends(get_settings)):
             similarity_checker=similarity,
             validator=validator,
             model="shared_llm",
+            item_index=get_assessment_item_index(settings),  # ADR-025 §5 사전 인덱스 dedup
         )
     return _assessment_generate_service
+
+
+def get_assessment_item_index(settings: Settings = Depends(get_settings)):
+    """ADR-025 §5 — Qdrant items_<domain> 사전 인덱스. inmemory 백엔드에선 None
+    (generate가 on-the-fly similarity로 fallback)."""
+    global _assessment_item_index
+    if settings.rag_backend == "inmemory":
+        return None
+    if _assessment_item_index is None:
+        from qdrant_client import AsyncQdrantClient
+
+        from rag_core.clients.qdrant_item_index import AssessmentItemIndex
+
+        rag = get_rag_service(settings)
+        embedder = rag._deps.retrieval_service.embedder  # type: ignore[attr-defined]
+        client = AsyncQdrantClient(
+            url=f"http://{settings.qdrant_host}:{settings.qdrant_port}",
+            api_key=settings.qdrant_api_key,
+            prefer_grpc=False,
+        )
+        _assessment_item_index = AssessmentItemIndex(client=client, embedder=embedder)
+    return _assessment_item_index
 
 
 def get_assessment_validator(settings: Settings = Depends(get_settings)):

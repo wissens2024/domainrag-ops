@@ -75,6 +75,7 @@ class AssessmentGenerateService:
         validator: AssessmentValidator,
         model: str = "shared_llm",
         max_retries: int = 3,
+        item_index: Any = None,
     ) -> None:
         self._repo = repository
         self._llm = llm_client
@@ -82,6 +83,9 @@ class AssessmentGenerateService:
         self._validator = validator
         self._model = model
         self._max_retries = max_retries
+        # ADR-025 §5 — AssessmentItemIndex 주입 시 dedup을 사전 인덱스 검색으로 전환
+        # (후보 전체 재임베딩 제거). None이면 기존 on-the-fly similarity 유지.
+        self._item_index = item_index
 
     async def generate(
         self,
@@ -105,14 +109,17 @@ class AssessmentGenerateService:
             ),
             limit=10,
         )
-        refs_for_similarity = await self._repo.list_candidates_for_extract(
-            domain_id=domain_id,
-            criteria=ExtractCriteria(
-                subject=criteria.subject,
-                quality_status=["approved", "reviewed"],
-            ),
-            limit=500,
-        )
+        # 인덱스 소비 시 후보 전체 재임베딩이 불필요(사전 인덱스 검색으로 dedup).
+        refs_for_similarity: list[AssessmentItemRecord] = []
+        if self._item_index is None:
+            refs_for_similarity = await self._repo.list_candidates_for_extract(
+                domain_id=domain_id,
+                criteria=ExtractCriteria(
+                    subject=criteria.subject,
+                    quality_status=["approved", "reviewed"],
+                ),
+                limit=500,
+            )
 
         # 2. LLM 호출 + 3. similarity + 4. validator
         target = criteria.count
@@ -152,18 +159,34 @@ class AssessmentGenerateService:
                 qtext = str(candidate.get("question_text", "")).strip()
                 if not qtext:
                     continue
-                # similarity check
-                sim = await self._similarity.check(
-                    new_question_text=qtext,
-                    candidates=refs_for_similarity,
-                )
+                # similarity check — 인덱스가 있으면 사전 인덱스 검색(후보 재임베딩 제거),
+                # 없으면 기존 on-the-fly 임베딩 비교.
+                if self._item_index is not None:
+                    hits = await self._item_index.search_similar(
+                        domain_id=domain_id, question_text=qtext,
+                        subject=criteria.subject, top_k=10,
+                    )
+                    thr = self._similarity.thresholds
+                    max_similarity = hits[0]["score"] if hits else 0.0
+                    is_duplicate = max_similarity >= thr.duplicate
+                    similar_candidates = [
+                        {"item_id": h["item_id"], "similarity": round(h["score"], 4)}
+                        for h in hits if h["score"] >= thr.similar
+                    ]
+                else:
+                    sim = await self._similarity.check(
+                        new_question_text=qtext, candidates=refs_for_similarity,
+                    )
+                    max_similarity = sim.max_similarity
+                    is_duplicate = sim.is_duplicate
+                    similar_candidates = sim.similar_candidates
                 result.similarity_results.append({
                     "question_text_excerpt": qtext[:80],
-                    "max_similarity": sim.max_similarity,
-                    "is_duplicate": sim.is_duplicate,
-                    "similar_candidates": sim.similar_candidates,
+                    "max_similarity": max_similarity,
+                    "is_duplicate": is_duplicate,
+                    "similar_candidates": similar_candidates,
                 })
-                if sim.is_duplicate:
+                if is_duplicate:
                     result.rejected_duplicates += 1
                     continue
 
@@ -180,9 +203,7 @@ class AssessmentGenerateService:
 
                 # upsert
                 item_id = f"Q-{uuid.uuid4().hex[:12]}"
-                reference_item_ids = [
-                    s["item_id"] for s in sim.similar_candidates
-                ]
+                reference_item_ids = [s["item_id"] for s in similar_candidates]
                 record = AssessmentItemRecord(
                     item_id=item_id,
                     domain_id=domain_id,

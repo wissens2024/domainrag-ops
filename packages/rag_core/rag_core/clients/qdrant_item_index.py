@@ -88,8 +88,14 @@ class AssessmentItemIndex:
         top_k: int = 10,
         exclude_item_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """질문과 유사한 기존 item 검색. [{item_id, subject, score(cosine)}] (score 내림차순)."""
+        """질문과 유사한 기존 item 검색. [{item_id, subject, score(cosine)}] (score 내림차순).
+
+        collection이 아직 없으면(미인덱싱) 빈 리스트로 degrade — caller(generate)는 dedup
+        없이 진행한다.
+        """
         if not (question_text or "").strip():
+            return []
+        if not await self._client.collection_exists(_collection(domain_id)):
             return []
         emb = (await self._embedder.embed_batch([question_text]))[0]
         dense = emb[0] if isinstance(emb, tuple) else emb
