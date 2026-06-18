@@ -145,10 +145,13 @@ class ExamPaperParser:
         raw = re.sub(r"(?<=\S)\s*([①②③④])", r"\n\1", raw)
         out: list[str] = []
         for ln in raw.split("\n"):
-            s = ln.strip()
-            if not s or any(tok in s for tok in self._noise):
+            # 줄바꿈 경계 공백 보존 — PDF는 어절 경계 줄바꿈에 trailing space를 넣고
+            # 단어 중간 분리엔 넣지 않는다. trailing을 strip하면 "설명으로틀린"처럼 붙으므로
+            # leading만 제거(lstrip)하고 trailing space는 유지해 연속 줄 join 시 복원한다.
+            content = ln.lstrip()
+            if not content.strip() or any(tok in content for tok in self._noise):
                 continue
-            out.append(s)
+            out.append(content)
         return out
 
     def _parse_questions(
@@ -192,7 +195,7 @@ class ExamPaperParser:
             if ln[0] in _CIRCLED:
                 idx = _CIRCLED[ln[0]]
                 state = idx
-                rest = ln[1:].strip()
+                rest = ln[1:].lstrip()  # 마커 뒤 공백만 제거, trailing은 보존
                 if rest:
                     cur["choices"][idx].append(rest)  # type: ignore[index]
                 continue

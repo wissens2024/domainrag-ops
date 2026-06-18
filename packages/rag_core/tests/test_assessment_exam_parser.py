@@ -105,6 +105,27 @@ def test_noise_line_removed():
         assert "eduon" not in it.question_text
 
 
+def test_wrapped_line_spacing_preserved():
+    """어절 경계 줄바꿈은 trailing space로 공백 복원, 단어중간 분리는 공백없이 결합."""
+    qpage = "\n".join(
+        [
+            "【1과목】 소프트웨어 설계",
+            "1. 다이어그램에 대한 설명으로 ",  # 어절 경계 — trailing space
+            "틀린 것은 무엇인가?",
+            "① 중심으로 모",  # 단어중간 분리 — trailing 없음
+            "델링 하는 것이다",
+            "② 보기 둘",
+            "③ 보기 셋",
+            "④ 보기 넷",
+        ]
+    )
+    apage = "\n".join(["1", "①"])
+    res = ExamPaperParser().parse(page_texts=[qpage, apage])
+    q = res.items[0]
+    assert q.question_text == "다이어그램에 대한 설명으로 틀린 것은 무엇인가?"
+    assert q.choices[0] == "중심으로 모델링 하는 것이다"
+
+
 def test_empty_pages_returns_empty():
     res = ExamPaperParser().parse(page_texts=[])
     assert res.parsed_count == 0 and res.items == []

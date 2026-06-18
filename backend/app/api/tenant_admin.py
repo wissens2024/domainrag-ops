@@ -84,6 +84,32 @@ async def _ensure_tenant_match(domain_id: str, user: UserContext) -> None:
 
 
 # ----------------------------------------------------------------------------
+# Domain meta — 활성 모듈 (ADR-014 §7, frontend 메뉴 게이팅용)
+# ----------------------------------------------------------------------------
+
+
+@router.get("/modules")
+async def get_domain_modules(
+    domain_id: str,
+    user: UserContext = Depends(require_admin),
+    session: AsyncSession = Depends(get_tenant_session),
+):
+    """현재 도메인의 활성 모듈(rag/assessment). frontend가 assessment 메뉴 노출을
+    이 값으로 게이팅한다(ADR-014 §8 — module 활성 tenant만 메뉴 표시)."""
+    from sqlalchemy import select
+
+    from app.models.tenant import Tenant
+
+    await _ensure_tenant_match(domain_id, user)
+    modules = (
+        await session.execute(
+            select(Tenant.modules).where(Tenant.domain_id == domain_id)
+        )
+    ).scalar()
+    return {"domain_id": domain_id, "modules": list(modules or ["rag"])}
+
+
+# ----------------------------------------------------------------------------
 # Documents (ADR-017 §6)
 # ----------------------------------------------------------------------------
 

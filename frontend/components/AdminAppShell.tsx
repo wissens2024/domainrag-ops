@@ -161,6 +161,13 @@ export default function AdminAppShell({
   const canAccess =
     !!user && (user.is_admin || user.is_platform_admin || user.is_auditor);
 
+  // 도메인 활성 모듈 (ADR-014 §8) — assessment 메뉴 게이팅용. platform 메뉴 시엔 불필요.
+  const { data: modulesData } = useSWR<{ modules: string[] }>(
+    canAccess && !showPlatform ? `/api/${domainId}/admin/modules` : null,
+    swrFetcher,
+  );
+  const domainModules = modulesData?.modules ?? [];
+
   // RBAC redirect
   useEffect(() => {
     if (!isLoading && user && !canAccess) router.replace(`/${domainId}/chat`);
@@ -194,8 +201,12 @@ export default function AdminAppShell({
     return <div className="p-6 text-sm text-gray-500">권한 없음 — 이동 중…</div>;
   }
 
-  const groups =
+  const rawGroups =
     showPlatform && isPlatformAdmin ? platformMenu() : domainMenu(`/${domainId}/admin`);
+  // assessment 모듈 미활성 도메인에선 '시험 문항' 그룹 숨김 (ADR-014 §8).
+  const groups = rawGroups.filter(
+    (g) => g.labelKey !== 'nav.assessment' || domainModules.includes('assessment'),
+  );
 
   const roleLabel = isPlatformAdmin
     ? { key: 'role.platformAdmin', cls: 'bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300' }
