@@ -35,12 +35,16 @@ class TEIBgeM3Embedder:
         model_name: str = "bge-m3",
         dense_dim: int = 1024,
         timeout_seconds: float = 30.0,
+        max_client_batch: int = 32,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model_name = model_name
         self._dense_dim = dense_dim
         self._timeout = timeout_seconds
+        # TEI는 한 요청당 입력 수를 --max-client-batch-size(기본 32)로 제한한다.
+        # 초과 시 413을 반환하므로 embed_batch가 이 크기로 청킹한다.
+        self._max_client_batch = max(1, max_client_batch)
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=timeout_seconds)
         # ADR-011 hybrid은 sparse가 있으면 DBSF fusion, 없으면 dense-only로 degrade한다.
@@ -96,6 +100,15 @@ class TEIBgeM3Embedder:
     ) -> list[tuple[list[float], dict[int, float]]]:
         if not texts:
             return []
+        # TEI max-client-batch-size(기본 32) 초과 시 413 → 청크 단위로 분할 호출.
+        out: list[tuple[list[float], dict[int, float]]] = []
+        for start in range(0, len(texts), self._max_client_batch):
+            out.extend(await self._embed_one_batch(texts[start : start + self._max_client_batch]))
+        return out
+
+    async def _embed_one_batch(
+        self, texts: list[str]
+    ) -> list[tuple[list[float], dict[int, float]]]:
         payload = {"inputs": texts}
         # dense는 필수. sparse는 best-effort — 임베더가 미지원이면 dense-only로 degrade.
         dense_resp = await self._post("/embed", payload)

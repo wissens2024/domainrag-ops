@@ -130,6 +130,37 @@ async def test_sparse_unavailable_degrades_to_dense_only(mock_async_client):
     assert captured["paths"].count("/embed") == 2
 
 
+@pytest.mark.asyncio
+async def test_embed_batch_chunks_large_input(mock_async_client):
+    """TEI max-client-batch-size 초과 입력은 청크 단위로 분할 호출(413 방지).
+
+    순서·개수가 보존되고, /embed가 청크 수만큼만 호출된다.
+    """
+    captured: dict = {"embed_calls": []}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        inputs = body.get("inputs")
+        if request.url.path == "/embed":
+            captured["embed_calls"].append(len(inputs))
+            # 식별 가능한 dense 벡터 = 각 텍스트 길이 (순서 검증용)
+            return httpx.Response(200, json=[[float(len(t))] for t in inputs])
+        if request.url.path == "/embed_sparse":
+            return httpx.Response(200, json=[[] for _ in inputs])
+        return httpx.Response(404)
+
+    async with mock_async_client(handler) as client:
+        emb = TEIBgeM3Embedder(
+            base_url="http://embedder", dense_dim=1, max_client_batch=2, client=client
+        )
+        texts = ["a", "bb", "ccc", "dddd", "eeeee"]
+        out = await emb.embed_batch(texts)
+
+    assert len(out) == 5
+    assert [o[0][0] for o in out] == [1.0, 2.0, 3.0, 4.0, 5.0]  # 순서 보존
+    assert captured["embed_calls"] == [2, 2, 1]  # 2+2+1로 청크 분할
+
+
 def test_properties():
     emb = TEIBgeM3Embedder(base_url="http://embedder", model_name="bge-m3", dense_dim=1024)
     assert emb.model_name == "bge-m3"
