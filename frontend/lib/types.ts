@@ -565,7 +565,8 @@ export interface FigureReuseResult {
   mode: 'figure_reuse';
   items: AssessmentItem[];
   generated_count: number;
-  references_used: number;
+  // 재사용한 reference 문항의 item_id 목록 (개수는 .length)
+  references_used: string[];
   skipped_no_image: number;
   rejected_invalid: number;
   vlm_unavailable: boolean;

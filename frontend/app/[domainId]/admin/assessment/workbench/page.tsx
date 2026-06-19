@@ -193,7 +193,7 @@ export default function WorkbenchPage() {
               </p>
             )}
           <p className="text-gray-500 dark:text-slate-400">
-            참조 그림 {figureSummary.references_used}건 · 생성{' '}
+            참조 그림 {figureSummary.references_used.length}건 · 생성{' '}
             {figureSummary.generated_count}건 · 이미지없음 스킵{' '}
             {figureSummary.skipped_no_image}건 · 검증실패 거부{' '}
             {figureSummary.rejected_invalid}건 · {figureSummary.latency_ms}ms
