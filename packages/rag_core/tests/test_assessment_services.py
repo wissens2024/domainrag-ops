@@ -297,6 +297,48 @@ async def test_generate_produces_items_with_citations():
     assert all(r.quality_status == "reviewed" for r in new_ones)
 
 
+def test_has_cjk_ideograph_detects_chinese_not_korean():
+    from rag_core.services.assessment_generate import _has_cjk_ideograph
+
+    assert _has_cjk_ideograph("테이블空间") is True  # 중국어 한자 혼입
+    assert _has_cjk_ideograph("데이터베이스 정규화") is False  # 순수 한글
+    assert _has_cjk_ideograph("SQL SELECT 문") is False  # 영문+한글
+    assert _has_cjk_ideograph("") is False
+
+
+async def test_generate_drops_items_with_chinese():
+    """ADR-027 — 한자/중국어 혼입 문항은 폐기된다."""
+    repo = InMemoryAssessmentItemRepository()
+    await repo.upsert(_item("Q-REF", question_text="참고 문제"))
+    # 한자 혼입 item 1개만 반환 → 폐기되어 0건.
+    payload = {
+        "items": [
+            {
+                "question_text": "다음 중 테이블空间에 대한 설명으로 옳은 것은?",
+                "choices": ["A", "B", "C", "D"],
+                "answer": "A",
+                "explanation": "해설",
+                "difficulty": "medium",
+            }
+        ]
+    }
+    llm = _FakeLLM([json.dumps(payload)])
+    similarity = AssessmentSimilarityChecker(
+        embedder=InMemoryEmbedder(),
+        thresholds=SimilarityThresholds(duplicate=0.99, similar=0.5),
+    )
+    service = AssessmentGenerateService(
+        repository=repo, llm_client=llm,
+        similarity_checker=similarity, validator=AssessmentValidator(llm_client=llm),
+        max_retries=1,
+    )
+    result = await service.generate(
+        domain_id="t1", criteria=GenerateCriteria(subject="정보보안", count=1),
+        persist=False,
+    )
+    assert result.generated_count == 0
+
+
 async def test_generate_persist_false_does_not_upsert():
     """ADR-027 §6 — 채팅 출제(persist=False)는 DB에 저장하지 않고 result로만 반환."""
     repo = InMemoryAssessmentItemRepository()

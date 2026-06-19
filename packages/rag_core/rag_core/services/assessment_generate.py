@@ -60,6 +60,11 @@ _GENERATE_PROMPT = (
     "당신은 시험 문제 출제 전문가입니다. 다음 조건에 맞춰 신규 문제 {count}개를 생성하세요.\n"
     "주제: {subject}\n장: {chapter}\n난이도: {difficulty}\n문제유형: {question_type}\n\n"
     "참고 문제:\n{references}\n\n"
+    "규칙:\n"
+    "- 모든 텍스트(문제·보기·해설)는 반드시 한국어로 작성하세요. 한자·중국어·일본어를 절대 섞지 "
+    "마세요(예: '공간'을 '空间'으로 쓰지 말 것). 기술 용어의 영문 표기(SQL, TCP/IP 등)는 허용합니다.\n"
+    "- choices에는 보기 기호(①, 가., A. 등)를 붙이지 말고 보기 내용만 넣으세요. answer는 정답 보기의 "
+    "내용(또는 번호)으로 명확히 표기하세요.\n\n"
     "응답은 반드시 JSON: "
     '{{"items":[{{"question_text":str,"choices":[str],"answer":str,"explanation":str,"difficulty":"easy|medium|hard","tags":[str]}}]}}'
 )
@@ -166,6 +171,15 @@ class AssessmentGenerateService:
                 qtext = str(candidate.get("question_text", "")).strip()
                 if not qtext:
                     continue
+                # 한국어 출제 — 한자/중국어 혼입 문항은 폐기(프롬프트 가드의 hard 백업,
+                # ADR-027). retry 루프가 재생성으로 채운다.
+                _choices_raw = candidate.get("choices") or []
+                if (
+                    _has_cjk_ideograph(qtext)
+                    or _has_cjk_ideograph(str(candidate.get("explanation") or ""))
+                    or any(_has_cjk_ideograph(str(c)) for c in _choices_raw)
+                ):
+                    continue
                 # similarity check — 인덱스가 있으면 사전 인덱스 검색(후보 재임베딩 제거),
                 # 없으면 기존 on-the-fly 임베딩 비교.
                 if self._item_index is not None:
@@ -247,6 +261,11 @@ class AssessmentGenerateService:
         for i, item in enumerate(result.items, start=1):
             result.citations.append(_item_to_citation(item, marker=f"[{i}]", domain_id=domain_id))
         return result
+
+
+def _has_cjk_ideograph(text: str) -> bool:
+    """CJK 통합 한자(중국어/일본어 한자) 포함 여부. 한글(가-힣)·영문은 제외 (ADR-027)."""
+    return any("一" <= ch <= "鿿" for ch in (text or ""))
 
 
 def _parse_json_items(raw: str) -> tuple[list[dict], str | None]:

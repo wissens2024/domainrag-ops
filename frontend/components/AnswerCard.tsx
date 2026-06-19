@@ -259,41 +259,94 @@ export default function AnswerCard({ response, domainId, onCitationClick }: Prop
   );
 }
 
+// ADR-027 — 보기 라벨 통일(①②③④). LLM이 보기에 라벨을 빼먹거나 제각각(가./a./1.)
+// 붙이는 것을 한 형식으로 정규화한다.
+const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+
+// 기존 선두 라벨(①-⑳ / 가)·나. / A)·a. / 1)·1.)을 떼어 내용만 남긴다.
+// "1NF (First Normal Form)" 처럼 구분자 없는 내용은 보존(숫자 뒤 . ) 공백을 요구).
+function stripOptionLabel(s: string): string {
+  return (s ?? '')
+    .replace(/^\s*(?:[①-⑳]\s*|(?:[가-힣]|[A-Za-z]|\d{1,2})[.)]\s+)/, '')
+    .trim();
+}
+
+function circledFor(i: number): string {
+  return CIRCLED[i] ?? `${i + 1}.`;
+}
+
+// 정답 문자열을 보기 index로 해석 — 라벨(A/가/1/①) 또는 보기 본문 매칭. 실패 시 -1.
+function resolveAnswerIndex(answer: string, strippedChoices: string[]): number {
+  const a = (answer ?? '').trim();
+  if (!a) return -1;
+  const al = stripOptionLabel(a).toLowerCase();
+  const lowered = strippedChoices.map((c) => c.toLowerCase());
+  let idx = lowered.findIndex((c) => c === al);
+  if (idx >= 0) return idx;
+  const m = a.match(/^\s*([A-Ja-j가나다라마바사①-⑩]|\d{1,2})/);
+  if (m) {
+    const ch = m[1];
+    if (/^[A-J]$/.test(ch)) return ch.charCodeAt(0) - 65;
+    if (/^[a-j]$/.test(ch)) return ch.charCodeAt(0) - 97;
+    if (/^\d{1,2}$/.test(ch)) return Number(ch) - 1;
+    const ko = '가나다라마바사'.indexOf(ch);
+    if (ko >= 0) return ko;
+    const ci = CIRCLED.indexOf(ch);
+    if (ci >= 0) return ci;
+  }
+  idx = lowered.findIndex((c) => al && (c.includes(al) || al.includes(c)));
+  return idx;
+}
+
 /**
- * ADR-027 — 채팅 출제 문항 카드. 보기를 깔끔히 렌더하고(정답 글자 중복 제거),
+ * ADR-027 — 채팅 출제 문항 카드. 보기를 ①②③④로 통일 렌더하고,
  * 정답·해설은 펼침(details)으로 숨겨 먼저 풀어볼 수 있게 한다.
  */
 function AssessmentItems({ items }: { items: ChatAssessmentItem[] }) {
   return (
     <div className="space-y-3 my-1">
-      {items.map((it, i) => (
-        <div
-          key={i}
-          className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm"
-        >
-          <p className="font-medium text-gray-900">
-            {i + 1}.{' '}
-            {it.subject && (
-              <span className="text-[11px] text-gray-400 mr-1">[{it.subject}]</span>
-            )}
-            {it.question_text}
-          </p>
-          <ul className="mt-2 space-y-1 text-gray-700">
-            {(it.choices ?? []).map((c, ci) => (
-              <li key={ci}>{c}</li>
-            ))}
-          </ul>
-          <details className="mt-2 group">
-            <summary className="cursor-pointer text-[12px] text-brand-600 hover:underline select-none">
-              정답 · 해설 보기
-            </summary>
-            <div className="mt-1 text-[13px] text-gray-700">
-              <span className="font-semibold text-green-700">정답: {it.answer}</span>
-              {it.explanation && <p className="mt-0.5 text-gray-600">{it.explanation}</p>}
-            </div>
-          </details>
-        </div>
-      ))}
+      {items.map((it, i) => {
+        const choices = (it.choices ?? []).map(stripOptionLabel);
+        const ansIdx = resolveAnswerIndex(it.answer, choices);
+        return (
+          <div
+            key={i}
+            className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm"
+          >
+            <p className="font-medium text-gray-900">
+              {i + 1}.{' '}
+              {it.subject && (
+                <span className="text-[11px] text-gray-400 mr-1">[{it.subject}]</span>
+              )}
+              {it.question_text}
+            </p>
+            <ul className="mt-2 space-y-1 text-gray-700">
+              {choices.map((c, ci) => (
+                <li key={ci}>
+                  <span className="text-gray-500 mr-1">{circledFor(ci)}</span>
+                  {c}
+                </li>
+              ))}
+            </ul>
+            <details className="mt-2 group">
+              <summary className="cursor-pointer text-[12px] text-brand-600 hover:underline select-none">
+                정답 · 해설 보기
+              </summary>
+              <div className="mt-1 text-[13px] text-gray-700">
+                <span className="font-semibold text-green-700">
+                  정답:{' '}
+                  {ansIdx >= 0
+                    ? `${circledFor(ansIdx)} ${choices[ansIdx]}`
+                    : it.answer}
+                </span>
+                {it.explanation && (
+                  <p className="mt-0.5 text-gray-600">{it.explanation}</p>
+                )}
+              </div>
+            </details>
+          </div>
+        );
+      })}
       <p className="text-[11px] text-gray-400">
         문제은행을 근거로 생성한 일회성 문항입니다. 저장되지 않습니다.
       </p>
