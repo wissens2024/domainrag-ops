@@ -83,6 +83,7 @@ DomainRAG Ops는 **테넌트별 입력 스키마**로 도메인 지식을 구조
 | [ADR-025](docs/adr/025-assessment-multimodal-ingestion.md) | **Assessment Multimodal Ingestion & Figure-Reuse Generation** (이미지 자산 item 모델·PDF ingestion·그림 재사용 생성·Qwen Vision·dedup/승인 게이팅·검수 엔드포인트) | Accepted (ADR-014/015 확장) |
 | [ADR-026](docs/adr/026-assessment-llm-extraction.md) | **Assessment Item LLM/VLM Extraction** (포맷 무관 LLM 추출 Protocol·정답표 교차검증·신뢰도 게이팅 자동승인. 규칙 파서는 고정포맷 어댑터로 보존) | Accepted (ADR-025 §2 extraction 대체·보완) |
 | [ADR-027](docs/adr/027-conversational-grounded-assessment.md) | **Conversational Grounded Assessment** (사용자 채팅에서 자연어 출제·채점: assessment 의도 액션 분기→문제은행 grounding generate→validator 게이트→대화형 채점. 채팅 생성물 ephemeral, 할루 최소화) | Accepted (ADR-014/025/023/013 연결·확장) |
+| [ADR-028](docs/adr/028-conversational-memory.md) | **Conversational Memory** (ungrounded 후속 답변에 직전 대화 이력 N턴 주입 — "위 문제 설명해줘" 멀티턴. grounded 경로는 제외) | Accepted (ADR-023 확장) |
 
 작업 시작 전에 **관련 ADR을 먼저 읽는다**. 다중 ADR이 관련되면 *최신·미-supersede ADR*을 단일 진실 소스로 따른다.
 
