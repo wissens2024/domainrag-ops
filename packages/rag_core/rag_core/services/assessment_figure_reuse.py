@@ -41,6 +41,7 @@ class FigureReuseResult:
     references_used: list[str] = field(default_factory=list)
     skipped_no_image: int = 0
     rejected_invalid: int = 0
+    vlm_errors: int = 0  # ref별 VLM 일시 오류(timeout/5xx) 수 — 다음 ref로 진행(degrade)
     vlm_unavailable: bool = False
 
 
@@ -160,10 +161,16 @@ class AssessmentFigureReuseGenerator:
                 result.skipped_no_image += 1
                 continue
 
-            raw = await self._vlm.describe(
-                image=image, prompt=_build_vlm_prompt(ref), model=self._model,
-                max_tokens=700, temperature=0.4,
-            )
+            try:
+                raw = await self._vlm.describe(
+                    image=image, prompt=_build_vlm_prompt(ref), model=self._model,
+                    max_tokens=700, temperature=0.4,
+                )
+            except Exception:  # noqa: BLE001 — VLM 일시 오류(timeout/5xx)는 이 ref만
+                # 건너뛰고 다음 ref를 시도한다(ADR-025 §4 degrade). 전체 generate를
+                # abort시키면 호출측이 '그림 없음'으로 오인한다(근본 원인).
+                result.vlm_errors += 1
+                continue
             parsed = _parse_json_obj(raw)
             if not parsed:
                 result.rejected_invalid += 1

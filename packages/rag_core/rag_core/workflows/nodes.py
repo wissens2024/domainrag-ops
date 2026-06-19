@@ -632,6 +632,7 @@ async def _figure_reuse_branch(
 
     items: list[dict[str, Any]] = []
     vlm_unavailable = False
+    vlm_errors = 0
     for subj in try_list[:8]:
         if len(items) >= count:
             break
@@ -648,12 +649,14 @@ async def _figure_reuse_branch(
         if getattr(res, "vlm_unavailable", False):
             vlm_unavailable = True
             break
+        vlm_errors += getattr(res, "vlm_errors", 0)
         for it in res.items:
             items.append(_assessment_item_to_dict(it, domain_id=state.domain_id))
 
     if not items:
-        if vlm_unavailable:
-            msg = "그림 출제 모델(VLM)이 현재 비가동 상태입니다. 잠시 후 다시 시도해 주세요."
+        if vlm_unavailable or vlm_errors > 0:
+            # VLM 비가동/일시 오류로 0개 — '그림 없음'이 아니라 VLM 문제로 안내(정확성).
+            msg = "그림 출제 모델(VLM)이 일시적으로 응답하지 못했습니다. 잠시 후 다시 시도해 주세요."
         elif named:
             subj_label = ", ".join(named)
             msg = (

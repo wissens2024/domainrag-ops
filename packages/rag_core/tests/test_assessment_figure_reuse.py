@@ -29,6 +29,25 @@ class _FakeVLM:
         return self.healthy
 
 
+class _FlakeVLM:
+    """첫 N개 describe 호출은 예외(VLM 일시 오류), 이후 valid 응답."""
+
+    def __init__(self, raise_first=1, valid=None):
+        self._n = 0
+        self._raise = raise_first
+        self._valid = valid or _VALID
+        self.healthy = True
+
+    async def describe(self, **kw):
+        self._n += 1
+        if self._n <= self._raise:
+            raise RuntimeError("VLM timeout (simulated)")
+        return self._valid
+
+    async def health(self):
+        return self.healthy
+
+
 def _loader(mapping):
     async def load(key):
         return mapping[key]  # KeyError → 호출측에서 skip 처리
@@ -144,6 +163,21 @@ async def test_figure_reuse_prompt_includes_original_question():
     prompt = vlm.calls[0]["prompt"]
     assert "다음 트리의 후위 순회 결과는?" in prompt  # 원본 문제 포함
     assert "d-b-a" in prompt                          # 원본 정답 포함
+
+
+async def test_figure_reuse_resilient_to_per_ref_vlm_error():
+    """ADR-027 근본수정 — 한 ref의 VLM 오류가 generate 전체를 abort시키지 않고
+    다음 ref로 진행한다(이전엔 예외 전파→호출측이 '그림 없음'으로 오인)."""
+    repo = InMemoryAssessmentItemRepository()
+    await repo.upsert(_fig_item("REF-1", key="k1"))
+    await repo.upsert(_fig_item("REF-2", key="k2"))
+    vlm = _FlakeVLM(raise_first=1)  # 첫 ref describe 실패, 둘째 성공
+    gen = AssessmentFigureReuseGenerator(
+        repository=repo, vlm=vlm, image_loader=_loader({"k1": b"x", "k2": b"y"}))
+    res = await gen.generate(
+        domain_id="t1", criteria=FigureReuseCriteria(subject="정보보안", count=1))
+    assert res.generated_count == 1   # 한 ref 실패해도 다음 ref로 생성됨
+    assert res.vlm_errors == 1        # VLM 오류 1건 기록(관측)
 
 
 async def test_figure_reuse_rejects_duplicate_choices():
