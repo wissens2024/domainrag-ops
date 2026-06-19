@@ -671,25 +671,35 @@ async def _collect_figure_items(
     vlm_errors = 0
     if count <= 0:
         return items, vlm_unavailable, vlm_errors
-    for subj in try_list[:8]:
+    # 그림 생성이 간헐적으로 0개로 빠지는 경우(그 라운드 refs가 전부 VLM 일시오류/가드폐기)만
+    # 한 번 더 재시도한다(VLM 재샘플). 일부라도 나왔으면 = 진짜 부족(refs 소진)이라 재시도하면
+    # 같은 그림 중복이 생기므로 하지 않는다.
+    for _pass in range(2):
         if len(items) >= count:
             break
-        try:
-            res = await deps.assessment_figure_reuse_service.generate(
-                domain_id=state.domain_id,
-                criteria=FigureReuseCriteria(
-                    subject=subj, difficulty=difficulty, count=count - len(items)
-                ),
-                persist=False,
-            )
-        except Exception:  # noqa: BLE001 — 단일 과목 실패는 건너뛴다
-            continue
-        if getattr(res, "vlm_unavailable", False):
-            vlm_unavailable = True
-            break
-        vlm_errors += getattr(res, "vlm_errors", 0)
-        for it in res.items:
-            items.append(_assessment_item_to_dict(it, domain_id=state.domain_id))
+        if _pass > 0 and items:
+            break  # 부분 성공 = 진짜 부족 → 재시도 안 함(중복 방지)
+        for subj in try_list[:8]:
+            if len(items) >= count:
+                break
+            try:
+                res = await deps.assessment_figure_reuse_service.generate(
+                    domain_id=state.domain_id,
+                    criteria=FigureReuseCriteria(
+                        subject=subj, difficulty=difficulty, count=count - len(items)
+                    ),
+                    persist=False,
+                )
+            except Exception:  # noqa: BLE001 — 단일 과목 실패는 건너뛴다
+                continue
+            if getattr(res, "vlm_unavailable", False):
+                vlm_unavailable = True
+                break
+            vlm_errors += getattr(res, "vlm_errors", 0)
+            for it in res.items:
+                items.append(_assessment_item_to_dict(it, domain_id=state.domain_id))
+        if vlm_unavailable:
+            break  # VLM 자체가 죽었으면 재시도 무의미
     return items, vlm_unavailable, vlm_errors
 
 

@@ -251,8 +251,9 @@ async def test_chat_figure_named_subject_no_substitution():
                      user_context=_user())
     result = await graph.ainvoke(state)
 
-    # database로 대체하지 않는다 — figure-reuse는 operating_system만 호출.
-    assert fig.calls == ["operating_system"]
+    # database로 대체하지 않는다 — figure-reuse는 operating_system만 호출(0개라 재시도해 2회).
+    assert set(fig.calls) == {"operating_system"}
+    assert "database" not in fig.calls
     assert result["grounding"] == "ungrounded"
     assert "operating_system" in result["final_answer"]
     assert not result["assessment_items"]
