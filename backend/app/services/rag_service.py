@@ -117,6 +117,7 @@ class RAGService:
         streaming_service: StreamingChatService | None = None,
         on_first_call=None,
         ledger_audit=None,
+        chat_log_reader=None,
     ) -> None:
         self._deps = deps
         self._graph = build_chat_structured_full(deps)
@@ -125,6 +126,8 @@ class RAGService:
         self._on_first_call = on_first_call
         self._initialized = on_first_call is None
         self._ledger = ledger_audit
+        # ADR-028 — ungrounded 후속 답변에 직전 대화 이력을 주입하기 위한 reader(late-bind 가능).
+        self._chat_log_reader = chat_log_reader
 
     @property
     def streaming_enabled(self) -> bool:
@@ -139,6 +142,37 @@ class RAGService:
         if not self._initialized and self._on_first_call is not None:
             await self._on_first_call()
         self._initialized = True
+
+    async def _load_history(
+        self, *, domain_id: str, conversation_id: str, had_prior: bool
+    ) -> list[dict]:
+        """ADR-028 — 같은 conversation의 직전 turn들을 시간순 role/content로 반환.
+
+        '위 문제 설명해줘' 같은 후속이 직전 출제 문항을 가리키게 한다. 새 대화(클라이언트가
+        conversation_id 미전송)거나 reader 미가용이면 빈 이력. 토큰 보호를 위해 최근 3턴·
+        content 길이 cap. 읽기 실패는 빈 이력으로 degrade(후속 답변 자체는 막지 않는다).
+        """
+        if not had_prior or self._chat_log_reader is None:
+            return []
+        from rag_core.interfaces.chat_log_reader import ChatLogListFilters
+
+        try:
+            res = await self._chat_log_reader.list_by_tenant(
+                domain_id=domain_id,
+                filters=ChatLogListFilters(conversation_id=conversation_id),
+                page=1, page_size=10,
+            )
+        except Exception:  # noqa: BLE001 — 이력 로드 실패는 맥락 없이 진행
+            return []
+        records = list(res.items)[:3]  # 최근 3턴(reader는 latest-first)
+        records.reverse()  # 시간순(오래된→최신)
+        history: list[dict] = []
+        for rec in records:
+            if rec.question:
+                history.append({"role": "user", "content": rec.question[:600]})
+            if rec.answer:
+                history.append({"role": "assistant", "content": rec.answer[:1500]})
+        return history
 
     async def chat_structured(
         self,
@@ -158,8 +192,14 @@ class RAGService:
         # — Conversation API(ADR-017 §4)가 같은 ID로 lookup 가능.
         request_id = uuid.uuid4().hex
         message_id = request_id
+        # ADR-028 — 클라이언트가 conversation_id를 보냈으면 기존 대화(=직전 이력 존재 가능).
+        had_prior = conversation_id is not None
         conversation_id = conversation_id or uuid.uuid4().hex
         start = time.perf_counter()
+
+        history = await self._load_history(
+            domain_id=domain_id, conversation_id=conversation_id, had_prior=had_prior
+        )
 
         state = RAGState(
             request_id=request_id,
@@ -167,6 +207,7 @@ class RAGService:
             user_id=user.user_id,
             conversation_id=conversation_id,
             question=question,
+            conversation_history=history,
             user_context=_user_context_to_dict(user),
             selected_model=self._default_model,
             ui_mode="chat_structured",

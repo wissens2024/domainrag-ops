@@ -48,6 +48,30 @@ def _chunk(cid: str, title: str, content: str) -> RetrievedChunk:
     )
 
 
+async def test_conversational_injects_history(simple_prompt):
+    """ADR-028 — history가 있으면 직전 대화가 프롬프트에 선행 맥락으로 들어간다."""
+    llm = InMemoryLLMClient(responses=["트리 순회는..."])
+    svc = GenerationService(llm=llm, prompt=simple_prompt, model="qwen-7b")
+    history = [
+        {"role": "user", "content": "트리 그림 문제 출제해줘"},
+        {"role": "assistant", "content": "정답: quick sort — 단일 루트 트리..."},
+    ]
+    await svc.generate_conversational(question="위 문제를 자세히 설명해줘", history=history)
+    prompt = llm.calls[0]["prompt"]
+    assert "이전 대화" in prompt
+    assert "quick sort" in prompt          # 직전 답변이 맥락에 포함
+    assert "위 문제를 자세히 설명해줘" in prompt  # 현재 질문도 포함
+
+
+async def test_conversational_no_history_unchanged(simple_prompt):
+    """history 없으면 기존 동작(맥락 미주입) 그대로."""
+    llm = InMemoryLLMClient(responses=["답변"])
+    svc = GenerationService(llm=llm, prompt=simple_prompt, model="qwen-7b")
+    await svc.generate_conversational(question="안녕")
+    prompt = llm.calls[0]["prompt"]
+    assert "이전 대화" not in prompt
+
+
 async def test_generate_structured_parses_valid_json(simple_prompt):
     response_obj = {
         "answer_segments": [

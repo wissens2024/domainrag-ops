@@ -182,6 +182,25 @@ class GenerationService:
             parse_ok=True,
         )
 
+    @staticmethod
+    def _format_history(history: list[dict] | None) -> str:
+        """ADR-028 — 최근 대화 이력을 프롬프트 선행 맥락(plain text)으로 직렬화.
+
+        '위 문제', '그럼 B는?' 같은 지시 표현이 직전 턴을 가리키게 한다. ungrounded
+        경로라 인용 마커는 없으나, caveat(사실성 확인) 책임은 그대로다.
+        """
+        if not history:
+            return ""
+        lines: list[str] = []
+        for turn in history:
+            role = "사용자" if turn.get("role") == "user" else "AI"
+            content = str(turn.get("content") or "").strip()
+            if content:
+                lines.append(f"{role}: {content}")
+        if not lines:
+            return ""
+        return "이전 대화:\n" + "\n\n".join(lines) + "\n\n---\n\n"
+
     async def generate_conversational(
         self,
         *,
@@ -189,14 +208,19 @@ class GenerationService:
         lora_adapter: str | None = None,
         domain_id: str | None = None,
         model_override: str | None = None,
+        history: list[dict] | None = None,
     ) -> str:
-        """ADR-023 §3 — ungrounded 경로 자유 텍스트 생성.
+        """ADR-023 §3 + ADR-028 — ungrounded 경로 자유 텍스트 생성.
 
         guided_json_schema 없이 LLM을 호출해 대화형 답변(plain text)을 반환한다.
         citable context를 주입하지 않아 인용 마커가 새지 않는다. "근거 없음"은
         호출자가 grounding="ungrounded"로 표시하고 UI 배지로 구분한다(ADR-023 §4).
+        history가 있으면 직전 대화를 맥락으로 주입해 후속 질문이 이어지게 한다(ADR-028).
         """
-        prompt = f"{self._conversational_system}\n\n{question}"
+        prompt = (
+            f"{self._conversational_system}\n\n"
+            f"{self._format_history(history)}{question}"
+        )
         return await self._llm.generate(
             prompt,
             model=model_override or self._model,

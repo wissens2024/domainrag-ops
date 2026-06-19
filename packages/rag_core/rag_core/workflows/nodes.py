@@ -446,6 +446,7 @@ async def generate_ungrounded_node(
             lora_adapter=selected_lora,
             domain_id=state.domain_id,
             model_override=selected_model,
+            history=state.conversation_history,  # ADR-028 — 후속 질문 맥락
         )
     except Exception as exc:  # noqa: BLE001 — graceful: 진짜 fallback으로 전환
         failure_chain.append(

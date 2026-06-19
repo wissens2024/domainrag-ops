@@ -30,6 +30,9 @@ class RAGState:
     conversation_id: str | None = None
     question: str = ""
 
+    # ADR-028 — 최근 대화 이력(role/content) — ungrounded 후속 답변 맥락 주입용.
+    conversation_history: list[dict] = field(default_factory=list)
+
     # ADR-018 §5
     user_context: dict | None = None
 

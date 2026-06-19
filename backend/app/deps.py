@@ -176,6 +176,8 @@ def get_rag_service(settings: Settings = Depends(get_settings)) -> RAGService:
             _rag_service._deps.assessment_figure_reuse_service = (  # type: ignore[attr-defined]
                 get_assessment_figure_reuse_service(settings)
             )
+            # ADR-028 — ungrounded 후속 답변에 직전 대화 이력을 주입할 reader.
+            _rag_service._chat_log_reader = get_chat_log_reader(settings)  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001 — 출제 서비스 미가용은 일반 RAG로 degrade
             pass
     return _rag_service
