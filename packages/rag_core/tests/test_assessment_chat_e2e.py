@@ -99,9 +99,11 @@ def _config_loader(_t: str) -> dict:
 class _FakeFigureReuse:
     """figure-reuse 서비스 — assets(storage_key) 보유 문항 반환."""
 
-    def __init__(self, *, vlm_unavailable=False, subjects_with_figs=("database",)) -> None:
+    def __init__(self, *, vlm_unavailable=False, subjects_with_figs=("database",),
+                 max_per_subject=99) -> None:
         self.vlm_unavailable = vlm_unavailable
         self._subjects = set(subjects_with_figs)
+        self._cap = max_per_subject
         self.calls = []
 
     async def generate(self, *, domain_id, criteria):
@@ -112,6 +114,7 @@ class _FakeFigureReuse:
             return FigureReuseResult(vlm_unavailable=True)
         if criteria.subject not in self._subjects:
             return FigureReuseResult(skipped_no_image=1)
+        n = min(criteria.count, self._cap)  # 과목 그림 부족 시뮬레이션
         items = [
             AssessmentItemRecord(
                 item_id=f"FQ-{i}", domain_id=domain_id, subject=criteria.subject,
@@ -122,7 +125,7 @@ class _FakeFigureReuse:
                 assets=[{"asset_id": "a1",
                          "storage_key": f"items/{domain_id}/ref/a1.png"}],
             )
-            for i in range(1, criteria.count + 1)
+            for i in range(1, n + 1)
         ]
         return FigureReuseResult(items=items, generated_count=len(items),
                                  references_used=["ref"])
@@ -234,6 +237,41 @@ async def test_chat_figure_question_routes_to_figure_reuse_with_image():
     assert "items%2Fsecurity%2Fref%2Fa1.png" in items[0]["image_url"]
     # figure-reuse 서비스가 호출되고, 텍스트 generate는 안 탄다.
     assert fig.calls and gen.calls == []
+
+
+async def test_chat_figure_named_subject_no_substitution():
+    """ADR-027 — 명시 과목에 그림이 없으면 다른 과목으로 대체하지 않고 안내한다."""
+    gen = _FakeAssessmentGen()
+    repo = _FakeItemRepo({"operating_system": 100, "database": 50})
+    fig = _FakeFigureReuse(subjects_with_figs=("database",))  # OS엔 그림 없음
+    deps = await _build_deps(assessment_gen=gen, item_repo=repo, figure_reuse=fig)
+    graph = build_chat_structured_full(deps)
+    state = RAGState(request_id="r6", domain_id="security", user_id="u1",
+                     question="운영체제에 그림이 들어간 문제 2개만 출제해줘",
+                     user_context=_user())
+    result = await graph.ainvoke(state)
+
+    # database로 대체하지 않는다 — figure-reuse는 operating_system만 호출.
+    assert fig.calls == ["operating_system"]
+    assert result["grounding"] == "ungrounded"
+    assert "operating_system" in result["final_answer"]
+    assert not result["assessment_items"]
+
+
+async def test_chat_figure_named_subject_shortfall_notes():
+    """ADR-027 — 명시 과목 그림이 요청보다 적으면 있는 만큼만 + 부족 안내."""
+    gen = _FakeAssessmentGen()
+    repo = _FakeItemRepo({"operating_system": 100, "database": 50})
+    fig = _FakeFigureReuse(subjects_with_figs=("operating_system",), max_per_subject=1)
+    deps = await _build_deps(assessment_gen=gen, item_repo=repo, figure_reuse=fig)
+    graph = build_chat_structured_full(deps)
+    state = RAGState(request_id="r7", domain_id="security", user_id="u1",
+                     question="운영체제 그림 문제 2개 출제해줘", user_context=_user())
+    result = await graph.ainvoke(state)
+
+    assert fig.calls == ["operating_system"]  # 다른 과목 대체 없음
+    assert len(result["assessment_items"]) == 1  # 있는 만큼만
+    assert "1개만 출제" in result["final_answer"]
 
 
 async def test_chat_figure_question_degrades_when_vlm_down():

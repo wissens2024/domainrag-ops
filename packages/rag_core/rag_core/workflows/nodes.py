@@ -594,8 +594,8 @@ def _wants_figure(question: str) -> bool:
     return any(h in (question or "") for h in ("그림", "도식", "다이어그램", "도표"))
 
 
-def _ordered_subjects_for_figure(question: str, subjects: list[str]) -> list[str]:
-    """사용자가 지칭한 과목을 앞으로 — 그림 출제 시도 순서(figure 풍부 과목 우선 보조)."""
+def _named_subjects(question: str, subjects: list[str]) -> list[str]:
+    """질문에서 명시된 과목(영문 키 또는 한국어 별칭 매칭)만 반환."""
     ql = (question or "").lower()
     named: list[str] = []
     for subj in subjects:
@@ -603,7 +603,7 @@ def _ordered_subjects_for_figure(question: str, subjects: list[str]) -> list[str
         aliases = _SUBJECT_ALIASES.get(subj, [])
         if any(t and t in ql for t in toks) or any(a in (question or "") for a in aliases):
             named.append(subj)
-    return named + [s for s in subjects if s not in named]
+    return named
 
 
 async def _figure_reuse_branch(
@@ -624,9 +624,15 @@ async def _figure_reuse_branch(
     else:
         difficulty = "medium"
 
+    # 명시 과목이 있으면 그 과목으로만 출제 — 다른 과목의 그림으로 대체하지 않는다
+    # (사용자가 '운영체제 그림문제'를 요청했는데 데이터베이스 그림이 나오면 안 됨).
+    # 미지정이면 그림 풍부 과목 순으로 시도(subjects는 item 수 desc 정렬).
+    named = _named_subjects(q, subjects)
+    try_list = named if named else subjects
+
     items: list[dict[str, Any]] = []
     vlm_unavailable = False
-    for subj in _ordered_subjects_for_figure(q, subjects)[:8]:
+    for subj in try_list[:8]:
         if len(items) >= count:
             break
         try:
@@ -645,11 +651,16 @@ async def _figure_reuse_branch(
             items.append(_assessment_item_to_dict(it, domain_id=state.domain_id))
 
     if not items:
-        msg = (
-            "그림 출제 모델(VLM)이 현재 비가동 상태입니다. 잠시 후 다시 시도해 주세요."
-            if vlm_unavailable
-            else "재사용할 수 있는 그림 문항이 없습니다. 관리자가 그림 문항을 승인한 뒤 다시 시도해 주세요."
-        )
+        if vlm_unavailable:
+            msg = "그림 출제 모델(VLM)이 현재 비가동 상태입니다. 잠시 후 다시 시도해 주세요."
+        elif named:
+            subj_label = ", ".join(named)
+            msg = (
+                f"'{subj_label}' 과목에는 재사용할 수 있는 그림 문항이 없습니다. "
+                "관리자가 해당 과목의 그림 문항을 승인했는지 확인하거나, 다른 과목으로 요청해 주세요."
+            )
+        else:
+            msg = "재사용할 수 있는 그림 문항이 없습니다. 관리자가 그림 문항을 승인한 뒤 다시 시도해 주세요."
         return {
             "grounding": "ungrounded", "final_answer": msg,
             "answer_segments": [{"text": msg, "citations": []}],
@@ -661,6 +672,12 @@ async def _figure_reuse_branch(
         for it in items
     ]
     answer = _format_assessment_answer(items, plan)
+    # 요청 개수보다 적게 나왔으면(그림 문항 부족) 솔직하게 안내 — 다른 과목으로 채우지 않음.
+    if len(items) < count:
+        answer += (
+            f"\n\n※ 요청하신 {count}개 중 재사용 가능한 그림 문항이 부족해 "
+            f"{len(items)}개만 출제했습니다."
+        )
     return {
         "grounding": "assessment", "assessment_items": items, "assessment_plan": plan,
         "final_answer": answer,
