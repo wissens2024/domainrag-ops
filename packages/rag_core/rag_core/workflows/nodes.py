@@ -492,7 +492,7 @@ async def generate_ungrounded_node(
 # '과목별' 분배로 동작하므로 starter 수준이면 충분(향후 configs로 이전 가능).
 _SUBJECT_ALIASES: dict[str, list[str]] = {
     "database": ["데이터베이스", "db", "디비"],
-    "operating_system": ["운영체제", "os"],
+    "operating_system": ["운영체제", "운영체계", "운영 체제", "운영 체계", "os"],
     "software_engineering": ["소프트웨어공학", "소공"],
     "computer_structure": ["컴퓨터구조", "전산구조"],
     "data_communication": ["데이터통신", "통신", "네트워크"],

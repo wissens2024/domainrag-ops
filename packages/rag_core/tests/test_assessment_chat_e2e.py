@@ -247,7 +247,7 @@ async def test_chat_figure_named_subject_no_substitution():
     deps = await _build_deps(assessment_gen=gen, item_repo=repo, figure_reuse=fig)
     graph = build_chat_structured_full(deps)
     state = RAGState(request_id="r6", domain_id="security", user_id="u1",
-                     question="운영체제에 그림이 들어간 문제 2개만 출제해줘",
+                     question="운영체계에 그림이 들어간 문제 2개만 출제 해줘",  # '체계' 변형
                      user_context=_user())
     result = await graph.ainvoke(state)
 
