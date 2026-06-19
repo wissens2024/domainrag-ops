@@ -315,6 +315,38 @@ def test_references_figure_detects_visual_refs():
     assert _references_figure("그래프 자료구조의 탐색 방법은?") is False  # '그래프'는 허용
 
 
+def test_degenerate_choices_detects_duplicates():
+    from rag_core.services.assessment_generate import _degenerate_choices
+
+    assert _degenerate_choices(["①A", "②B", "③C", "④A"]) is True  # 정규화 후 A 중복
+    assert _degenerate_choices(["A", "B", "C", "D"]) is False
+    assert _degenerate_choices(["A"]) is True  # 2개 미만
+    assert _degenerate_choices(
+        ["일관성 유지", "일관성 유지", "독립성", "지속성"]
+    ) is True  # 동일 보기 중복
+
+
+async def test_generate_drops_duplicate_choice_items():
+    """ADR-027 — 보기가 중복된 문항(7B 결함)은 폐기."""
+    repo = InMemoryAssessmentItemRepository()
+    await repo.upsert(_item("Q-REF", question_text="참고 문제"))
+    payload = {"items": [{"question_text": "ACID 속성이 아닌 것은?",
+                          "choices": ["원자성", "일관성", "일관성", "지속성"],
+                          "answer": "원자성", "explanation": "해설", "difficulty": "medium"}]}
+    llm = _FakeLLM([json.dumps(payload)])
+    service = AssessmentGenerateService(
+        repository=repo, llm_client=llm,
+        similarity_checker=AssessmentSimilarityChecker(
+            embedder=InMemoryEmbedder(),
+            thresholds=SimilarityThresholds(duplicate=0.99, similar=0.5)),
+        validator=AssessmentValidator(llm_client=llm), max_retries=1,
+    )
+    result = await service.generate(
+        domain_id="t1", criteria=GenerateCriteria(subject="database", count=1),
+        persist=False)
+    assert result.generated_count == 0
+
+
 async def test_generate_drops_figure_referencing_items():
     """ADR-027 — 이미지 참조 문항(다음 그림…)은 채팅 텍스트 출제에서 폐기."""
     repo = InMemoryAssessmentItemRepository()

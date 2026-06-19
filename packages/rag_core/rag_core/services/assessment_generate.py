@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -79,7 +80,7 @@ class AssessmentGenerateService:
         similarity_checker: AssessmentSimilarityChecker,
         validator: AssessmentValidator,
         model: str = "shared_llm",
-        max_retries: int = 3,
+        max_retries: int = 4,  # ADR-027 — 품질 가드(중복·그림·중국어) reject 보상, 12문제 충족률↑
         item_index: Any = None,
     ) -> None:
         self._repo = repository
@@ -190,6 +191,9 @@ class AssessmentGenerateService:
                     _references_figure(str(c)) for c in _choices_raw
                 ):
                     continue
+                # 보기 중복/부족(7B 결함)은 결정적으로 폐기(ADR-027). retry로 재생성.
+                if _degenerate_choices(_choices_raw):
+                    continue
                 # similarity check — 인덱스가 있으면 사전 인덱스 검색(후보 재임베딩 제거),
                 # 없으면 기존 on-the-fly 임베딩 비교.
                 if self._item_index is not None:
@@ -286,6 +290,24 @@ _FIGURE_HINTS = ("그림", "다이어그램", "도식", "도표", "아래 표", 
 def _references_figure(text: str) -> bool:
     t = text or ""
     return any(h in t for h in _FIGURE_HINTS)
+
+
+def _norm_choice(c: Any) -> str:
+    """보기 선두 라벨(①/가./A./1.)을 떼고 정규화 — 중복 보기 탐지용."""
+    s = str(c or "").strip()
+    s = re.sub(r"^\s*(?:[①-⑳]\s*|(?:[가-힣]|[A-Za-z]|\d{1,2})[.)]\s+)", "", s)
+    return s.strip().lower()
+
+
+def _degenerate_choices(choices: list[Any]) -> bool:
+    """보기가 비정상이면 True — 4지선다 미만이거나 중복 보기가 있는 경우(ADR-027).
+
+    예: ACID 문항에서 ②④ 보기가 동일하게 생성되는 7B 결함을 결정적으로 거른다.
+    """
+    norm = [_norm_choice(c) for c in choices if str(c).strip()]
+    if len(norm) < 2:
+        return True
+    return len(set(norm)) < len(norm)  # 정규화 후 중복 존재
 
 
 def _parse_json_items(raw: str) -> tuple[list[dict], str | None]:
