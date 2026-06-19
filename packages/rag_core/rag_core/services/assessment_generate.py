@@ -80,7 +80,10 @@ class AssessmentGenerateService:
         similarity_checker: AssessmentSimilarityChecker,
         validator: AssessmentValidator,
         model: str = "shared_llm",
-        max_retries: int = 4,  # ADR-027 — 품질 가드(중복·그림·중국어) reject 보상, 12문제 충족률↑
+        # ADR-027 — retry는 3 유지. 4로 올리면 다과목(6과목 병렬) 출제가 nginx
+        # proxy_read_timeout(120s)을 넘겨 504 위험. 품질 가드로 reject가 늘어도
+        # 충족률보다 응답시간을 우선한다(부족 시 사용자가 추가 요청).
+        max_retries: int = 3,
         item_index: Any = None,
     ) -> None:
         self._repo = repository
