@@ -107,6 +107,7 @@ class AssessmentGenerateService:
         actor: str | None = None,
         validators_config: dict[str, dict[str, Any]] | None = None,
         persist: bool = True,
+        validate: bool = True,
     ) -> GenerateResult:
         """ADR-014 §3 Mode 2 출제.
 
@@ -231,16 +232,22 @@ class AssessmentGenerateService:
                     result.rejected_duplicates += 1
                     continue
 
-                # validator
-                outcome: ValidationOutcome = await self._validator.validate(
-                    question_text=qtext,
-                    choices=list(candidate.get("choices") or []),
-                    answer=str(candidate.get("answer", "")),
-                    explanation=candidate.get("explanation"),
-                    difficulty=str(candidate.get("difficulty") or criteria.difficulty),
-                    validators_config=validators_config,
-                )
-                validator_scores.append(outcome.quality_score)
+                # validator — ADR-027/029: 채팅 ephemeral(validate=False)은 미사용 검증을
+                # 건너뛴다(문항당 4 LLM콜 = 대량 출제 지연·실패의 주원인). 하드 가드는 유지.
+                if validate:
+                    outcome: ValidationOutcome = await self._validator.validate(
+                        question_text=qtext,
+                        choices=list(candidate.get("choices") or []),
+                        answer=str(candidate.get("answer", "")),
+                        explanation=candidate.get("explanation"),
+                        difficulty=str(candidate.get("difficulty") or criteria.difficulty),
+                        validators_config=validators_config,
+                    )
+                    validator_scores.append(outcome.quality_score)
+                else:
+                    outcome = ValidationOutcome(
+                        quality_status="reviewed", quality_score=1.0, validator_results={}
+                    )
 
                 # upsert
                 item_id = f"Q-{uuid.uuid4().hex[:12]}"

@@ -693,11 +693,27 @@ async def _collect_figure_items(
     return items, vlm_unavailable, vlm_errors
 
 
+_TEXT_BATCH = 5  # 단일 generate 호출당 문항 수 — max_tokens=2048에 안전히 들어가는 크기
+
+
 async def _collect_text_items(
     state: RAGState, deps: RAGGraphDeps, svc: Any, plan: list[dict[str, Any]], max_total: int
 ) -> list[dict[str, Any]]:
-    """텍스트 문항 수집 — 과목별 generate 병렬 실행 후 평탄화(max_total cap)."""
+    """텍스트 문항 수집 — 큰 count를 소배치로 쪼개 병렬 생성 후 평탄화(max_total cap).
+
+    단일 호출로 대량(예: 19문항) 요청 시 max_tokens 초과로 JSON이 트렁케이트→파싱 실패→
+    0개가 되던 문제를 배치로 회피한다. 채팅 ephemeral이라 validate=False로 미사용 검증
+    (문항당 4 LLM콜)을 건너뛰어 지연·504를 막는다(ADR-027).
+    """
     from ..services.assessment_generate import GenerateCriteria
+
+    batched: list[dict[str, Any]] = []
+    for e in plan:
+        remaining = int(e["count"])
+        while remaining > 0:
+            n = min(_TEXT_BATCH, remaining)
+            batched.append({**e, "count": n})
+            remaining -= n
 
     async def _gen_one(entry: dict[str, Any]) -> list[dict[str, Any]]:
         try:
@@ -709,13 +725,14 @@ async def _collect_text_items(
                     count=int(entry["count"]),
                 ),
                 persist=False,
+                validate=False,
             )
-        except Exception:  # noqa: BLE001 — 단일 과목 생성 실패는 건너뛴다
+        except Exception:  # noqa: BLE001 — 단일 배치 실패는 건너뛴다
             return []
         return [_assessment_item_to_dict(it) for it in res.items]
 
-    per_subject = await asyncio.gather(*[_gen_one(e) for e in plan])
-    return [it for sub in per_subject for it in sub][:max_total]
+    per_batch = await asyncio.gather(*[_gen_one(e) for e in batched])
+    return [it for sub in per_batch for it in sub][:max_total]
 
 
 async def _compound_assessment_branch(
@@ -730,14 +747,16 @@ async def _compound_assessment_branch(
     named = _named_subjects(q, subjects)
     try_list = named if named else subjects
 
-    text_items: list[dict[str, Any]] = []
-    if text_count > 0:
+    # 텍스트·그림 생성을 동시 실행(wall-clock 단축, 504 회피).
+    async def _text() -> list[dict[str, Any]]:
+        if text_count <= 0:
+            return []
         plan = _plan_assessment(q, subjects, defaults, count_override=text_count)
-        text_items = await _collect_text_items(
-            state, deps, svc, plan, defaults["max_total"]
-        )
-    fig_items, vlm_unavailable, vlm_errors = await _collect_figure_items(
-        state, deps, try_list, figure_count, difficulty
+        return await _collect_text_items(state, deps, svc, plan, defaults["max_total"])
+
+    text_items, (fig_items, vlm_unavailable, vlm_errors) = await asyncio.gather(
+        _text(),
+        _collect_figure_items(state, deps, try_list, figure_count, difficulty),
     )
 
     items = text_items + fig_items

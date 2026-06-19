@@ -38,7 +38,7 @@ class _FakeAssessmentGen:
         self.calls: list[dict] = []
 
     async def generate(self, *, domain_id, criteria: GenerateCriteria,
-                       actor=None, validators_config=None, persist=True):
+                       actor=None, validators_config=None, persist=True, validate=True):
         self.calls.append({"subject": criteria.subject, "count": criteria.count,
                            "persist": persist})
         items = [
