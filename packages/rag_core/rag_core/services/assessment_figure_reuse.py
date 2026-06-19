@@ -44,16 +44,35 @@ class FigureReuseResult:
     vlm_unavailable: bool = False
 
 
-_PROMPT = (
-    "이 그림을 보고, 같은 그림에 대한 새로운 4지선다 객관식 문제 1개를 한국어로 만들어라.\n"
-    "- 그림이 나타내는 **개념/구조/동작**을 묻는다(예: 트리 순회 결과, 회로 동작, 자료구조 특성).\n"
-    "- 그림에 찍힌 **워터마크·로고·출처 표시(예: Gisapass, 기사패스, 사이트 주소)는 문제의 소재로 "
-    "쓰지 마라.** 그것을 세거나 묻는 문제는 만들지 마라.\n"
-    "- 보기 4개는 서로 **모두 달라야** 한다(동일 보기 금지).\n"
-    "- 출력은 반드시 한국어로 하라. 다른 언어로 번역·치환하지 마라.\n"
-    '- JSON만 출력: {"question_text": str, "choices": [보기 4개 str], '
-    '"answer": 정답 보기 텍스트(choices 중 하나와 정확히 일치), "explanation": str}\n'
-)
+def _build_vlm_prompt(ref) -> str:
+    """그림 + **원본 문제 맥락**을 함께 주어 VLM이 그림이 평가하는 개념을 알고 새 문제를
+    만들게 한다(ADR-027). 그림만 주면 워터마크·표면(숫자/글자)을 묻는 무의미 문항이 나온다."""
+    choices = " / ".join(str(c) for c in (getattr(ref, "choices", None) or []))
+    lines = [
+        "아래 그림은 정보처리기사 시험 문제에 사용된 그림이다.",
+        "이 그림이 쓰인 원본 문제(참고용 — 그대로 베끼지 말 것):",
+        f"- 원본 문제: {getattr(ref, 'question_text', '')}",
+    ]
+    if choices:
+        lines.append(f"- 원본 보기: {choices}")
+    if getattr(ref, "answer", ""):
+        lines.append(f"- 원본 정답: {ref.answer}")
+    if getattr(ref, "explanation", None):
+        lines.append(f"- 원본 해설: {ref.explanation}")
+    lines += [
+        "",
+        "위 원본 문제와 **같은 그림·같은 개념**을 평가하는 새로운 4지선다 객관식 문제 1개를 한국어로 만들어라.",
+        "- 원본이 묻는 핵심 개념(예: 트리 순회 결과, 회로 동작, 자료구조 특성)을 유지하되, "
+        "질문 표현·보기·정답은 새로 구성한다.",
+        "- 그림에 찍힌 워터마크·로고·출처 표시(Gisapass, 기사패스, 사이트 주소 등)는 절대 문제의 "
+        "소재로 쓰지 마라. 그것을 세거나 묻는 문제는 만들지 마라.",
+        "- 보기 4개는 서로 모두 달라야 한다(동일 보기 금지).",
+        "- 출력은 반드시 한국어로 하라. 다른 언어로 번역·치환하지 마라.",
+        '- JSON만 출력: {"question_text": str, "choices": [보기 4개 str], '
+        '"answer": 정답 보기 텍스트(choices 중 하나와 정확히 일치), "explanation": str}',
+    ]
+    return "\n".join(lines)
+
 
 # 시험지 crop에 섞이는 워터마크/출처 브랜드 — 이를 묻는 문항은 무의미하므로 폐기(ADR-025 #3).
 _WATERMARK_HINTS = ("gisapass", "기사패스", "gisafirst", "comcbt")
@@ -142,7 +161,7 @@ class AssessmentFigureReuseGenerator:
                 continue
 
             raw = await self._vlm.describe(
-                image=image, prompt=_PROMPT, model=self._model,
+                image=image, prompt=_build_vlm_prompt(ref), model=self._model,
                 max_tokens=700, temperature=0.4,
             )
             parsed = _parse_json_obj(raw)

@@ -22,7 +22,7 @@ class _FakeVLM:
         self.calls = []
 
     async def describe(self, *, image, prompt, model=None, max_tokens=1024, temperature=0.2):
-        self.calls.append({"image_len": len(image), "model": model})
+        self.calls.append({"image_len": len(image), "model": model, "prompt": prompt})
         return self._responses.pop(0) if self._responses else "{}"
 
     async def health(self):
@@ -125,6 +125,25 @@ async def test_figure_reuse_ignores_non_figure_items():
     res = await gen.generate(domain_id="t1", criteria=FigureReuseCriteria(subject="정보보안", count=1))
     assert res.generated_count == 0
     assert vlm.calls == []
+
+
+async def test_figure_reuse_prompt_includes_original_question():
+    """ADR-027 — 그림만이 아니라 원본 문제(질문·정답)도 VLM에 함께 전달한다."""
+    repo = InMemoryAssessmentItemRepository()
+    await repo.upsert(AssessmentItemRecord(
+        item_id="REF-1", domain_id="t1", subject="정보보안", difficulty="medium",
+        question_type="multiple_choice", question_text="다음 트리의 후위 순회 결과는?",
+        choices=["a-b-d", "d-b-a", "a-d-b", "b-d-a"], answer="d-b-a",
+        quality_status="approved", figure_dependent=True,
+        assets=[{"asset_id": "a", "kind": "image", "storage_key": "k1"}]))
+    vlm = _FakeVLM([_VALID])
+    gen = AssessmentFigureReuseGenerator(
+        repository=repo, vlm=vlm, image_loader=_loader({"k1": b"x"}))
+    await gen.generate(domain_id="t1",
+                       criteria=FigureReuseCriteria(subject="정보보안", count=1))
+    prompt = vlm.calls[0]["prompt"]
+    assert "다음 트리의 후위 순회 결과는?" in prompt  # 원본 문제 포함
+    assert "d-b-a" in prompt                          # 원본 정답 포함
 
 
 async def test_figure_reuse_rejects_duplicate_choices():
