@@ -78,6 +78,8 @@ class RAGGraphDeps:
     # 그래프 빌드 후 deps에 세팅돼도 노드가 호출 시점에 읽는다.
     assessment_generate_service: Any = None
     assessment_item_repo: Any = None
+    # ADR-027 — 채팅 그림 문제 출제(figure-reuse, VLM). None이면 그림 출제 비활성.
+    assessment_figure_reuse_service: Any = None
 
 
 async def _load_config(deps: RAGGraphDeps, domain_id: str) -> dict[str, Any]:
@@ -565,14 +567,106 @@ def _plan_assessment(
     return [{"subject": subjects[0], "count": count, "difficulty": difficulty}]
 
 
-def _assessment_item_to_dict(item: Any) -> dict[str, Any]:
-    return {
+def _assessment_item_to_dict(item: Any, domain_id: str | None = None) -> dict[str, Any]:
+    d = {
         "subject": getattr(item, "subject", None),
         "difficulty": getattr(item, "difficulty", None),
         "question_text": getattr(item, "question_text", ""),
         "choices": list(getattr(item, "choices", []) or []),
         "answer": getattr(item, "answer", ""),
         "explanation": getattr(item, "explanation", None),
+    }
+    # ADR-027 — 그림 문항이면 이미지 서빙 URL을 추가(채팅 카드가 <img>로 표시).
+    assets = getattr(item, "assets", None) or []
+    if domain_id and assets:
+        key = (assets[0] or {}).get("storage_key") if isinstance(assets[0], dict) else None
+        if key:
+            from urllib.parse import quote
+
+            d["image_url"] = (
+                f"/api/{domain_id}/assessment/asset?key={quote(str(key), safe='')}"
+            )
+    return d
+
+
+def _wants_figure(question: str) -> bool:
+    """그림 문제 출제 의도 — 시각 자료 키워드 포함 (ADR-027 figure-reuse 분기)."""
+    return any(h in (question or "") for h in ("그림", "도식", "다이어그램", "도표"))
+
+
+def _ordered_subjects_for_figure(question: str, subjects: list[str]) -> list[str]:
+    """사용자가 지칭한 과목을 앞으로 — 그림 출제 시도 순서(figure 풍부 과목 우선 보조)."""
+    ql = (question or "").lower()
+    named: list[str] = []
+    for subj in subjects:
+        toks = [subj.lower(), subj.replace("_", " ").lower()]
+        aliases = _SUBJECT_ALIASES.get(subj, [])
+        if any(t and t in ql for t in toks) or any(a in (question or "") for a in aliases):
+            named.append(subj)
+    return named + [s for s in subjects if s not in named]
+
+
+async def _figure_reuse_branch(
+    state: RAGState, deps: RAGGraphDeps, subjects: list[str]
+) -> dict[str, Any]:
+    """ADR-027 — 채팅 그림 문제 출제. 기존 figure_dependent approved 문항의 그림을
+    재사용해 VLM이 새 질문을 생성하고, 이미지와 함께 표시한다. 그림은 느리므로 count는
+    작게 cap하고, 그림이 풍부한 과목을 우선 시도한다(전체 504 회피)."""
+    from ..services.assessment_figure_reuse import FigureReuseCriteria
+
+    q = state.question or ""
+    m = re.search(r"(\d+)\s*(문제|문항|개)", q)
+    count = max(1, min(int(m.group(1)) if m else 1, 5))
+    if any(w in q for w in ("어려운", "어렵게", "hard")):
+        difficulty = "hard"
+    elif any(w in q for w in ("쉬운", "쉽게", "easy")):
+        difficulty = "easy"
+    else:
+        difficulty = "medium"
+
+    items: list[dict[str, Any]] = []
+    vlm_unavailable = False
+    for subj in _ordered_subjects_for_figure(q, subjects)[:8]:
+        if len(items) >= count:
+            break
+        try:
+            res = await deps.assessment_figure_reuse_service.generate(
+                domain_id=state.domain_id,
+                criteria=FigureReuseCriteria(
+                    subject=subj, difficulty=difficulty, count=count - len(items)
+                ),
+            )
+        except Exception:  # noqa: BLE001 — 단일 과목 실패는 건너뛴다
+            continue
+        if getattr(res, "vlm_unavailable", False):
+            vlm_unavailable = True
+            break
+        for it in res.items:
+            items.append(_assessment_item_to_dict(it, domain_id=state.domain_id))
+
+    if not items:
+        msg = (
+            "그림 출제 모델(VLM)이 현재 비가동 상태입니다. 잠시 후 다시 시도해 주세요."
+            if vlm_unavailable
+            else "재사용할 수 있는 그림 문항이 없습니다. 관리자가 그림 문항을 승인한 뒤 다시 시도해 주세요."
+        )
+        return {
+            "grounding": "ungrounded", "final_answer": msg,
+            "answer_segments": [{"text": msg, "citations": []}],
+            "citations": [], "citation_types": [], "confidence": 0.0,
+            "fallback_reason": None,
+        }
+    plan = [
+        {"subject": it.get("subject"), "count": 1, "difficulty": difficulty, "figure": True}
+        for it in items
+    ]
+    answer = _format_assessment_answer(items, plan)
+    return {
+        "grounding": "assessment", "assessment_items": items, "assessment_plan": plan,
+        "final_answer": answer,
+        "answer_segments": [{"text": answer, "citations": []}],
+        "citations": [], "citation_types": [], "confidence": 0.0,
+        "fallback_reason": None,
     }
 
 
@@ -639,6 +733,10 @@ async def assessment_node(state: RAGState, deps: RAGGraphDeps) -> dict[str, Any]
             ]
         except Exception:  # noqa: BLE001 — 과목 수집 실패는 빈 계획으로 degrade
             subjects = []
+
+    # ADR-027 — "그림 문제" 의도면 figure-reuse 경로(기존 그림 재사용 + VLM 새 질문).
+    if deps.assessment_figure_reuse_service is not None and _wants_figure(state.question):
+        return await _figure_reuse_branch(state, deps, subjects)
 
     defaults = _assessment_defaults(state.tenant_config)
     plan = _plan_assessment(state.question, subjects, defaults)

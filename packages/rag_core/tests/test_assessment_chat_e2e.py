@@ -96,7 +96,39 @@ def _config_loader(_t: str) -> dict:
     }
 
 
-async def _build_deps(*, assessment_gen, item_repo) -> RAGGraphDeps:
+class _FakeFigureReuse:
+    """figure-reuse 서비스 — assets(storage_key) 보유 문항 반환."""
+
+    def __init__(self, *, vlm_unavailable=False, subjects_with_figs=("database",)) -> None:
+        self.vlm_unavailable = vlm_unavailable
+        self._subjects = set(subjects_with_figs)
+        self.calls = []
+
+    async def generate(self, *, domain_id, criteria):
+        from rag_core.services.assessment_figure_reuse import FigureReuseResult
+
+        self.calls.append(criteria.subject)
+        if self.vlm_unavailable:
+            return FigureReuseResult(vlm_unavailable=True)
+        if criteria.subject not in self._subjects:
+            return FigureReuseResult(skipped_no_image=1)
+        items = [
+            AssessmentItemRecord(
+                item_id=f"FQ-{i}", domain_id=domain_id, subject=criteria.subject,
+                difficulty=criteria.difficulty,
+                question_text="다음 그림의 트리 후위 순회 결과는?",
+                choices=["A", "B", "C", "D"], answer="A", explanation="해설",
+                source="generated", figure_dependent=True,
+                assets=[{"asset_id": "a1",
+                         "storage_key": f"items/{domain_id}/ref/a1.png"}],
+            )
+            for i in range(1, criteria.count + 1)
+        ]
+        return FigureReuseResult(items=items, generated_count=len(items),
+                                 references_used=["ref"])
+
+
+async def _build_deps(*, assessment_gen, item_repo, figure_reuse=None) -> RAGGraphDeps:
     store = InMemoryVectorStore()
     embedder = InMemoryEmbedder(dense_dim=64)
     await store.create_collection(domain_id="security", dense_dim=64)
@@ -128,6 +160,7 @@ async def _build_deps(*, assessment_gen, item_repo) -> RAGGraphDeps:
         model_router=ModelRouter(),
         assessment_generate_service=assessment_gen,
         assessment_item_repo=item_repo,
+        assessment_figure_reuse_service=figure_reuse,
     )
 
 
@@ -180,3 +213,39 @@ async def test_non_assessment_question_uses_normal_rag():
     assert result["query_type"] != "assessment_generation"
     assert result["grounding"] != "assessment"
     assert gen.calls == []
+
+
+async def test_chat_figure_question_routes_to_figure_reuse_with_image():
+    """ADR-027 — '그림 문제' 의도면 figure-reuse 경로 + image_url 포함."""
+    gen = _FakeAssessmentGen()
+    repo = _FakeItemRepo({"database": 100, "operating_system": 50})
+    fig = _FakeFigureReuse(subjects_with_figs=("database",))
+    deps = await _build_deps(assessment_gen=gen, item_repo=repo, figure_reuse=fig)
+    graph = build_chat_structured_full(deps)
+    state = RAGState(request_id="r4", domain_id="security", user_id="u1",
+                     question="그림 문제 하나 출제해줘", user_context=_user())
+    result = await graph.ainvoke(state)
+
+    assert result["grounding"] == "assessment"
+    items = result["assessment_items"]
+    assert len(items) == 1
+    # 그림 이미지 서빙 URL이 포함된다.
+    assert items[0]["image_url"].startswith("/api/security/assessment/asset?key=")
+    assert "items%2Fsecurity%2Fref%2Fa1.png" in items[0]["image_url"]
+    # figure-reuse 서비스가 호출되고, 텍스트 generate는 안 탄다.
+    assert fig.calls and gen.calls == []
+
+
+async def test_chat_figure_question_degrades_when_vlm_down():
+    """ADR-027 — VLM 비가동이면 그림 출제 안내(ungrounded)."""
+    gen = _FakeAssessmentGen()
+    repo = _FakeItemRepo({"database": 100})
+    fig = _FakeFigureReuse(vlm_unavailable=True)
+    deps = await _build_deps(assessment_gen=gen, item_repo=repo, figure_reuse=fig)
+    graph = build_chat_structured_full(deps)
+    state = RAGState(request_id="r5", domain_id="security", user_id="u1",
+                     question="그림 문제 출제해줘", user_context=_user())
+    result = await graph.ainvoke(state)
+
+    assert result["grounding"] == "ungrounded"
+    assert "VLM" in result["final_answer"]

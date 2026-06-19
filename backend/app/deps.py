@@ -172,6 +172,10 @@ def get_rag_service(settings: Settings = Depends(get_settings)) -> RAGService:
             _rag_service._deps.assessment_item_repo = (  # type: ignore[attr-defined]
                 get_assessment_item_repository(settings)
             )
+            # ADR-027 — 채팅 그림 문제 출제(figure-reuse) 분기용. VLM 미가동 시 degrade.
+            _rag_service._deps.assessment_figure_reuse_service = (  # type: ignore[attr-defined]
+                get_assessment_figure_reuse_service(settings)
+            )
         except Exception:  # noqa: BLE001 — 출제 서비스 미가용은 일반 RAG로 degrade
             pass
     return _rag_service
@@ -544,6 +548,20 @@ def get_assessment_vision_client(settings: Settings = Depends(get_settings)):
             model=settings.vision_model,
         )
     return _assessment_vision_client
+
+
+_asset_storage = None
+
+
+def get_assessment_asset_storage(settings: Settings = Depends(get_settings)):
+    """ADR-025/027 — 그림 자산 이미지 서빙용 DocumentStorage(캐시).
+
+    figure-reuse 채팅 문항의 그림을 HTTP로 내려줄 때 MinIO/로컬에서 bytes를 읽는다.
+    """
+    global _asset_storage
+    if _asset_storage is None:
+        _asset_storage = _build_document_storage(settings)
+    return _asset_storage
 
 
 def get_assessment_figure_reuse_service(settings: Settings = Depends(get_settings)):

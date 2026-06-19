@@ -63,6 +63,8 @@ export interface ChatAssessmentItem {
   choices: string[];
   answer: string;
   explanation: string | null;
+  // ADR-027 — 그림 문제(figure-reuse)면 그림 이미지 서빙 URL. 텍스트 문항은 없음.
+  image_url?: string;
 }
 
 export interface ChatMetadata {

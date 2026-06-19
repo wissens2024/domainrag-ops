@@ -320,6 +320,15 @@ function AssessmentItems({ items }: { items: ChatAssessmentItem[] }) {
               )}
               {it.question_text}
             </p>
+            {it.image_url && (
+              // ADR-027 — 그림 문제: 문제은행의 기존 그림을 표시(figure-reuse).
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={it.image_url}
+                alt="문제 그림"
+                className="mt-2 max-h-72 w-auto rounded-lg border border-gray-200"
+              />
+            )}
             <ul className="mt-2 space-y-1 text-gray-700">
               {choices.map((c, ci) => (
                 <li key={ci}>

@@ -21,7 +21,7 @@ import time
 import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.timezone import iso_kst
@@ -29,6 +29,7 @@ from app.core.auth_adapter import UserContext, get_user_context
 from app.core.config import get_settings
 from app.core.tenant_guard import ensure_tenant_match
 from app.deps import (
+    get_assessment_asset_storage,
     get_assessment_extract_service,
     get_assessment_generate_service,
     get_assessment_hybrid_service,
@@ -81,6 +82,44 @@ def _item_to_dict(rec) -> dict[str, Any]:
         "created_at": iso_kst(rec.created_at),
         "updated_at": iso_kst(rec.updated_at),
     }
+
+
+_IMAGE_MEDIA = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".webp": "image/webp", ".gif": "image/gif",
+}
+
+
+@router.get("/asset")
+async def get_assessment_asset(
+    domain_id: str,
+    key: str = Query(..., description="asset storage_key (items/<domain>/...)"),
+    user: UserContext = Depends(get_user_context),
+    storage=Depends(get_assessment_asset_storage),
+):
+    """ADR-025/027 — 그림 자산 이미지 서빙. 채팅 figure-reuse 문항의 그림 표시용.
+
+    테넌트 격리: storage_key는 `items/<domain_id>/` 프리픽스만 허용하고 path traversal을
+    차단한다. ephemeral 문항이라 DB 조회 없이 key로 직접 서빙하되 prefix로 도메인을 묶는다.
+    """
+    await _tenant_guard(domain_id, user)
+    skey = key.strip()
+    if (
+        ".." in skey
+        or skey.startswith("/")
+        or not skey.startswith(f"items/{domain_id}/")
+    ):
+        raise HTTPException(status_code=403, detail={"error": "forbidden_asset_key"})
+    try:
+        data = await storage.load(object_path=skey)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail={"error": "asset_not_found"})
+    ext = skey[skey.rfind(".") :].lower() if "." in skey else ""
+    media = _IMAGE_MEDIA.get(ext, "application/octet-stream")
+    return Response(
+        content=data, media_type=media,
+        headers={"Cache-Control": "private, max-age=600"},
+    )
 
 
 # --------------------------------------------------------------------------- #
