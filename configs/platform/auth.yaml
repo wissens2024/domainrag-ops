@@ -36,7 +36,11 @@ oidc:
   client_secret_env: AUTHFUSION_CLIENT_SECRET
 
   # ADR-018 §2 — Authorization Code + PKCE flow.
-  scopes: ["openid", "profile", "email"]
+  # offline_access: AuthFusion(Keycloak 계열)이 refresh_token을 발급하도록 요청.
+  # 누락 시 로그인 응답에 refresh_token이 없어(id_token만 옴) refresh 쿠키가 안 set되고,
+  # access 만료(5분)마다 /api/auth/refresh가 400(missing_refresh_token) → 전체 재로그인
+  # ("세션이 짧다"의 실제 원인, 2026-06-19 진단). access TTL은 그대로 두고 refresh로 갱신.
+  scopes: ["openid", "profile", "email", "offline_access"]
   state_ttl_seconds: 600       # /authorize → /callback 사이 유효 시간 (10분)
 
   # AuthFusion `OIDC_REQUIRE_VERIFIED_EMAIL` 표준 동작 — id_token email_verified=true 강제.
