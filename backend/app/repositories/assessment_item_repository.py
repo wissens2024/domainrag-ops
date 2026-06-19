@@ -471,12 +471,28 @@ class PostgresAssessmentItemRepository:
                 ).scalar()
                 or 0
             )
+            # ADR-025 — 그림 의존 문항 수 (멀티모달 ingestion 커버리지 지표)
+            figure_dependent = int(
+                (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT COUNT(*) FROM assessment_items
+                             WHERE domain_id = :t AND figure_dependent = TRUE
+                            """
+                        ),
+                        {"t": domain_id},
+                    )
+                ).scalar()
+                or 0
+            )
         return {
             "total_items": total,
             "by_quality_status": {r[0]: int(r[1]) for r in status_rows},
             "by_difficulty": {r[0]: int(r[1]) for r in diff_rows},
             "by_subject": {r[0]: int(r[1]) for r in subj_rows},
             "unused_count": unused,
+            "figure_dependent": figure_dependent,
         }
 
 

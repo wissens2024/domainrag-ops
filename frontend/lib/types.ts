@@ -594,13 +594,16 @@ export interface AssessmentImportResult {
   items: AssessmentImportItem[];
 }
 
+// GET /api/{d}/admin/assessment/analytics — repo.analytics_summary 응답에 1:1.
 export interface AssessmentAnalytics {
+  domain_id: string;
   total_items: number;
-  by_status: Record<AssessmentQualityStatus, number>;
+  by_quality_status: Partial<Record<AssessmentQualityStatus, number>>;
   by_subject: Record<string, number>;
   by_difficulty: Record<string, number>;
-  recent_generations: number;
-  approval_rate: number;
+  unused_count: number;
+  // ADR-025 — 그림 의존 문항 수
+  figure_dependent: number;
 }
 
 // ----------------------------------------------------------------------------

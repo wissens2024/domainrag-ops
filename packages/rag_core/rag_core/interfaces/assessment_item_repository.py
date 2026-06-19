@@ -324,6 +324,7 @@ class InMemoryAssessmentItemRepository:
         by_difficulty: dict[str, int] = {}
         by_subject: dict[str, int] = {}
         unused = 0
+        figure_dependent = 0
         for r in rows:
             by_status[r.quality_status] = by_status.get(r.quality_status, 0) + 1
             if r.difficulty:
@@ -332,10 +333,13 @@ class InMemoryAssessmentItemRepository:
                 by_subject[r.subject] = by_subject.get(r.subject, 0) + 1
             if r.used_count == 0:
                 unused += 1
+            if r.figure_dependent:
+                figure_dependent += 1
         return {
             "total_items": len(rows),
             "by_quality_status": by_status,
             "by_difficulty": by_difficulty,
             "by_subject": by_subject,
             "unused_count": unused,
+            "figure_dependent": figure_dependent,
         }

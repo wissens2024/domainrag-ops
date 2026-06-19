@@ -121,13 +121,16 @@ async def test_analytics_summary_aggregates():
     repo = InMemoryAssessmentItemRepository()
     await repo.upsert(_item("Q-1", difficulty="easy", quality_status="approved"))
     await repo.upsert(_item("Q-2", difficulty="medium", quality_status="approved"))
-    await repo.upsert(_item("Q-3", difficulty="medium", quality_status="draft"))
+    await repo.upsert(
+        _item("Q-3", difficulty="medium", quality_status="draft", figure_dependent=True)
+    )
     summary = await repo.analytics_summary(domain_id="t1")
     assert summary["total_items"] == 3
     assert summary["by_difficulty"]["medium"] == 2
     assert summary["by_quality_status"]["approved"] == 2
     assert summary["by_quality_status"]["draft"] == 1
     assert summary["unused_count"] == 3
+    assert summary["figure_dependent"] == 1
 
 
 async def test_tenant_isolation():

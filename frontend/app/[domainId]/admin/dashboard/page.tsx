@@ -9,8 +9,27 @@
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import Card from '@/components/ui/Card';
-import { getDashboard } from '@/lib/api';
-import type { DashboardSnapshot, SupportType } from '@/lib/types';
+import { getAssessmentAnalytics, getDashboard, swrFetcher } from '@/lib/api';
+import type {
+  AssessmentAnalytics,
+  AssessmentQualityStatus,
+  DashboardSnapshot,
+  SupportType,
+} from '@/lib/types';
+
+const ASSESSMENT_STATUS_LABEL: Record<AssessmentQualityStatus, string> = {
+  approved: '승인',
+  reviewed: '검수완료',
+  draft: '초안',
+  retired: '비활성',
+};
+
+const ASSESSMENT_STATUS_COLOR: Record<AssessmentQualityStatus, string> = {
+  approved: 'bg-green-500',
+  reviewed: 'bg-blue-500',
+  draft: 'bg-amber-500',
+  retired: 'bg-gray-400',
+};
 
 const SUPPORT_TYPE_LABEL: Record<SupportType, string> = {
   direct: '직접',
@@ -34,6 +53,19 @@ export default function DashboardPage() {
     domainId ? `dashboard:${domainId}` : null,
     () => getDashboard(domainId),
     { refreshInterval: 30000 },
+  );
+
+  // assessment 모듈 활성 도메인에서만 시험 문항 섹션 노출 (ADR-014 §8, nav 게이팅과 정합).
+  const { data: modulesData } = useSWR<{ modules: string[] }>(
+    domainId ? `/api/${domainId}/admin/modules` : null,
+    swrFetcher,
+  );
+  const assessmentActive = (modulesData?.modules ?? []).includes('assessment');
+
+  const { data: assessment } = useSWR<AssessmentAnalytics>(
+    assessmentActive ? `assessment-analytics:${domainId}` : null,
+    () => getAssessmentAnalytics(domainId),
+    { refreshInterval: 60000 },
   );
 
   if (isLoading) return <div className="p-6 text-gray-700 dark:text-slate-300">로딩 중...</div>;
@@ -82,6 +114,85 @@ export default function DashboardPage() {
           accent={data.negative_feedback_rate > 0.1 ? 'warn' : undefined}
         />
       </div>
+
+      {assessmentActive && assessment && (
+        <div className="mb-8">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">
+            시험 문항 (현재 누적)
+          </h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <KpiCard label="총 문항" value={assessment.total_items.toLocaleString()} />
+            <KpiCard
+              label="승인"
+              value={(assessment.by_quality_status.approved ?? 0).toLocaleString()}
+            />
+            <KpiCard
+              label="검수 대기"
+              value={(
+                (assessment.by_quality_status.draft ?? 0) +
+                (assessment.by_quality_status.reviewed ?? 0)
+              ).toLocaleString()}
+              accent={
+                (assessment.by_quality_status.draft ?? 0) +
+                  (assessment.by_quality_status.reviewed ?? 0) >
+                0
+                  ? 'warn'
+                  : undefined
+              }
+            />
+            <KpiCard
+              label="그림 의존"
+              value={assessment.figure_dependent.toLocaleString()}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-6">
+            <Section title="상태 분포">
+              {assessment.total_items === 0 && (
+                <p className="text-sm text-gray-400 dark:text-slate-500">아직 문항 없음.</p>
+              )}
+              {(['approved', 'reviewed', 'draft', 'retired'] as AssessmentQualityStatus[]).map(
+                (s) => {
+                  const v = assessment.by_quality_status[s] ?? 0;
+                  const pct = assessment.total_items
+                    ? (v / assessment.total_items) * 100
+                    : 0;
+                  return (
+                    <BarRow
+                      key={s}
+                      label={ASSESSMENT_STATUS_LABEL[s]}
+                      value={v}
+                      percent={pct}
+                      colorClass={ASSESSMENT_STATUS_COLOR[s]}
+                    />
+                  );
+                },
+              )}
+            </Section>
+
+            <Section title="과목 분포 (상위 8)">
+              {Object.keys(assessment.by_subject).length === 0 && (
+                <p className="text-sm text-gray-400 dark:text-slate-500">아직 과목 없음.</p>
+              )}
+              {Object.entries(assessment.by_subject)
+                .sort(([, a], [, b]) => b - a)
+                .slice(0, 8)
+                .map(([subject, count]) => (
+                  <BarRow
+                    key={subject}
+                    label={subject}
+                    value={count}
+                    percent={
+                      assessment.total_items
+                        ? (count / assessment.total_items) * 100
+                        : 0
+                    }
+                    colorClass="bg-indigo-500"
+                  />
+                ))}
+            </Section>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-6">
         <Section title="Citation Type 분포 (오늘)">
