@@ -134,14 +134,16 @@ class ChatLogsPartitionService:
                 existed = existed_row is not None
 
                 if not existed:
+                    # asyncpg는 DDL(CREATE TABLE)에 바인드 파라미터를 허용하지 않는다
+                    # ("parameters are supported only in SELECT/INSERT/UPDATE/DELETE/VALUES").
+                    # range_start/end는 내부 계산 date(사용자 입력 아님)라 ISO 리터럴 인라인이
+                    # 주입 위험 없이 안전하다. name도 _partition_name으로 계산된 식별자.
                     await session.execute(
                         text(
-                            f"""
-                            CREATE TABLE IF NOT EXISTS {name} PARTITION OF chat_logs
-                              FOR VALUES FROM (:start_date) TO (:end_date)
-                            """
-                        ),
-                        {"start_date": range_start, "end_date": range_end},
+                            f"CREATE TABLE IF NOT EXISTS {name} PARTITION OF chat_logs "
+                            f"FOR VALUES FROM ('{range_start.isoformat()}') "
+                            f"TO ('{range_end.isoformat()}')"
+                        )
                     )
                     await session.commit()
                 else:

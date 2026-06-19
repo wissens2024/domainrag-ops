@@ -119,6 +119,16 @@ async def test_ensure_creates_partition_when_missing():
     assert "create table if not exists chat_logs_y2026m06" in sqls
     assert "pg_advisory_unlock" in sqls
 
+    # 회귀 가드: asyncpg는 DDL에 바인드 파라미터를 거부한다. CREATE TABLE 호출은
+    # 날짜를 ISO 리터럴로 인라인하고 params를 넘기지 않아야 한다.
+    create_calls = [(s, p) for s, p in rec.calls if "create table" in s.lower()]
+    assert len(create_calls) == 1
+    create_sql, create_params = create_calls[0]
+    assert create_params == {}
+    assert "'2026-06-01'" in create_sql
+    assert "'2026-07-01'" in create_sql
+    assert ":start_date" not in create_sql and ":end_date" not in create_sql
+
 
 async def test_ensure_skips_when_partition_already_exists():
     rec = _Captured()
