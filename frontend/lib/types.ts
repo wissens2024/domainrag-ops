@@ -557,6 +557,21 @@ export interface AssessmentExtractResult {
   metadata: Record<string, unknown>;
 }
 
+// 그림 재사용 생성 결과 (ADR-025 §3b·§4). extract/generate와 달리 citations·metadata가
+// 없고 VLM degrade·자산 승계 통계를 담는다.
+export interface FigureReuseResult {
+  request_id: string;
+  domain_id: string;
+  mode: 'figure_reuse';
+  items: AssessmentItem[];
+  generated_count: number;
+  references_used: number;
+  skipped_no_image: number;
+  rejected_invalid: number;
+  vlm_unavailable: boolean;
+  latency_ms: number;
+}
+
 // 기출 PDF import 결과 (ADR-025 §2)
 export interface AssessmentImportItem {
   item_id: string;

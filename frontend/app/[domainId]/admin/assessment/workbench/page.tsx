@@ -1,7 +1,7 @@
 /**
- * Generation Workbench — /{tid}/admin/assessment/workbench (ADR-014 §3·§4·§5).
+ * Generation Workbench — /{tid}/admin/assessment/workbench (ADR-014 §3·§4·§5, ADR-025 §3b·§4).
  *
- * extract / generate / hybrid 3개 모드 시연 + 결과 검토.
+ * extract / generate / hybrid / figure-reuse 4개 모드 시연 + 결과 검토.
  */
 'use client';
 
@@ -10,12 +10,13 @@ import { useState } from 'react';
 import Button from '@/components/ui/Button';
 import {
   extractAssessment,
+  figureReuseAssessment,
   generateAssessment,
   hybridAssessment,
 } from '@/lib/api';
-import type { AssessmentExtractResult } from '@/lib/types';
+import type { AssessmentExtractResult, FigureReuseResult } from '@/lib/types';
 
-type Mode = 'extract' | 'generate' | 'hybrid';
+type Mode = 'extract' | 'generate' | 'hybrid' | 'figure-reuse';
 
 export default function WorkbenchPage() {
   const params = useParams<{ domainId: string }>();
@@ -29,15 +30,21 @@ export default function WorkbenchPage() {
     extract_ratio: 0.5,
   });
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<AssessmentExtractResult | null>(null);
+  const [result, setResult] = useState<
+    AssessmentExtractResult | FigureReuseResult | null
+  >(null);
+  const [figureSummary, setFigureSummary] = useState<FigureReuseResult | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const handleRun = async () => {
     setRunning(true);
     setError(null);
     setResult(null);
+    setFigureSummary(null);
     try {
-      let r: AssessmentExtractResult;
+      let r: AssessmentExtractResult | FigureReuseResult;
       if (mode === 'extract') {
         r = await extractAssessment(domainId, {
           subject: form.subject || undefined,
@@ -51,6 +58,17 @@ export default function WorkbenchPage() {
           count: form.count,
           difficulty: form.difficulty,
         });
+      } else if (mode === 'figure-reuse') {
+        // ADR-025 §3b·§4 — figure_dependent approved 문항의 그림을 승계해 VLM이
+        // 새 질문 생성. 신규 그림 합성 없음. VLM 비가동 시 degrade(생성 0).
+        const fr = await figureReuseAssessment(domainId, {
+          subject: form.subject,
+          chapter: form.chapter || undefined,
+          count: form.count,
+          difficulty: form.difficulty,
+        });
+        setFigureSummary(fr);
+        r = fr;
       } else {
         // hybrid = extract 일부 + 부족분은 generate (ADR-014). extract_ratio
         // 만큼 기존 item을 끌어오고 나머지를 LLM 생성. 0.5 기본.
@@ -84,7 +102,7 @@ export default function WorkbenchPage() {
       <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-slate-100">Generation Workbench</h1>
 
       <div className="flex gap-2 mb-4">
-        {(['extract', 'generate', 'hybrid'] as Mode[]).map((m) => (
+        {(['extract', 'generate', 'hybrid', 'figure-reuse'] as Mode[]).map((m) => (
           <Button
             key={m}
             variant={mode === m ? 'primary' : 'secondary'}
@@ -159,6 +177,32 @@ export default function WorkbenchPage() {
       </Button>
 
       {error && <p className="text-red-600 dark:text-red-400 mt-3">{error}</p>}
+
+      {figureSummary && (
+        <div className="mt-4 text-sm">
+          {figureSummary.vlm_unavailable && (
+            <p className="rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 px-3 py-2 mb-2">
+              ⚠ VLM(Qwen-VL) 비가동 — 그림 기반 생성을 건너뛰었습니다(degrade). 생성 0건.
+            </p>
+          )}
+          {!figureSummary.vlm_unavailable &&
+            figureSummary.generated_count === 0 && (
+              <p className="rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 px-3 py-2 mb-2">
+                ⚠ 재사용 가능한 그림 문항이 없습니다 — 해당 subject에 figure_dependent
+                approved 문항이 있어야 합니다.
+              </p>
+            )}
+          <p className="text-gray-500 dark:text-slate-400">
+            참조 그림 {figureSummary.references_used}건 · 생성{' '}
+            {figureSummary.generated_count}건 · 이미지없음 스킵{' '}
+            {figureSummary.skipped_no_image}건 · 검증실패 거부{' '}
+            {figureSummary.rejected_invalid}건 · {figureSummary.latency_ms}ms
+          </p>
+          <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
+            생성물은 draft 상태입니다 — Quality Review Queue에서 검수 후 승인하세요.
+          </p>
+        </div>
+      )}
 
       {result && (
         <div className="mt-6">

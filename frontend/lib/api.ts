@@ -18,6 +18,7 @@ import type {
   CitationDistributionResult,
   CitationReverifyResult,
   ConfigChangeRow,
+  FigureReuseResult,
   Conversation,
   ConversationDetail,
   ConversationListResult,
@@ -1080,6 +1081,18 @@ export async function hybridAssessment(
   },
 ): Promise<AssessmentExtractResult> {
   return request(`/api/${domainId}/assessment/hybrid`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+// 그림 재사용 생성 (ADR-025 §3b·§4) — figure_dependent approved 문항의 그림을 승계해
+// VLM이 새 질문을 생성. 신규 그림 합성 없음, 생성물은 draft.
+export async function figureReuseAssessment(
+  domainId: string,
+  body: { subject: string; chapter?: string; count: number; difficulty?: string },
+): Promise<FigureReuseResult> {
+  return request(`/api/${domainId}/assessment/figure-reuse`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
