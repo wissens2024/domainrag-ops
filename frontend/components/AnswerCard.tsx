@@ -152,6 +152,12 @@ export default function AnswerCard({ response, domainId, onCitationClick }: Prop
 
       {showAssessmentCard ? (
         <AssessmentItems items={response.metadata.assessment_items ?? []} />
+      ) : grounding === 'assessment' ? (
+        // ADR-027 — 구조 데이터가 없는 옛 출제 이력(image·카드 복구 불가)을 줄바꿈 보존으로
+        // 읽기 좋게 표시(보기가 한 줄로 붙는 markdown collapse 회피).
+        <div className="whitespace-pre-wrap text-sm text-gray-800 leading-relaxed">
+          {(response.answer || '').replace(/\*\*/g, '').replace(/^---\s*$/gm, '')}
+        </div>
       ) : (
       <div className="prose prose-sm max-w-none prose-headings:font-semibold prose-headings:text-gray-900 prose-p:my-2 prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:text-xs prose-code:before:hidden prose-code:after:hidden prose-code:bg-gray-100 prose-code:text-gray-800 prose-code:font-normal prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px] prose-a:text-brand-600 prose-a:no-underline hover:prose-a:underline prose-strong:text-gray-900">
         {!hasCitations ? (
