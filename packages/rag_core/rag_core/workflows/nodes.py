@@ -590,7 +590,12 @@ def _format_assessment_answer(
         subj = it.get("subject") or ""
         lines.append(f"**{i}. ({subj}) {it['question_text']}**")
         for ci, choice in enumerate(it.get("choices") or []):
-            lines.append(f"   {chr(65 + ci)}. {choice}")
+            c = str(choice).strip()
+            # 보기에 이미 'A.'/'A)' 라벨이 있으면 그대로, 없으면 라벨 부여(중복 방지).
+            if re.match(r"^[A-Da-d1-4][.)]\s", c):
+                lines.append(f"   {c}")
+            else:
+                lines.append(f"   {chr(65 + ci)}. {c}")
         lines.append("")
     lines.append("---\n**정답 및 해설**")
     for i, it in enumerate(items, start=1):

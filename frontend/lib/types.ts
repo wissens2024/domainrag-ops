@@ -52,11 +52,25 @@ export type UiMode = 'chat_structured' | 'chat_streaming';
 
 // ADR-023 §4 — 근거 유무. grounded=문서 근거 + 4-type citation,
 // ungrounded=일반 대화(인용 없음). UI가 명확히 구분 표시한다.
-export type Grounding = 'grounded' | 'ungrounded';
+// ADR-027 — assessment: 대화형 출제(문제은행 근거 생성). 인용 없이 문항 카드로 표시.
+export type Grounding = 'grounded' | 'ungrounded' | 'assessment';
+
+// ADR-027 — 채팅 출제로 생성된 ephemeral 문항(DB 미저장).
+export interface ChatAssessmentItem {
+  subject: string | null;
+  difficulty: string | null;
+  question_text: string;
+  choices: string[];
+  answer: string;
+  explanation: string | null;
+}
 
 export interface ChatMetadata {
   ui_mode: UiMode;
   grounding?: Grounding;
+  // ADR-027 — grounding='assessment'일 때만 채워짐.
+  assessment_items?: ChatAssessmentItem[];
+  assessment_plan?: { subject: string; count: number; difficulty: string }[];
   llm_model: string;
   lora_adapter?: string;
   embedding_model?: string;

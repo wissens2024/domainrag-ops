@@ -17,7 +17,12 @@ import ConflictBox from './ConflictBox';
 import InferenceJudgePopover from './InferenceJudgePopover';
 import Badge from './ui/Badge';
 import { postFeedback } from '@/lib/api';
-import type { ChatResponse, Citation, Grounding } from '@/lib/types';
+import type {
+  ChatAssessmentItem,
+  ChatResponse,
+  Citation,
+  Grounding,
+} from '@/lib/types';
 
 interface Props {
   response: ChatResponse;
@@ -114,6 +119,11 @@ export default function AnswerCard({ response, domainId, onCitationClick }: Prop
   const grounding: Grounding | undefined =
     response.metadata.grounding ?? (hasCitations ? 'grounded' : undefined);
 
+  // ADR-027 — 출제 응답은 본문 markdown 대신 문항 카드로 렌더(보기 중복·정답 노출 정리).
+  const showAssessmentCard =
+    grounding === 'assessment' &&
+    (response.metadata.assessment_items?.length ?? 0) > 0;
+
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-bl-md px-5 py-4 my-1 text-sm shadow-sm">
       {grounding && (
@@ -121,6 +131,13 @@ export default function AnswerCard({ response, domainId, onCitationClick }: Prop
           {grounding === 'grounded' ? (
             <Badge tone="info" title="등록된 문서에서 근거를 찾아 인용했습니다.">
               📑 문서 근거
+            </Badge>
+          ) : grounding === 'assessment' ? (
+            <Badge
+              tone="info"
+              title="문제은행의 승인 문항을 근거로 새 문제를 출제했습니다. 생성 문항은 저장되지 않는 일회성입니다."
+            >
+              📝 출제 · 문제은행 근거
             </Badge>
           ) : (
             <Badge
@@ -132,6 +149,10 @@ export default function AnswerCard({ response, domainId, onCitationClick }: Prop
           )}
         </div>
       )}
+
+      {showAssessmentCard ? (
+        <AssessmentItems items={response.metadata.assessment_items ?? []} />
+      ) : (
       <div className="prose prose-sm max-w-none prose-headings:font-semibold prose-headings:text-gray-900 prose-p:my-2 prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:text-xs prose-code:before:hidden prose-code:after:hidden prose-code:bg-gray-100 prose-code:text-gray-800 prose-code:font-normal prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px] prose-a:text-brand-600 prose-a:no-underline hover:prose-a:underline prose-strong:text-gray-900">
         {!hasCitations ? (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -182,6 +203,7 @@ export default function AnswerCard({ response, domainId, onCitationClick }: Prop
           ))
         )}
       </div>
+      )}
 
       {conflictCitations.map((c) => (
         <ConflictBox
@@ -233,6 +255,48 @@ export default function AnswerCard({ response, domainId, onCitationClick }: Prop
           <span className="w-full text-gray-400">피드백 감사합니다.</span>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * ADR-027 — 채팅 출제 문항 카드. 보기를 깔끔히 렌더하고(정답 글자 중복 제거),
+ * 정답·해설은 펼침(details)으로 숨겨 먼저 풀어볼 수 있게 한다.
+ */
+function AssessmentItems({ items }: { items: ChatAssessmentItem[] }) {
+  return (
+    <div className="space-y-3 my-1">
+      {items.map((it, i) => (
+        <div
+          key={i}
+          className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm"
+        >
+          <p className="font-medium text-gray-900">
+            {i + 1}.{' '}
+            {it.subject && (
+              <span className="text-[11px] text-gray-400 mr-1">[{it.subject}]</span>
+            )}
+            {it.question_text}
+          </p>
+          <ul className="mt-2 space-y-1 text-gray-700">
+            {(it.choices ?? []).map((c, ci) => (
+              <li key={ci}>{c}</li>
+            ))}
+          </ul>
+          <details className="mt-2 group">
+            <summary className="cursor-pointer text-[12px] text-brand-600 hover:underline select-none">
+              정답 · 해설 보기
+            </summary>
+            <div className="mt-1 text-[13px] text-gray-700">
+              <span className="font-semibold text-green-700">정답: {it.answer}</span>
+              {it.explanation && <p className="mt-0.5 text-gray-600">{it.explanation}</p>}
+            </div>
+          </details>
+        </div>
+      ))}
+      <p className="text-[11px] text-gray-400">
+        문제은행을 근거로 생성한 일회성 문항입니다. 저장되지 않습니다.
+      </p>
     </div>
   );
 }
