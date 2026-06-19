@@ -202,7 +202,7 @@ export interface ConversationDetail {
   messages: Array<{
     role: 'user' | 'assistant';
     content: string;
-    request_id?: string;
+    message_id?: string;
     created_at: string;
     citations?: Citation[];
     fallback_reason?: string | null;

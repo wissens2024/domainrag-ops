@@ -111,7 +111,7 @@ export default function ChatPage() {
               response: {
                 status: 'success',
                 conversation_id: cid,
-                message_id: m.request_id ?? '',
+                message_id: m.message_id ?? '',
                 answer: m.content,
                 answer_segments: [{ text: m.content, citations: [] }],
                 citations: m.citations ?? [],
