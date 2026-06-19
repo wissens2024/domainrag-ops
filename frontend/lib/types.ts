@@ -204,6 +204,11 @@ export interface ConversationDetail {
     content: string;
     request_id?: string;
     created_at: string;
+    citations?: Citation[];
+    fallback_reason?: string | null;
+    // ADR-027 — 출제 응답 카드 복원용.
+    grounding?: Grounding;
+    assessment_items?: ChatAssessmentItem[];
   }>;
 }
 

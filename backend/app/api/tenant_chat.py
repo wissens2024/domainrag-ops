@@ -253,6 +253,7 @@ async def _list_messages(
                 "created_at": iso_kst(record.created_at),
             })
         if record.answer is not None:
+            rd = record.routing_decision or {}
             messages.append({
                 "role": "assistant",
                 "content": record.answer,
@@ -260,6 +261,9 @@ async def _list_messages(
                 "citations": record.citations,
                 "citation_types": record.citation_types,
                 "fallback_reason": record.fallback_reason,
+                # ADR-027 — 출제 응답 카드 복원용(ephemeral 문항을 chat_logs에 보존).
+                "grounding": rd.get("grounding"),
+                "assessment_items": rd.get("assessment_items") or [],
                 "created_at": iso_kst(record.created_at),
             })
     return messages

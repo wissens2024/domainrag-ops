@@ -876,6 +876,22 @@ async def save_chat_log_node(
 
     # ADR-020 §4 — pii_storage_policy=mask면 마스킹된 form 보관, plain이면 원문.
     storage_question = state.question_for_storage or state.question
+
+    routing_decision = {
+        "matched_rule": state.matched_rule,
+        "selected_model": state.selected_model,
+        "selected_lora": state.selected_lora,
+        "use_rag": state.use_rag,
+        "ui_mode": state.ui_mode,
+        "grounding": state.grounding,  # ADR-023 §4
+        "retrieval_error": state.retrieval_error,  # ADR-023 §3 (None=정상)
+    }
+    # ADR-027 §6 — 채팅 출제 문항(ephemeral, DB 미저장)을 chat_logs에 보존해 이력 복원 시
+    # 카드(그림·①②③④)를 재렌더할 수 있게 한다. (audit truth + restore)
+    if state.grounding == "assessment" and state.assessment_items:
+        routing_decision["assessment_items"] = list(state.assessment_items)
+        routing_decision["assessment_plan"] = list(state.assessment_plan or [])
+
     payload = ChatLogPayload(
         domain_id=state.domain_id,
         request_id=state.request_id,
@@ -894,15 +910,7 @@ async def save_chat_log_node(
         fallback_reason=state.fallback_reason,
         unsupported_ratio=state.unsupported_ratio,
         verifier_metrics=dict(state.verifier_metrics or {}),
-        routing_decision={
-            "matched_rule": state.matched_rule,
-            "selected_model": state.selected_model,
-            "selected_lora": state.selected_lora,
-            "use_rag": state.use_rag,
-            "ui_mode": state.ui_mode,
-            "grounding": state.grounding,  # ADR-023 §4
-            "retrieval_error": state.retrieval_error,  # ADR-023 §3 (None=정상)
-        },
+        routing_decision=routing_decision,
         classifier_decision=dict(state.classifier_decision or {}),
         model_failure_chain=list(state.model_failure_chain or []),
         inference_judge_results=list(state.inference_judge_results or []),

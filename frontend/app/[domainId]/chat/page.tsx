@@ -114,12 +114,15 @@ export default function ChatPage() {
                 message_id: m.request_id ?? '',
                 answer: m.content,
                 answer_segments: [{ text: m.content, citations: [] }],
-                citations: [],
+                citations: m.citations ?? [],
                 metadata: {
                   ui_mode: 'chat_structured',
                   llm_model: '(history)',
                   latency_ms: 0,
                   confidence: 0,
+                  // ADR-027 — 출제 응답이면 카드(그림·①②③④)로 복원.
+                  grounding: m.grounding,
+                  assessment_items: m.assessment_items,
                 },
               } as ChatResponse,
             },
