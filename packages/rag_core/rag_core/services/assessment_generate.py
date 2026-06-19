@@ -119,8 +119,12 @@ class AssessmentGenerateService:
                 chapter=criteria.chapter,
                 quality_status=["approved"],
             ),
-            limit=10,
+            limit=20,
         )
+        # 텍스트 생성은 이미지를 첨부할 수 없다. 그림 의존(figure_dependent) 문항을
+        # 참조로 쓰면 "다음 그림에서…" 같은 풀 수 없는 문항이 생성되므로 제외한다(ADR-027).
+        # 그림 문항 생성은 별도 figure-reuse 경로가 담당한다(ADR-025 §3b).
+        refs = [r for r in refs if not getattr(r, "figure_dependent", False)][:10]
         # 인덱스 소비 시 후보 전체 재임베딩이 불필요(사전 인덱스 검색으로 dedup).
         refs_for_similarity: list[AssessmentItemRecord] = []
         if self._item_index is None:
@@ -178,6 +182,12 @@ class AssessmentGenerateService:
                     _has_cjk_ideograph(qtext)
                     or _has_cjk_ideograph(str(candidate.get("explanation") or ""))
                     or any(_has_cjk_ideograph(str(c)) for c in _choices_raw)
+                ):
+                    continue
+                # 텍스트 출제는 이미지를 못 보여준다 — "다음 그림/다이어그램…"처럼 시각 자료를
+                # 참조하는 문항은 풀 수 없으므로 폐기(ADR-027). retry로 재생성.
+                if _references_figure(qtext) or any(
+                    _references_figure(str(c)) for c in _choices_raw
                 ):
                     continue
                 # similarity check — 인덱스가 있으면 사전 인덱스 검색(후보 재임베딩 제거),
@@ -266,6 +276,16 @@ class AssessmentGenerateService:
 def _has_cjk_ideograph(text: str) -> bool:
     """CJK 통합 한자(중국어/일본어 한자) 포함 여부. 한글(가-힣)·영문은 제외 (ADR-027)."""
     return any("一" <= ch <= "鿿" for ch in (text or ""))
+
+
+# 텍스트 출제가 보여줄 수 없는 시각 자료를 참조하는 표현. 채팅 출제는 이미지가 없으므로
+# 이런 문항은 풀 수 없다(ADR-027). 그림 문항은 figure-reuse 경로가 별도 처리(ADR-025).
+_FIGURE_HINTS = ("그림", "다이어그램", "도식", "도표", "아래 표", "다음 표", "위 표", "보기의 표")
+
+
+def _references_figure(text: str) -> bool:
+    t = text or ""
+    return any(h in t for h in _FIGURE_HINTS)
 
 
 def _parse_json_items(raw: str) -> tuple[list[dict], str | None]:

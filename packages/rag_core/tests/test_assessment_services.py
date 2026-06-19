@@ -306,6 +306,78 @@ def test_has_cjk_ideograph_detects_chinese_not_korean():
     assert _has_cjk_ideograph("") is False
 
 
+def test_references_figure_detects_visual_refs():
+    from rag_core.services.assessment_generate import _references_figure
+
+    assert _references_figure("다음 그림에서 트리의 후위 순회 결과는?") is True
+    assert _references_figure("아래 다이어그램을 참고하여 답하시오") is True
+    assert _references_figure("SQL의 DDL이 아닌 것은?") is False
+    assert _references_figure("그래프 자료구조의 탐색 방법은?") is False  # '그래프'는 허용
+
+
+async def test_generate_drops_figure_referencing_items():
+    """ADR-027 — 이미지 참조 문항(다음 그림…)은 채팅 텍스트 출제에서 폐기."""
+    repo = InMemoryAssessmentItemRepository()
+    await repo.upsert(_item("Q-REF", question_text="참고 문제"))
+    payload = {
+        "items": [
+            {
+                "question_text": "다음 그림에서 이진트리의 후위 순회 결과로 옳은 것은?",
+                "choices": ["A", "B", "C", "D"],
+                "answer": "A", "explanation": "해설", "difficulty": "medium",
+            }
+        ]
+    }
+    llm = _FakeLLM([json.dumps(payload)])
+    similarity = AssessmentSimilarityChecker(
+        embedder=InMemoryEmbedder(),
+        thresholds=SimilarityThresholds(duplicate=0.99, similar=0.5),
+    )
+    service = AssessmentGenerateService(
+        repository=repo, llm_client=llm,
+        similarity_checker=similarity, validator=AssessmentValidator(llm_client=llm),
+        max_retries=1,
+    )
+    result = await service.generate(
+        domain_id="t1", criteria=GenerateCriteria(subject="자료구조", count=1),
+        persist=False,
+    )
+    assert result.generated_count == 0
+
+
+async def test_generate_excludes_figure_dependent_references():
+    """ADR-027 — figure_dependent 문항은 참조 풀에서 제외(텍스트 생성 오염 방지)."""
+    repo = InMemoryAssessmentItemRepository()
+    # 같은 subject(database)에 figure_dependent approved 1건 + 일반 approved 1건
+    await repo.upsert(_item("Q-FIG", subject="database", question_text="그림 문제",
+                            figure_dependent=True))
+    await repo.upsert(_item("Q-TXT", subject="database", question_text="텍스트 문제"))
+    payload = {"items": [{"question_text": "정규화 단계로 옳은 것은?",
+                          "choices": ["A", "B", "C", "D"], "answer": "A",
+                          "explanation": "해설", "difficulty": "medium"}]}
+    llm = _FakeLLM([json.dumps(payload), *([json.dumps({"valid": True, "score": 0.9})] * 4)])
+    prompts = []
+    orig = llm.generate
+    async def _cap(prompt, **kw):
+        prompts.append(prompt)
+        return await orig(prompt, **kw)
+    llm.generate = _cap
+    service = AssessmentGenerateService(
+        repository=repo, llm_client=llm,
+        similarity_checker=AssessmentSimilarityChecker(
+            embedder=InMemoryEmbedder(),
+            thresholds=SimilarityThresholds(duplicate=0.99, similar=0.5)),
+        validator=AssessmentValidator(llm_client=llm), max_retries=1,
+    )
+    await service.generate(domain_id="t1",
+                           criteria=GenerateCriteria(subject="database", count=1),
+                           persist=False)
+    # 생성 프롬프트(참고 문제 목록 포함)에 figure_dependent 문항(Q-FIG)이 없어야 한다.
+    gen_prompt = next(p for p in prompts if "참고 문제" in p)
+    assert "Q-FIG" not in gen_prompt
+    assert "Q-TXT" in gen_prompt
+
+
 async def test_generate_drops_items_with_chinese():
     """ADR-027 — 한자/중국어 혼입 문항은 폐기된다."""
     repo = InMemoryAssessmentItemRepository()
