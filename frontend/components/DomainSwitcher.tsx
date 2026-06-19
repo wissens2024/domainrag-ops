@@ -15,7 +15,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import useSWR from 'swr';
-import { getMyDomains } from '@/lib/api';
+import { getMyDomains, LAST_DOMAIN_KEY } from '@/lib/api';
 import type { MyDomainsResult } from '@/lib/types';
 
 interface Props {
@@ -25,8 +25,6 @@ interface Props {
   /** 칩 톤. dark는 admin 사이드바(어두운 배경)용. */
   tone?: 'light' | 'dark';
 }
-
-const LAST_DOMAIN_KEY = 'domainrag.lastDomain';
 
 export default function DomainSwitcher({
   domainId,

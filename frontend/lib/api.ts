@@ -263,13 +263,34 @@ export async function getCurrentUser(): Promise<UserContext> {
   return request<UserContext>(`/api/auth/me`);
 }
 
+// ADR-022 §7 — 사용자가 마지막으로 선택한 도메인 localStorage 키. DomainSwitcher가
+// 도메인 화면에 진입할 때마다 기록한다. 공용 단일 client라 token의 domain_id는 모두
+// 같은 기본 도메인으로 고정되므로(ADR-022), 사용자의 실제 선택은 이 값으로만 안다.
+export const LAST_DOMAIN_KEY = 'domainrag.lastDomain';
+
+/** 저장된 마지막 선택 도메인. 브라우저 밖이거나 미저장이면 null. */
+export function getStoredDomain(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(LAST_DOMAIN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** 착지 도메인 — 사용자가 선택·저장한 도메인을 우선, 없으면 token 매핑 domain_id. */
+export function preferredDomainId(user: Pick<UserContext, 'domain_id'>): string {
+  return getStoredDomain() || user.domain_id;
+}
+
 // ADR-016 — 로그인 후 역할-aware 착지(단일 진실 소스). 콜백·/console·랜딩이 공유.
 // 관리자를 채팅에 강제 경유시키지 않고 역할대로 바로 보낸다. 채팅은 관리 화면의
-// 명시적 링크/도메인 칩으로 접근 유지.
+// 명시적 링크/도메인 칩으로 접근 유지. 도메인은 저장된 사용자 선택을 우선한다(ADR-022 §7).
 export function postLoginDestination(user: UserContext): string {
   if (user.is_platform_admin) return '/platform/admin/tenants';
-  if (user.is_admin || user.is_auditor) return `/${user.domain_id}/admin/dashboard`;
-  return `/${user.domain_id}/chat`;
+  const domain = preferredDomainId(user);
+  if (user.is_admin || user.is_auditor) return `/${domain}/admin/dashboard`;
+  return `/${domain}/chat`;
 }
 
 export async function getMyDomains(): Promise<MyDomainsResult> {
