@@ -53,7 +53,13 @@ class RAGState:
     ui_mode: str = "chat_structured"
     # ADR-023 §4 — 근거 유무 분기 결과. grounded=4-type citation 검증 경로,
     # ungrounded=일반 대화(인용 없음, UI 배지로 명시). status=success일 때만 의미.
+    # ADR-027 — assessment=대화형 출제(문제은행 근거 생성, citation 검증 우회, 문항 카드).
     grounding: str = "grounded"
+
+    # ADR-027 — 대화형 출제 결과. assessment_items는 생성 문항(ephemeral, DB 미저장),
+    # assessment_plan은 과목·개수 계획(관측·로깅용).
+    assessment_items: list[dict] = field(default_factory=list)
+    assessment_plan: list[dict] = field(default_factory=list)
 
     # query rewrite
     rewritten_query: str = ""
@@ -202,6 +208,8 @@ def build_chat_structured_full(deps) -> Any:
 
     from .nodes import (
         assemble_response_node,
+        assessment_intent_router,
+        assessment_node,
         build_acl_filter_node,
         check_input_pii_node,
         check_input_pii_router,
@@ -280,6 +288,9 @@ def build_chat_structured_full(deps) -> Any:
     async def _query_rewrite(s):
         return await query_rewrite_node(s, deps)
 
+    async def _assessment(s):
+        return await assessment_node(s, deps)
+
     graph.add_node("tenant_resolver", tenant_resolver_node)
     graph.add_node("load_tenant_config", _load_config)
     graph.add_node("check_input_pii", _check_input_pii)
@@ -289,6 +300,7 @@ def build_chat_structured_full(deps) -> Any:
     graph.add_node("query_rewrite", _query_rewrite)
     graph.add_node("retrieve_context", _retrieve)
     graph.add_node("gate_1", gate_1_node)
+    graph.add_node("assessment", _assessment)
     graph.add_node("generate_answer", _generate)
     graph.add_node("generate_ungrounded", _generate_ungrounded)
     graph.add_node("parse_response", parse_response_node)
@@ -315,7 +327,14 @@ def build_chat_structured_full(deps) -> Any:
     graph.add_edge("build_acl_filter", "classify_query")
     graph.add_edge("classify_query", "model_router")
     # ADR-023: ui_mode 기반 streaming redirect 폐기 — 항상 검색으로 진행.
-    graph.add_edge("model_router", "query_rewrite")
+    # ADR-027 §1: 출제 의도는 액션 분기(문제은행 근거 생성). 그 외는 일반 RAG.
+    graph.add_conditional_edges(
+        "model_router",
+        assessment_intent_router,
+        {"assessment": "assessment", "query_rewrite": "query_rewrite"},
+    )
+    # 출제는 검색·verify·Gate를 우회하고 PII 마스킹 후 저장(grounding='assessment').
+    graph.add_edge("assessment", "mask_response_pii")
     graph.add_edge("query_rewrite", "retrieve_context")
     graph.add_edge("retrieve_context", "gate_1")
     # ADR-023 §3: Gate 1 = 분기점. pass → grounded(citation), fail → ungrounded(대화).

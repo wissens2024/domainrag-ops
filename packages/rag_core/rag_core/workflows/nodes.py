@@ -20,6 +20,7 @@ mask_response_pii, gate_2, save_chat_log 등)는 이후 ADR-010·013·020 후속
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date
@@ -71,6 +72,11 @@ class RAGGraphDeps:
     pii_service: PIIService | None = None
     conflict_detector: ConflictDetector | None = None
     query_rewriter: QueryRewriter | None = None
+    # ADR-027 — 대화형 출제. 둘 다 주입돼야 채팅 출제 분기가 활성(없으면 일반 RAG로 폴백).
+    # 순환 의존(assessment service가 rag_service를 참조)을 피하려고 late-binding 허용:
+    # 그래프 빌드 후 deps에 세팅돼도 노드가 호출 시점에 읽는다.
+    assessment_generate_service: Any = None
+    assessment_item_repo: Any = None
 
 
 async def _load_config(deps: RAGGraphDeps, domain_id: str) -> dict[str, Any]:
@@ -475,6 +481,206 @@ async def generate_ungrounded_node(
     }
 
 
+# --------------------------------------------------------------------------- #
+# ADR-027 — 대화형 근거기반 출제
+# --------------------------------------------------------------------------- #
+
+# 한국어 출제 의도에서 과목명을 영문 subject 키로 매핑하는 보조 별칭. 매칭 실패해도
+# '과목별' 분배로 동작하므로 starter 수준이면 충분(향후 configs로 이전 가능).
+_SUBJECT_ALIASES: dict[str, list[str]] = {
+    "database": ["데이터베이스", "db", "디비"],
+    "operating_system": ["운영체제", "os"],
+    "software_engineering": ["소프트웨어공학", "소공"],
+    "computer_structure": ["컴퓨터구조", "전산구조"],
+    "data_communication": ["데이터통신", "통신", "네트워크"],
+    "programming": ["프로그래밍", "프로그램언어", "언어"],
+    "software_dev": ["소프트웨어개발", "개발"],
+    "software_design": ["소프트웨어설계", "설계"],
+    "info_system": ["정보시스템", "시스템관리"],
+    "security": ["정보보안", "보안"],
+}
+
+_ALL_SUBJECTS_HINTS = ("과목별", "각 과목", "전 과목", "모든 과목", "과목마다", "모의고사")
+
+
+def _assessment_defaults(tenant_config: dict | None) -> dict[str, int]:
+    cfg = ((tenant_config or {}).get("assessment") or {}) if isinstance(tenant_config, dict) else {}
+    chat = cfg.get("chat") if isinstance(cfg, dict) else {}
+    chat = chat if isinstance(chat, dict) else {}
+    return {
+        "default_count": int(chat.get("default_count", 3)),
+        "max_total": int(chat.get("max_total", 20)),
+        "max_subjects": int(chat.get("max_subjects", 6)),
+    }
+
+
+def _plan_assessment(
+    question: str, subjects: list[str], defaults: dict[str, int]
+) -> list[dict[str, Any]]:
+    """ADR-027 §3 — 자연어에서 출제 계획 추출(휴리스틱, 결정적).
+
+    반환: [{subject, count, difficulty}] (subject는 영문 키). 근거 과목이 없으면 [].
+    """
+    q = question or ""
+    # 개수
+    m = re.search(r"(\d+)\s*(문제|문항|개|題)", q)
+    count = int(m.group(1)) if m else defaults["default_count"]
+    count = max(1, min(count, defaults["max_total"]))
+    # 난이도
+    if any(w in q for w in ("어려운", "어렵게", "상", "hard")):
+        difficulty = "hard"
+    elif any(w in q for w in ("쉬운", "쉽게", "하", "easy")):
+        difficulty = "easy"
+    else:
+        difficulty = "medium"
+
+    if not subjects:
+        return []
+
+    # 명시된 특정 과목 매칭(영문 키 또는 한국어 별칭)
+    named: list[str] = []
+    ql = q.lower()
+    for subj in subjects:
+        key_tokens = [subj.lower(), subj.replace("_", " ").lower()]
+        aliases = _SUBJECT_ALIASES.get(subj, [])
+        if any(t and t in ql for t in key_tokens) or any(a in q for a in aliases):
+            named.append(subj)
+
+    per_subject = any(h in q for h in _ALL_SUBJECTS_HINTS)
+
+    if named and not per_subject:
+        # 특정 과목 지정 → 각 과목 count개 (다과목 cap)
+        chosen = named[: defaults["max_subjects"]]
+        return [{"subject": s, "count": count, "difficulty": difficulty} for s in chosen]
+
+    if per_subject:
+        # 과목별 N문제씩 → 전 과목(또는 named 한정), 총량 cap으로 과목 수 제한
+        pool = named or subjects
+        max_subj = max(1, min(defaults["max_subjects"], defaults["max_total"] // count))
+        chosen = pool[:max_subj]
+        return [{"subject": s, "count": count, "difficulty": difficulty} for s in chosen]
+
+    # 과목 미지정 → 상위 과목 1개에서 count개
+    return [{"subject": subjects[0], "count": count, "difficulty": difficulty}]
+
+
+def _assessment_item_to_dict(item: Any) -> dict[str, Any]:
+    return {
+        "subject": getattr(item, "subject", None),
+        "difficulty": getattr(item, "difficulty", None),
+        "question_text": getattr(item, "question_text", ""),
+        "choices": list(getattr(item, "choices", []) or []),
+        "answer": getattr(item, "answer", ""),
+        "explanation": getattr(item, "explanation", None),
+    }
+
+
+def _format_assessment_answer(
+    items: list[dict[str, Any]], plan: list[dict[str, Any]]
+) -> str:
+    if not items:
+        return (
+            "요청하신 과목에 승인된 문항이 부족해 지금은 출제할 수 없습니다. "
+            "관리자가 해당 과목 문항을 검수·승인한 뒤 다시 시도해 주세요."
+        )
+    lines: list[str] = []
+    subjects = sorted({str(p["subject"]) for p in plan})
+    lines.append(f"문제은행을 근거로 {len(items)}문제를 출제했습니다 (과목: {', '.join(subjects)}).\n")
+    for i, it in enumerate(items, start=1):
+        subj = it.get("subject") or ""
+        lines.append(f"**{i}. ({subj}) {it['question_text']}**")
+        for ci, choice in enumerate(it.get("choices") or []):
+            lines.append(f"   {chr(65 + ci)}. {choice}")
+        lines.append("")
+    lines.append("---\n**정답 및 해설**")
+    for i, it in enumerate(items, start=1):
+        ans = it.get("answer") or ""
+        exp = it.get("explanation") or ""
+        lines.append(f"{i}. 정답: {ans}" + (f" — {exp}" if exp else ""))
+    return "\n".join(lines)
+
+
+async def assessment_node(state: RAGState, deps: RAGGraphDeps) -> dict[str, Any]:
+    """ADR-027 — 대화형 근거기반 출제.
+
+    문제은행(approved)을 근거로 새 문항을 생성(persist=False, ephemeral)하고 대화형으로
+    제시한다. 서비스 미주입·근거 없음이면 graceful degrade(ungrounded 안내). citation
+    검증은 우회하며 grounding='assessment'로 표시한다.
+    """
+    svc = deps.assessment_generate_service
+    if svc is None:
+        msg = "출제 기능이 현재 비활성화되어 있습니다."
+        return {
+            "grounding": "ungrounded",
+            "final_answer": msg,
+            "answer_segments": [{"text": msg, "citations": []}],
+            "citations": [], "citation_types": [], "confidence": 0.0,
+            "fallback_reason": None,
+        }
+
+    # 가용 과목 수집(근거 grounding — 존재하는 과목으로만 계획)
+    subjects: list[str] = []
+    if deps.assessment_item_repo is not None:
+        try:
+            summary = await deps.assessment_item_repo.analytics_summary(
+                domain_id=state.domain_id
+            )
+            by_subject = summary.get("by_subject") or {}
+            subjects = [
+                s for s, _ in sorted(
+                    by_subject.items(), key=lambda kv: kv[1], reverse=True
+                )
+            ]
+        except Exception:  # noqa: BLE001 — 과목 수집 실패는 빈 계획으로 degrade
+            subjects = []
+
+    defaults = _assessment_defaults(state.tenant_config)
+    plan = _plan_assessment(state.question, subjects, defaults)
+
+    from ..services.assessment_generate import GenerateCriteria
+
+    items: list[dict[str, Any]] = []
+    total_cap = defaults["max_total"]
+    for entry in plan:
+        if len(items) >= total_cap:
+            break
+        remaining = total_cap - len(items)
+        try:
+            res = await svc.generate(
+                domain_id=state.domain_id,
+                criteria=GenerateCriteria(
+                    subject=entry["subject"],
+                    difficulty=entry["difficulty"],
+                    count=min(int(entry["count"]), remaining),
+                ),
+                persist=False,
+            )
+        except Exception:  # noqa: BLE001 — 단일 과목 생성 실패는 건너뛴다
+            continue
+        for it in res.items:
+            items.append(_assessment_item_to_dict(it))
+
+    answer = _format_assessment_answer(items, plan)
+    return {
+        "grounding": "assessment",
+        "assessment_items": items,
+        "assessment_plan": plan,
+        "final_answer": answer,
+        "answer_segments": [{"text": answer, "citations": []}],
+        "citations": [], "citation_types": [], "confidence": 0.0,
+        "fallback_reason": None,
+    }
+
+
+def assessment_intent_router(state: RAGState) -> str:
+    """ADR-027 §1 — model_router 후 출제 의도 액션 분기.
+
+    query_type=assessment_generation이면 assessment 노드로, 아니면 일반 RAG
+    (query_rewrite)로. 출제는 검색을 끄는 게 아니라 근거원을 문제은행으로 바꾼다.
+    """
+    return "assessment" if state.query_type == "assessment_generation" else "query_rewrite"
+
+
 def gate_1_full_router(state: RAGState) -> str:
     """ADR-023 §3 — full 그래프 Gate 1 분기.
 
@@ -488,9 +694,14 @@ def post_mask_grounding_router(state: RAGState) -> str:
     """ADR-023 §3 — mask_response_pii 이후 grounding으로 합류점 분기.
 
     ungrounded는 verify/Gate 2(citation 게이트)를 건너뛰고 바로 저장한다 —
-    인용이 없어 Gate 2가 fallback으로 오판하는 것을 막는다.
+    인용이 없어 Gate 2가 fallback으로 오판하는 것을 막는다. ADR-027 출제(assessment)도
+    citation 검증 대상이 아니므로 동일하게 바로 저장한다.
     """
-    return "save_chat_log" if state.grounding == "ungrounded" else "compute_confidence"
+    return (
+        "compute_confidence"
+        if state.grounding == "grounded"
+        else "save_chat_log"
+    )
 
 
 def _dict_to_chunk(d: dict[str, Any]):

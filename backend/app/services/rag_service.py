@@ -282,6 +282,11 @@ def _build_chat_response(
         },
     }
 
+    # ADR-027 — 대화형 출제 결과(ephemeral 문항)를 metadata로 노출(문항 카드용).
+    if (state.get("grounding") or "") == "assessment":
+        base_meta["assessment_items"] = state.get("assessment_items") or []
+        base_meta["assessment_plan"] = state.get("assessment_plan") or []
+
     if fallback_reason:
         if fallback_reason == "input_pii_blocked":
             fallback_block: dict[str, Any] = {

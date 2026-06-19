@@ -162,6 +162,18 @@ def get_rag_service(settings: Settings = Depends(get_settings)) -> RAGService:
             pii_approval_service=approval,
             ledger_audit=ledger,
         )
+        # ADR-027 — 대화형 출제 분기에 필요한 서비스 late-binding 주입.
+        # _rag_service가 이미 할당된 뒤라 아래 호출의 내부 get_rag_service는 재귀 없이
+        # 동일 인스턴스를 돌려준다. 그래프 노드는 deps를 호출 시점에 읽으므로 유효.
+        try:
+            _rag_service._deps.assessment_generate_service = (  # type: ignore[attr-defined]
+                get_assessment_generate_service(settings)
+            )
+            _rag_service._deps.assessment_item_repo = (  # type: ignore[attr-defined]
+                get_assessment_item_repository(settings)
+            )
+        except Exception:  # noqa: BLE001 — 출제 서비스 미가용은 일반 RAG로 degrade
+            pass
     return _rag_service
 
 
