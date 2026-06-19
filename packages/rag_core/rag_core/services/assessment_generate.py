@@ -94,7 +94,14 @@ class AssessmentGenerateService:
         criteria: GenerateCriteria,
         actor: str | None = None,
         validators_config: dict[str, dict[str, Any]] | None = None,
+        persist: bool = True,
     ) -> GenerateResult:
+        """ADR-014 §3 Mode 2 출제.
+
+        persist=False(ADR-027 §6): 대화형 채팅 출제용. 생성 문항을 DB에
+        upsert하지 않고 result.items로만 반환한다(ephemeral). 채점은 호출자가
+        반환된 정답·해설을 신뢰원으로 쓴다. 콘솔 출제는 persist=True(기본) 유지.
+        """
         result = GenerateResult()
 
         # 1. references 수집
@@ -222,7 +229,9 @@ class AssessmentGenerateService:
                     source="generated",
                     reference_item_ids=reference_item_ids,
                 )
-                await self._repo.upsert(record)
+                # ADR-027 §6 — persist=False(채팅 출제)면 DB 저장 생략(ephemeral).
+                if persist:
+                    await self._repo.upsert(record)
                 produced.append(record)
 
         result.items = produced

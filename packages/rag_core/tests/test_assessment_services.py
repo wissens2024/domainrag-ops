@@ -297,6 +297,50 @@ async def test_generate_produces_items_with_citations():
     assert all(r.quality_status == "reviewed" for r in new_ones)
 
 
+async def test_generate_persist_false_does_not_upsert():
+    """ADR-027 §6 — 채팅 출제(persist=False)는 DB에 저장하지 않고 result로만 반환."""
+    repo = InMemoryAssessmentItemRepository()
+    await repo.upsert(_item("Q-REF", question_text="기존 문제 본문"))
+
+    items_payload = {
+        "items": [
+            {
+                "question_text": "채팅 출제 문제 1",
+                "choices": ["A", "B", "C", "D"],
+                "answer": "A",
+                "explanation": "해설 1",
+                "difficulty": "medium",
+            },
+        ]
+    }
+    validator_json = json.dumps(
+        {"valid": True, "score": 0.85, "reasoning": "OK", "suggestions": []}
+    )
+    llm = _FakeLLM([json.dumps(items_payload), *([validator_json] * 4)])
+    similarity = AssessmentSimilarityChecker(
+        embedder=InMemoryEmbedder(),
+        thresholds=SimilarityThresholds(duplicate=0.99, similar=0.5),
+    )
+    service = AssessmentGenerateService(
+        repository=repo, llm_client=llm,
+        similarity_checker=similarity, validator=AssessmentValidator(llm_client=llm),
+        max_retries=1,
+    )
+    result = await service.generate(
+        domain_id="t1",
+        criteria=GenerateCriteria(subject="정보보안", count=1),
+        persist=False,
+    )
+    # 결과로는 문항이 나오되, 채점용 정답·해설을 담고 있다.
+    assert result.generated_count == 1
+    assert result.items[0].answer == "A"
+    assert result.items[0].explanation == "해설 1"
+    # DB에는 신규 generated 문항이 저장되지 않는다 (Q-REF만 존재).
+    items, total = await repo.list_by_tenant(domain_id="t1")
+    assert total == 1
+    assert all(r.source != "generated" for r in items)
+
+
 class _FakeItemIndex:
     def __init__(self, hits):
         self._hits = hits
