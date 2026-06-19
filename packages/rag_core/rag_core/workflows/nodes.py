@@ -19,6 +19,7 @@ mask_response_pii, gate_2, save_chat_log 등)는 이후 ADR-010·013·020 후속
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import Awaitable, Callable
@@ -644,26 +645,28 @@ async def assessment_node(state: RAGState, deps: RAGGraphDeps) -> dict[str, Any]
 
     from ..services.assessment_generate import GenerateCriteria
 
-    items: list[dict[str, Any]] = []
-    total_cap = defaults["max_total"]
-    for entry in plan:
-        if len(items) >= total_cap:
-            break
-        remaining = total_cap - len(items)
+    async def _gen_one(entry: dict[str, Any]) -> list[dict[str, Any]]:
         try:
             res = await svc.generate(
                 domain_id=state.domain_id,
                 criteria=GenerateCriteria(
                     subject=entry["subject"],
                     difficulty=entry["difficulty"],
-                    count=min(int(entry["count"]), remaining),
+                    count=int(entry["count"]),
                 ),
                 persist=False,
             )
         except Exception:  # noqa: BLE001 — 단일 과목 생성 실패는 건너뛴다
-            continue
-        for it in res.items:
-            items.append(_assessment_item_to_dict(it))
+            return []
+        return [_assessment_item_to_dict(it) for it in res.items]
+
+    # 과목별 generate를 병렬 실행 — vLLM continuous batching을 활용해 wall-clock을
+    # 순차 합산 대신 최댓값 수준으로 줄인다(다과목 출제의 nginx 504 timeout 방지).
+    # 계획이 이미 max_subjects/max_total로 제한돼 동시 부하는 제한적이다.
+    per_subject = await asyncio.gather(*[_gen_one(e) for e in plan])
+    items: list[dict[str, Any]] = [
+        it for sub in per_subject for it in sub
+    ][: defaults["max_total"]]
 
     answer = _format_assessment_answer(items, plan)
     return {
