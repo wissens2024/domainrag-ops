@@ -641,6 +641,7 @@ async def _figure_reuse_branch(
                 criteria=FigureReuseCriteria(
                     subject=subj, difficulty=difficulty, count=count - len(items)
                 ),
+                persist=False,  # ADR-027 — 채팅 그림 출제는 ephemeral(문제은행 미저장)
             )
         except Exception:  # noqa: BLE001 — 단일 과목 실패는 건너뛴다
             continue

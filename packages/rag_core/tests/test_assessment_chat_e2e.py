@@ -106,7 +106,7 @@ class _FakeFigureReuse:
         self._cap = max_per_subject
         self.calls = []
 
-    async def generate(self, *, domain_id, criteria):
+    async def generate(self, *, domain_id, criteria, persist=True):
         from rag_core.services.assessment_figure_reuse import FigureReuseResult
 
         self.calls.append(criteria.subject)

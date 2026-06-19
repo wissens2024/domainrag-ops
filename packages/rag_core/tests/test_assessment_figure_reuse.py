@@ -125,3 +125,49 @@ async def test_figure_reuse_ignores_non_figure_items():
     res = await gen.generate(domain_id="t1", criteria=FigureReuseCriteria(subject="정보보안", count=1))
     assert res.generated_count == 0
     assert vlm.calls == []
+
+
+async def test_figure_reuse_rejects_duplicate_choices():
+    """ADR-027 — 보기 4개가 모두 같으면(예: 전부 Gisapass) 폐기."""
+    repo = InMemoryAssessmentItemRepository()
+    await repo.upsert(_fig_item("REF-1", key="k1"))
+    dup = ('{"question_text": "그림의 글자는?", "choices": ["X","X","X","X"], '
+           '"answer": "X", "explanation": "e"}')
+    vlm = _FakeVLM([dup])
+    gen = AssessmentFigureReuseGenerator(
+        repository=repo, vlm=vlm, image_loader=_loader({"k1": b"x"}))
+    res = await gen.generate(domain_id="t1",
+                             criteria=FigureReuseCriteria(subject="정보보안", count=1))
+    assert res.generated_count == 0
+    assert res.rejected_invalid == 1
+
+
+async def test_figure_reuse_rejects_watermark_question():
+    """ADR-027 — 워터마크(Gisapass) 등 출처 표시를 묻는 문항 폐기."""
+    repo = InMemoryAssessmentItemRepository()
+    await repo.upsert(_fig_item("REF-1", key="k1"))
+    wm = ('{"question_text": "그림에서 Gisapass라는 단어가 몇 번 나오는가?", '
+          '"choices": ["1번","2번","3번","4번"], "answer": "1번", "explanation": "e"}')
+    vlm = _FakeVLM([wm])
+    gen = AssessmentFigureReuseGenerator(
+        repository=repo, vlm=vlm, image_loader=_loader({"k1": b"x"}))
+    res = await gen.generate(domain_id="t1",
+                             criteria=FigureReuseCriteria(subject="정보보안", count=1))
+    assert res.generated_count == 0
+    assert res.rejected_invalid == 1
+
+
+async def test_figure_reuse_persist_false_does_not_upsert():
+    """ADR-027 — 채팅 그림 출제(persist=False)는 DB에 저장하지 않는다."""
+    repo = InMemoryAssessmentItemRepository()
+    await repo.upsert(_fig_item("REF-1", key="k1"))
+    vlm = _FakeVLM([_VALID])
+    gen = AssessmentFigureReuseGenerator(
+        repository=repo, vlm=vlm, image_loader=_loader({"k1": b"x"}))
+    res = await gen.generate(domain_id="t1",
+                             criteria=FigureReuseCriteria(subject="정보보안", count=1),
+                             persist=False)
+    assert res.generated_count == 1
+    # DB엔 REF-1만 — 생성 문항(Q-*)은 저장 안 됨.
+    rows, total = await repo.list_by_tenant(domain_id="t1")
+    assert all(not r.item_id.startswith("Q-") for r in rows)

@@ -46,11 +46,22 @@ class FigureReuseResult:
 
 _PROMPT = (
     "이 그림을 보고, 같은 그림에 대한 새로운 4지선다 객관식 문제 1개를 한국어로 만들어라.\n"
-    "- 그림에서 실제로 확인 가능한 내용만 묻는다. 그림에 없는 것을 지어내지 마라.\n"
+    "- 그림이 나타내는 **개념/구조/동작**을 묻는다(예: 트리 순회 결과, 회로 동작, 자료구조 특성).\n"
+    "- 그림에 찍힌 **워터마크·로고·출처 표시(예: Gisapass, 기사패스, 사이트 주소)는 문제의 소재로 "
+    "쓰지 마라.** 그것을 세거나 묻는 문제는 만들지 마라.\n"
+    "- 보기 4개는 서로 **모두 달라야** 한다(동일 보기 금지).\n"
     "- 출력은 반드시 한국어로 하라. 다른 언어로 번역·치환하지 마라.\n"
     '- JSON만 출력: {"question_text": str, "choices": [보기 4개 str], '
     '"answer": 정답 보기 텍스트(choices 중 하나와 정확히 일치), "explanation": str}\n'
 )
+
+# 시험지 crop에 섞이는 워터마크/출처 브랜드 — 이를 묻는 문항은 무의미하므로 폐기(ADR-025 #3).
+_WATERMARK_HINTS = ("gisapass", "기사패스", "gisafirst", "comcbt")
+
+
+def _references_watermark(text: str) -> bool:
+    t = (text or "").lower()
+    return any(h in t for h in _WATERMARK_HINTS)
 
 
 def _parse_json_obj(raw: str) -> dict | None:
@@ -92,8 +103,13 @@ class AssessmentFigureReuseGenerator:
         self._model = model
 
     async def generate(
-        self, *, domain_id: str, criteria: FigureReuseCriteria
+        self, *, domain_id: str, criteria: FigureReuseCriteria, persist: bool = True
     ) -> FigureReuseResult:
+        """ADR-025 §3b·§4 — 그림 재사용 생성.
+
+        persist=False(ADR-027): 채팅 그림 출제용 — 생성 문항을 DB에 저장하지 않고
+        result로만 반환(ephemeral). 콘솔은 persist=True(기본)로 문제은행에 draft 적재.
+        """
         result = FigureReuseResult()
         # ADR-025 §4 degrade — VLM 비가동이면 그림 기반 생성 skip.
         if not await self._vlm.health():
@@ -140,6 +156,16 @@ class AssessmentFigureReuseGenerator:
             if not qtext or len(choices) != 4 or answer not in choices:
                 result.rejected_invalid += 1
                 continue
+            # 중복 보기 폐기(예: 4개가 모두 'Gisapass'). 정규화 후 distinct 4개 필요.
+            if len({c.strip().lower() for c in choices}) < 4:
+                result.rejected_invalid += 1
+                continue
+            # 워터마크/출처 브랜드(시험지 로고)를 묻는 문항 폐기 — crop에 섞인 워터마크를
+            # VLM이 콘텐츠로 오인한 것이라 시험 문항으로 무의미하다(ADR-025 #3 후속).
+            _blob = qtext + " " + " ".join(choices) + " " + str(parsed.get("explanation") or "")
+            if _references_watermark(_blob):
+                result.rejected_invalid += 1
+                continue
 
             item = AssessmentItemRecord(
                 item_id=f"Q-{uuid.uuid4().hex[:12]}",
@@ -159,7 +185,9 @@ class AssessmentFigureReuseGenerator:
                 assets=ref.assets,          # 같은 그림 승계 (신규 합성 아님)
                 figure_dependent=True,
             )
-            await self._repo.upsert(item)
+            # ADR-027 — 채팅 출제(persist=False)는 DB 저장 생략(ephemeral, 문제은행 오염 방지).
+            if persist:
+                await self._repo.upsert(item)
             produced.append(item)
             result.references_used.append(ref.item_id)
 
