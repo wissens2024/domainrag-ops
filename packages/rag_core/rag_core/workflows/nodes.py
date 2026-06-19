@@ -572,6 +572,8 @@ def _assessment_item_to_dict(item: Any, domain_id: str | None = None) -> dict[st
     d = {
         "subject": getattr(item, "subject", None),
         "difficulty": getattr(item, "difficulty", None),
+        # ADR-029 — 예상 난이도(상/중/하, LLM 추정). 해설에 "예상 난이도: 상" 표시.
+        "predicted_difficulty": getattr(item, "predicted_difficulty", None),
         "question_text": getattr(item, "question_text", ""),
         "choices": list(getattr(item, "choices", []) or []),
         "answer": getattr(item, "answer", ""),
@@ -592,7 +594,7 @@ def _assessment_item_to_dict(item: Any, domain_id: str | None = None) -> dict[st
 
 def _wants_figure(question: str) -> bool:
     """그림 문제 출제 의도 — 시각 자료 키워드 포함 (ADR-027 figure-reuse 분기)."""
-    return any(h in (question or "") for h in ("그림", "도식", "다이어그램", "도표"))
+    return any(h in (question or "") for h in ("그림", "이미지", "사진", "그래프", "도식", "다이어그램", "도표"))
 
 
 def _named_subjects(question: str, subjects: list[str]) -> list[str]:

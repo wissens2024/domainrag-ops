@@ -39,6 +39,9 @@ class AssessmentItemRecord:
     figure_dependent: bool = False
     embedding_model: str | None = None
     vector_id: str | None = None
+    # ADR-029 — LLM이 문항 자체 기준으로 독립 추정한 예상 난이도(상/중/하). 예측치(미응시).
+    # 채팅 ephemeral 응답·문제은행 공통 부착. DB 영속화는 후속(현재 chat 표시 우선).
+    predicted_difficulty: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

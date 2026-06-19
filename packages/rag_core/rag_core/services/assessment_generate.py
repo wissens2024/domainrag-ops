@@ -65,9 +65,12 @@ _GENERATE_PROMPT = (
     "- 모든 텍스트(문제·보기·해설)는 반드시 한국어로 작성하세요. 한자·중국어·일본어를 절대 섞지 "
     "마세요(예: '공간'을 '空间'으로 쓰지 말 것). 기술 용어의 영문 표기(SQL, TCP/IP 등)는 허용합니다.\n"
     "- choices에는 보기 기호(①, 가., A. 등)를 붙이지 말고 보기 내용만 넣으세요. answer는 정답 보기의 "
-    "내용(또는 번호)으로 명확히 표기하세요.\n\n"
+    "내용(또는 번호)으로 명확히 표기하세요.\n"
+    "- predicted_difficulty: 요청 난이도와 무관하게, 생성한 문항을 실제로 풀 때의 체감 난이도를 "
+    '"상"/"중"/"하" 중 하나로 독립 평가하세요(상=어려움, 하=쉬움). 보기 변별·풀이 단계·개념 깊이를 근거로.\n\n'
     "응답은 반드시 JSON: "
-    '{{"items":[{{"question_text":str,"choices":[str],"answer":str,"explanation":str,"difficulty":"easy|medium|hard","tags":[str]}}]}}'
+    '{{"items":[{{"question_text":str,"choices":[str],"answer":str,"explanation":str,'
+    '"difficulty":"easy|medium|hard","predicted_difficulty":"상|중|하","tags":[str]}}]}}'
 )
 
 
@@ -259,6 +262,9 @@ class AssessmentGenerateService:
                     validator_results=outcome.validator_results,
                     source="generated",
                     reference_item_ids=reference_item_ids,
+                    predicted_difficulty=_norm_predicted_difficulty(
+                        candidate.get("predicted_difficulty")
+                    ),
                 )
                 # ADR-027 §6 — persist=False(채팅 출제)면 DB 저장 생략(ephemeral).
                 if persist:
@@ -300,6 +306,20 @@ def _norm_choice(c: Any) -> str:
     s = str(c or "").strip()
     s = re.sub(r"^\s*(?:[①-⑳]\s*|(?:[가-힣]|[A-Za-z]|\d{1,2})[.)]\s+)", "", s)
     return s.strip().lower()
+
+
+def _norm_predicted_difficulty(value: Any) -> str | None:
+    """ADR-029 — LLM 출력 예상 난이도를 상/중/하로 정규화. easy/medium/hard·영문도 매핑."""
+    if not value:
+        return None
+    s = str(value).strip().lower()
+    if s in ("상", "high", "hard", "어려움", "어렵"):
+        return "상"
+    if s in ("하", "low", "easy", "쉬움", "쉬"):
+        return "하"
+    if s in ("중", "medium", "mid", "보통"):
+        return "중"
+    return None
 
 
 def _degenerate_choices(choices: list[Any]) -> bool:

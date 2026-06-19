@@ -487,6 +487,42 @@ async def test_generate_persist_false_does_not_upsert():
     assert all(r.source != "generated" for r in items)
 
 
+async def test_generate_attaches_predicted_difficulty():
+    """ADR-029 — LLM 출력 predicted_difficulty(상/중/하)를 문항에 부착·정규화."""
+    repo = InMemoryAssessmentItemRepository()
+    items_payload = {
+        "items": [
+            {
+                "question_text": "예상 난이도 테스트 문항",
+                "choices": ["A", "B", "C", "D"],
+                "answer": "A",
+                "explanation": "해설",
+                "difficulty": "medium",
+                "predicted_difficulty": "상",
+            },
+        ]
+    }
+    validator_json = json.dumps(
+        {"valid": True, "score": 0.9, "reasoning": "OK", "suggestions": []}
+    )
+    llm = _FakeLLM([json.dumps(items_payload), *([validator_json] * 4)])
+    similarity = AssessmentSimilarityChecker(
+        embedder=InMemoryEmbedder(),
+        thresholds=SimilarityThresholds(duplicate=0.99, similar=0.5),
+    )
+    service = AssessmentGenerateService(
+        repository=repo, llm_client=llm,
+        similarity_checker=similarity, validator=AssessmentValidator(llm_client=llm),
+        max_retries=1,
+    )
+    result = await service.generate(
+        domain_id="t1",
+        criteria=GenerateCriteria(subject="정보보안", count=1),
+        persist=False,
+    )
+    assert result.items[0].predicted_difficulty == "상"
+
+
 class _FakeItemIndex:
     def __init__(self, hits):
         self._hits = hits

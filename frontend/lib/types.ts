@@ -59,6 +59,8 @@ export type Grounding = 'grounded' | 'ungrounded' | 'assessment';
 export interface ChatAssessmentItem {
   subject: string | null;
   difficulty: string | null;
+  // ADR-029 — LLM 추정 예상 난이도(상/중/하). 해설에 "예상 난이도: 상" 표시.
+  predicted_difficulty?: string | null;
   question_text: string;
   choices: string[];
   answer: string;

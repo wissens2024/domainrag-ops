@@ -45,6 +45,20 @@ class FigureReuseResult:
     vlm_unavailable: bool = False
 
 
+def _norm_predicted_difficulty(value: Any) -> str | None:
+    """ADR-029 — VLM 출력 예상 난이도를 상/중/하로 정규화."""
+    if not value:
+        return None
+    s = str(value).strip().lower()
+    if s in ("상", "high", "hard", "어려움", "어렵"):
+        return "상"
+    if s in ("하", "low", "easy", "쉬움", "쉬"):
+        return "하"
+    if s in ("중", "medium", "mid", "보통"):
+        return "중"
+    return None
+
+
 def _build_vlm_prompt(ref) -> str:
     """그림 + **원본 문제 맥락**을 함께 주어 VLM이 그림이 평가하는 개념을 알고 새 문제를
     만들게 한다(ADR-027). 그림만 주면 워터마크·표면(숫자/글자)을 묻는 무의미 문항이 나온다."""
@@ -69,8 +83,10 @@ def _build_vlm_prompt(ref) -> str:
         "소재로 쓰지 마라. 그것을 세거나 묻는 문제는 만들지 마라.",
         "- 보기 4개는 서로 모두 달라야 한다(동일 보기 금지).",
         "- 출력은 반드시 한국어로 하라. 다른 언어로 번역·치환하지 마라.",
+        '- predicted_difficulty: 이 문항의 체감 난이도를 "상"/"중"/"하"로 독립 평가하라(상=어려움).',
         '- JSON만 출력: {"question_text": str, "choices": [보기 4개 str], '
-        '"answer": 정답 보기 텍스트(choices 중 하나와 정확히 일치), "explanation": str}',
+        '"answer": 정답 보기 텍스트(choices 중 하나와 정확히 일치), "explanation": str, '
+        '"predicted_difficulty": "상|중|하"}',
     ]
     return "\n".join(lines)
 
@@ -210,6 +226,9 @@ class AssessmentFigureReuseGenerator:
                 reference_item_ids=[ref.item_id],
                 assets=ref.assets,          # 같은 그림 승계 (신규 합성 아님)
                 figure_dependent=True,
+                predicted_difficulty=_norm_predicted_difficulty(
+                    parsed.get("predicted_difficulty")
+                ),
             )
             # ADR-027 — 채팅 출제(persist=False)는 DB 저장 생략(ephemeral, 문제은행 오염 방지).
             if persist:

@@ -357,6 +357,16 @@ function AssessmentItems({ items }: { items: ChatAssessmentItem[] }) {
                 {it.explanation && (
                   <p className="mt-0.5 text-gray-600">{it.explanation}</p>
                 )}
+                {it.predicted_difficulty && (
+                  // ADR-029 — LLM 추정 예상 난이도(예측치). 응시 통계 아님.
+                  <p className="mt-1 text-[12px] text-gray-500">
+                    예상 난이도:{' '}
+                    <span className="font-semibold text-gray-700">
+                      {it.predicted_difficulty}
+                    </span>
+                    <span className="text-gray-400"> (AI 예측)</span>
+                  </p>
+                )}
               </div>
             </details>
           </div>
