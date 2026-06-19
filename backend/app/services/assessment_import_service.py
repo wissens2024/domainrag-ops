@@ -49,6 +49,7 @@ class ImportResult:
     parsed_count: int = 0
     answer_key_count: int = 0
     duplicates_skipped: int = 0  # ADR-025 §5 — 기존과 동일 문항(dedup_key 일치)은 적재 skip
+    figures_skipped_furniture: int = 0  # 로고/워터마크/머리말(반복 그림) 제외 수
     items: list[ImportItemResult] = field(default_factory=list)
 
 
@@ -60,10 +61,14 @@ class AssessmentImportService:
         storage: DocumentStorage,
         extractor: Any | None = None,
         item_extractor: AssessmentItemExtractor | None = None,
+        furniture_min_pages: int = 2,
     ) -> None:
         self._repo = repository
         self._storage = storage
         self._extractor = extractor or PyMuPdfExamExtractor()
+        # ADR-025 #3 — 렌더된 그림이 N개 이상 페이지에 동일하게 등장하면 로고/워터마크/
+        # 머리말(page furniture)로 보고 figure에서 제외한다. 실제 시험 그림은 페이지당 고유.
+        self._furniture_min_pages = max(2, furniture_min_pages)
         # ADR-026 — 텍스트→문항 추출 어댑터(규칙/LLM). 기본은 규칙(고정포맷). deps가
         # configs에 따라 LlmItemExtractor를 주입해 포맷 무관 추출로 전환한다.
         self._item_extractor = item_extractor or RuleBasedExamExtractor()
@@ -89,19 +94,35 @@ class AssessmentImportService:
             page_texts=extracted.page_texts, answer_page_index=ans_idx
         )
 
-        # 정답 페이지의 그림(격자 오탐 등)은 제외하고 문항별로 그룹핑
+        result = ImportResult(
+            parsed_count=parsed.parsed_count,
+            answer_key_count=parsed.answer_key_count,
+        )
+
+        # 로고/워터마크/머리말 제외 — 렌더된 그림이 여러 페이지에 동일하게(content_hash 일치)
+        # 등장하면 page furniture로 간주(ADR-025 #3). 실제 시험 그림은 페이지당 고유하다.
+        fig_hash: dict[int, str] = {}
+        hash_pages: dict[str, set[int]] = {}
+        for fig in extracted.figures:
+            h = hashlib.sha256(fig.png_bytes).hexdigest()
+            fig_hash[id(fig)] = h
+            hash_pages.setdefault(h, set()).add(fig.page_number)
+        furniture = {
+            h for h, pages in hash_pages.items()
+            if len(pages) >= self._furniture_min_pages
+        }
+
+        # 정답 페이지의 그림(격자 오탐 등)·반복 그림(로고)은 제외하고 문항별로 그룹핑
         figs_by_q: dict[int, list] = {}
         for fig in extracted.figures:
             if (fig.page_number - 1) == ans_idx:
                 continue
             if fig.near_question_number is None:
                 continue
+            if fig_hash[id(fig)] in furniture:
+                result.figures_skipped_furniture += 1
+                continue
             figs_by_q.setdefault(fig.near_question_number, []).append(fig)
-
-        result = ImportResult(
-            parsed_count=parsed.parsed_count,
-            answer_key_count=parsed.answer_key_count,
-        )
 
         # ADR-025 §5 — dedup: 기존(비retired) + 이번 import 내 동일 문항은 skip.
         from rag_core.services.assessment_dedup import dedup_key

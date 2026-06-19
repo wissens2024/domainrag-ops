@@ -85,6 +85,38 @@ def test_import_creates_items_and_links_figure(tmp_path):
     assert by_num[1].asset_count == 0
 
 
+def test_import_excludes_repeated_logo_as_furniture(tmp_path):
+    """ADR-025 #3 — 여러 페이지에 동일하게 등장하는 그림(로고/워터마크)은 figure에서 제외."""
+    logo = b"\x89PNG_GISAPASS_LOGO_WATERMARK"
+    real = b"\x89PNG_REAL_TREE_FIGURE"
+    extracted = ExtractedPdf(
+        page_texts=[_QUESTION_PAGE, "여백 페이지", _ANSWER_PAGE],
+        figures=[
+            # 로고: page 1·2에 동일 이미지로 반복 → page furniture
+            ExtractedFigure(page_number=1, bbox=(0.0, 0.0, 40.0, 40.0),
+                            png_bytes=logo, near_question_number=1),
+            ExtractedFigure(page_number=2, bbox=(0.0, 0.0, 40.0, 40.0),
+                            png_bytes=logo, near_question_number=1),
+            # 실제 그림: page 1에만 → 유지
+            ExtractedFigure(page_number=1, bbox=(10.0, 20.0, 80.0, 90.0),
+                            png_bytes=real, near_question_number=2),
+        ],
+    )
+    repo = InMemoryAssessmentItemRepository()
+    storage = LocalFilesystemStorage(base_dir=tmp_path / "store")
+    svc = AssessmentImportService(
+        repository=repo, storage=storage, extractor=_FakeExtractor(extracted))
+    res = asyncio.run(svc.import_pdf(
+        domain_id="exam-engineer", pdf_bytes=b"x",
+        item_id_prefix="t-", answer_page_index=2))
+
+    assert res.figures_skipped_furniture == 2  # 로고 2개 제외
+    assert res.figures_stored == 1             # 실제 그림 1개만 저장
+    by_num = {it.number: it for it in res.items}
+    assert by_num[2].figure_dependent is True and by_num[2].asset_count == 1
+    assert by_num[1].asset_count == 0          # 로고는 링크 안 됨
+
+
 def test_imported_item_persisted_with_answer_and_asset(tmp_path):
     svc, repo = _service(tmp_path)
     asyncio.run(

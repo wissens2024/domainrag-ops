@@ -816,6 +816,7 @@ async def import_pdf(
         "parsed_count": result.parsed_count,
         "answer_key_count": result.answer_key_count,
         "duplicates_skipped": result.duplicates_skipped,
+        "figures_skipped_furniture": result.figures_skipped_furniture,
         "items": [
             {
                 "item_id": it.item_id,
