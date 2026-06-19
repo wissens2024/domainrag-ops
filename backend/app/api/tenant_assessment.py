@@ -104,11 +104,13 @@ async def get_assessment_asset(
     """
     await _tenant_guard(domain_id, user)
     skey = key.strip()
-    if (
-        ".." in skey
-        or skey.startswith("/")
-        or not skey.startswith(f"items/{domain_id}/")
-    ):
+    # storage_key 형식: s3://<bucket>/<domain>/... 또는 <domain>/... (DocumentStorage).
+    # 테넌트 격리: key의 도메인 세그먼트가 path domain_id와 일치해야 한다.
+    _body = skey
+    if _body.startswith("s3://"):
+        _body = _body[5:].split("/", 1)[1] if "/" in _body[5:] else ""
+    key_domain = _body.split("/", 1)[0] if "/" in _body else _body
+    if ".." in skey or skey.startswith("/") or key_domain != domain_id:
         raise HTTPException(status_code=403, detail={"error": "forbidden_asset_key"})
     try:
         data = await storage.load(object_path=skey)
