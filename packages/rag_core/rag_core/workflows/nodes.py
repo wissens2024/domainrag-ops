@@ -519,16 +519,21 @@ def _assessment_defaults(tenant_config: dict | None) -> dict[str, int]:
 
 
 def _plan_assessment(
-    question: str, subjects: list[str], defaults: dict[str, int]
+    question: str, subjects: list[str], defaults: dict[str, int],
+    count_override: int | None = None,
 ) -> list[dict[str, Any]]:
     """ADR-027 §3 — 자연어에서 출제 계획 추출(휴리스틱, 결정적).
 
     반환: [{subject, count, difficulty}] (subject는 영문 키). 근거 과목이 없으면 [].
+    count_override가 주어지면(혼합 출제의 텍스트 개수) 질문에서 파싱한 개수 대신 사용한다.
     """
     q = question or ""
-    # 개수
-    m = re.search(r"(\d+)\s*(문제|문항|개|題)", q)
-    count = int(m.group(1)) if m else defaults["default_count"]
+    # 개수 (혼합 출제는 호출측이 텍스트 개수를 명시 — 첫 숫자 오인식 회피)
+    if count_override is not None:
+        count = count_override
+    else:
+        m = re.search(r"(\d+)\s*(문제|문항|개|題)", q)
+        count = int(m.group(1)) if m else defaults["default_count"]
     count = max(1, min(count, defaults["max_total"]))
     # 난이도
     if any(w in q for w in ("어려운", "어렵게", "상", "hard")):
@@ -609,33 +614,63 @@ def _named_subjects(question: str, subjects: list[str]) -> list[str]:
     return named
 
 
-async def _figure_reuse_branch(
-    state: RAGState, deps: RAGGraphDeps, subjects: list[str]
-) -> dict[str, Any]:
-    """ADR-027 — 채팅 그림 문제 출제. 기존 figure_dependent approved 문항의 그림을
-    재사용해 VLM이 새 질문을 생성하고, 이미지와 함께 표시한다. 그림은 느리므로 count는
-    작게 cap하고, 그림이 풍부한 과목을 우선 시도한다(전체 504 회피)."""
-    from ..services.assessment_figure_reuse import FigureReuseCriteria
-
-    q = state.question or ""
-    m = re.search(r"(\d+)\s*(문제|문항|개)", q)
-    count = max(1, min(int(m.group(1)) if m else 1, 5))
+def _difficulty_from_q(q: str) -> str:
+    """질문 텍스트에서 난이도 신호 추출(없으면 medium)."""
     if any(w in q for w in ("어려운", "어렵게", "hard")):
-        difficulty = "hard"
-    elif any(w in q for w in ("쉬운", "쉽게", "easy")):
-        difficulty = "easy"
-    else:
-        difficulty = "medium"
+        return "hard"
+    if any(w in q for w in ("쉬운", "쉽게", "easy")):
+        return "easy"
+    return "medium"
 
-    # 명시 과목이 있으면 그 과목으로만 출제 — 다른 과목의 그림으로 대체하지 않는다
-    # (사용자가 '운영체제 그림문제'를 요청했는데 데이터베이스 그림이 나오면 안 됨).
-    # 미지정이면 그림 풍부 과목 순으로 시도(subjects는 item 수 desc 정렬).
-    named = _named_subjects(q, subjects)
-    try_list = named if named else subjects
+
+_COUNT_RE = re.compile(r"(\d+)\s*(?:문제|문항|개|題)")
+_FIGURE_KWS = ("이미지", "그림", "사진", "그래프", "도식", "다이어그램", "도표")
+
+
+def _figure_count_near(q: str) -> int | None:
+    """그림 키워드에 가장 가까운 'N문제' 숫자 → 그림 문항 개수 추정.
+
+    '이미지가 들어간 1문제를 포함해서 20문제'에서 이미지 근처 '1'을 집어낸다(전체 20과 구분).
+    """
+    nums = [(m.start(), int(m.group(1))) for m in _COUNT_RE.finditer(q)]
+    kw_pos = [q.find(k) for k in _FIGURE_KWS if k in q]
+    if not nums or not kw_pos:
+        return None
+    best = min(nums, key=lambda np: min(abs(np[0] - p) for p in kw_pos))
+    return best[1]
+
+
+def _parse_assessment_counts(q: str, defaults: dict[str, Any]) -> tuple[int, int]:
+    """ADR-027 — 혼합 출제 요청 파싱 → (total, figure_count).
+
+    figure 의도 없으면 figure_count=0. 그림 의도면 그림 키워드 인접 숫자를 figure_count로,
+    가장 큰 'N문제' 숫자를 total로 본다(혼합: 텍스트=total-figure_count). 그림 숫자만 있으면
+    total=figure_count(순수 그림).
+    """
+    q = q or ""
+    nums = [int(m.group(1)) for m in _COUNT_RE.finditer(q)]
+    if not _wants_figure(q):
+        total = nums[0] if nums else int(defaults["default_count"])
+        return max(1, total), 0
+    fig_n = _figure_count_near(q)
+    if fig_n is None:
+        fig_n = 1
+    total = max(nums) if nums else fig_n
+    total = max(total, fig_n)
+    return total, fig_n
+
+
+async def _collect_figure_items(
+    state: RAGState, deps: RAGGraphDeps, try_list: list[str], count: int, difficulty: str
+) -> tuple[list[dict[str, Any]], bool, int]:
+    """그림 재사용 문항 수집 — (items, vlm_unavailable, vlm_errors). count개까지 과목 순회."""
+    from ..services.assessment_figure_reuse import FigureReuseCriteria
 
     items: list[dict[str, Any]] = []
     vlm_unavailable = False
     vlm_errors = 0
+    if count <= 0:
+        return items, vlm_unavailable, vlm_errors
     for subj in try_list[:8]:
         if len(items) >= count:
             break
@@ -645,7 +680,7 @@ async def _figure_reuse_branch(
                 criteria=FigureReuseCriteria(
                     subject=subj, difficulty=difficulty, count=count - len(items)
                 ),
-                persist=False,  # ADR-027 — 채팅 그림 출제는 ephemeral(문제은행 미저장)
+                persist=False,
             )
         except Exception:  # noqa: BLE001 — 단일 과목 실패는 건너뛴다
             continue
@@ -655,6 +690,115 @@ async def _figure_reuse_branch(
         vlm_errors += getattr(res, "vlm_errors", 0)
         for it in res.items:
             items.append(_assessment_item_to_dict(it, domain_id=state.domain_id))
+    return items, vlm_unavailable, vlm_errors
+
+
+async def _collect_text_items(
+    state: RAGState, deps: RAGGraphDeps, svc: Any, plan: list[dict[str, Any]], max_total: int
+) -> list[dict[str, Any]]:
+    """텍스트 문항 수집 — 과목별 generate 병렬 실행 후 평탄화(max_total cap)."""
+    from ..services.assessment_generate import GenerateCriteria
+
+    async def _gen_one(entry: dict[str, Any]) -> list[dict[str, Any]]:
+        try:
+            res = await svc.generate(
+                domain_id=state.domain_id,
+                criteria=GenerateCriteria(
+                    subject=entry["subject"],
+                    difficulty=entry["difficulty"],
+                    count=int(entry["count"]),
+                ),
+                persist=False,
+            )
+        except Exception:  # noqa: BLE001 — 단일 과목 생성 실패는 건너뛴다
+            return []
+        return [_assessment_item_to_dict(it) for it in res.items]
+
+    per_subject = await asyncio.gather(*[_gen_one(e) for e in plan])
+    return [it for sub in per_subject for it in sub][:max_total]
+
+
+async def _compound_assessment_branch(
+    state: RAGState, deps: RAGGraphDeps, subjects: list[str], *,
+    total: int, figure_count: int, defaults: dict[str, Any],
+) -> dict[str, Any]:
+    """ADR-027 — 혼합 출제: 텍스트 (total-figure_count)개 + 그림 figure_count개를 함께 출제."""
+    svc = deps.assessment_generate_service
+    q = state.question or ""
+    difficulty = _difficulty_from_q(q)
+    text_count = max(0, total - figure_count)
+    named = _named_subjects(q, subjects)
+    try_list = named if named else subjects
+
+    text_items: list[dict[str, Any]] = []
+    if text_count > 0:
+        plan = _plan_assessment(q, subjects, defaults, count_override=text_count)
+        text_items = await _collect_text_items(
+            state, deps, svc, plan, defaults["max_total"]
+        )
+    fig_items, vlm_unavailable, vlm_errors = await _collect_figure_items(
+        state, deps, try_list, figure_count, difficulty
+    )
+
+    items = text_items + fig_items
+    if not items:
+        msg = (
+            "요청하신 조건으로 출제할 수 있는 문항이 부족합니다. "
+            "잠시 후 다시 시도하거나 다른 과목으로 요청해 주세요."
+        )
+        return {
+            "grounding": "ungrounded", "final_answer": msg,
+            "answer_segments": [{"text": msg, "citations": []}],
+            "citations": [], "citation_types": [], "confidence": 0.0,
+            "fallback_reason": None,
+        }
+    item_plan = [
+        {
+            "subject": it.get("subject"), "count": 1, "difficulty": difficulty,
+            "figure": bool(it.get("image_url")),
+        }
+        for it in items
+    ]
+    answer = _format_assessment_answer(items, item_plan)
+    notes: list[str] = []
+    if len(fig_items) < figure_count:
+        notes.append(
+            f"그림 문항은 재사용 가능분이 부족해 {len(fig_items)}/{figure_count}개만 포함했습니다."
+        )
+    if text_count > 0 and len(text_items) < text_count:
+        notes.append(f"텍스트 문항은 {len(text_items)}/{text_count}개 생성됐습니다.")
+    if notes:
+        answer += "\n\n※ " + " ".join(notes)
+    return {
+        "grounding": "assessment", "assessment_items": items, "assessment_plan": item_plan,
+        "final_answer": answer,
+        "answer_segments": [{"text": answer, "citations": []}],
+        "citations": [], "citation_types": [], "confidence": 0.0,
+        "fallback_reason": None,
+    }
+
+
+async def _figure_reuse_branch(
+    state: RAGState, deps: RAGGraphDeps, subjects: list[str]
+) -> dict[str, Any]:
+    """ADR-027 — 채팅 그림 문제 출제. 기존 figure_dependent approved 문항의 그림을
+    재사용해 VLM이 새 질문을 생성하고, 이미지와 함께 표시한다. 그림은 느리므로 count는
+    작게 cap하고, 그림이 풍부한 과목을 우선 시도한다(전체 504 회피)."""
+    q = state.question or ""
+    # 그림은 느리므로 순수 그림 요청은 5개로 cap(전체 504 회피).
+    m = re.search(r"(\d+)\s*(문제|문항|개)", q)
+    count = max(1, min(int(m.group(1)) if m else 1, 5))
+    difficulty = _difficulty_from_q(q)
+
+    # 명시 과목이 있으면 그 과목으로만 출제 — 다른 과목의 그림으로 대체하지 않는다
+    # (사용자가 '운영체제 그림문제'를 요청했는데 데이터베이스 그림이 나오면 안 됨).
+    # 미지정이면 그림 풍부 과목 순으로 시도(subjects는 item 수 desc 정렬).
+    named = _named_subjects(q, subjects)
+    try_list = named if named else subjects
+
+    items, vlm_unavailable, vlm_errors = await _collect_figure_items(
+        state, deps, try_list, count, difficulty
+    )
 
     if not items:
         if vlm_unavailable or vlm_errors > 0:
@@ -758,37 +902,24 @@ async def assessment_node(state: RAGState, deps: RAGGraphDeps) -> dict[str, Any]
         except Exception:  # noqa: BLE001 — 과목 수집 실패는 빈 계획으로 degrade
             subjects = []
 
-    # ADR-027 — "그림 문제" 의도면 figure-reuse 경로(기존 그림 재사용 + VLM 새 질문).
+    defaults = _assessment_defaults(state.tenant_config)
+
+    # ADR-027 — 그림 의도면 figure 경로. '이미지 M문제 포함 N문제' 혼합도 처리:
+    #   figure_count < total → 텍스트 (total-M) + 그림 M개 혼합 출제
+    #   그렇지 않으면(그림 숫자만) 순수 그림 경로(기존).
     if deps.assessment_figure_reuse_service is not None and _wants_figure(state.question):
+        total, figure_count = _parse_assessment_counts(state.question, defaults)
+        if 0 < figure_count < total:
+            return await _compound_assessment_branch(
+                state, deps, subjects,
+                total=total, figure_count=figure_count, defaults=defaults,
+            )
         return await _figure_reuse_branch(state, deps, subjects)
 
-    defaults = _assessment_defaults(state.tenant_config)
     plan = _plan_assessment(state.question, subjects, defaults)
-
-    from ..services.assessment_generate import GenerateCriteria
-
-    async def _gen_one(entry: dict[str, Any]) -> list[dict[str, Any]]:
-        try:
-            res = await svc.generate(
-                domain_id=state.domain_id,
-                criteria=GenerateCriteria(
-                    subject=entry["subject"],
-                    difficulty=entry["difficulty"],
-                    count=int(entry["count"]),
-                ),
-                persist=False,
-            )
-        except Exception:  # noqa: BLE001 — 단일 과목 생성 실패는 건너뛴다
-            return []
-        return [_assessment_item_to_dict(it) for it in res.items]
-
     # 과목별 generate를 병렬 실행 — vLLM continuous batching을 활용해 wall-clock을
     # 순차 합산 대신 최댓값 수준으로 줄인다(다과목 출제의 nginx 504 timeout 방지).
-    # 계획이 이미 max_subjects/max_total로 제한돼 동시 부하는 제한적이다.
-    per_subject = await asyncio.gather(*[_gen_one(e) for e in plan])
-    items: list[dict[str, Any]] = [
-        it for sub in per_subject for it in sub
-    ][: defaults["max_total"]]
+    items = await _collect_text_items(state, deps, svc, plan, defaults["max_total"])
 
     answer = _format_assessment_answer(items, plan)
     return {

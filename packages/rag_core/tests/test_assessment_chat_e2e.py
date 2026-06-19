@@ -287,3 +287,20 @@ async def test_chat_figure_question_degrades_when_vlm_down():
 
     assert result["grounding"] == "ungrounded"
     assert "VLM" in result["final_answer"]
+
+
+def test_parse_assessment_counts_mixed_request():
+    """ADR-027 — '이미지 M문제 포함 N문제' 혼합 요청 파싱(total/figure_count 분리)."""
+    from rag_core.workflows.nodes import _parse_assessment_counts
+
+    defaults = {"default_count": 3, "max_total": 20, "max_subjects": 6}
+    # 혼합: 이미지 1문제 포함 20문제 → total=20, figure=1
+    assert _parse_assessment_counts(
+        "운영체계 이미지가 들어간 1문제를 포함해서 20문제 출제해줘", defaults
+    ) == (20, 1)
+    # 역순 표현
+    assert _parse_assessment_counts("20문제 내는데 그림 2개 포함", defaults) == (20, 2)
+    # 순수 그림(그림 숫자만) → total==figure
+    assert _parse_assessment_counts("그림 문제 3개", defaults) == (3, 3)
+    # 그림 의도 없음 → figure_count=0
+    assert _parse_assessment_counts("운영체제 10문제", defaults) == (10, 0)
